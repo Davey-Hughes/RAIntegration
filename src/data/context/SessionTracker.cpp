@@ -61,8 +61,8 @@ void SessionTracker::LoadSessions()
                 continue;
 
 
-            const BYTE* pLine;
-            GSL_SUPPRESS_TYPE1{ pLine = reinterpret_cast<const BYTE*>(sLine.c_str()); }
+            const unsigned char* pLine;
+            GSL_SUPPRESS_TYPE1{ pLine = reinterpret_cast<const unsigned char*>(sLine.c_str()); }
             const auto md5 = RAGenerateMD5(pLine, pTokenizer.CurrentPosition());
             if (pTokenizer.Consume(md5.front()) && pTokenizer.Consume(md5.back()))
                 AddSession(nGameId, nSessionStart, std::chrono::seconds(nSessionLength));

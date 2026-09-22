@@ -11,7 +11,7 @@ namespace {
 constexpr static unsigned int MD5_STRING_LEN = 32;
 }
 
-std::string RAFormatMD5(const BYTE* digest)
+std::string RAFormatMD5(const unsigned char* digest)
 {
     char buffer[33] = "";
     Expects(digest != nullptr);
@@ -42,12 +42,12 @@ std::string RAGenerateMD5(const std::string& sStringToMD5)
     return RAFormatMD5(digest);
 }
 
-std::string RAGenerateMD5(const BYTE* pRawData, size_t nDataLen)
+std::string RAGenerateMD5(const unsigned char* pRawData, size_t nDataLen)
 {
     md5_state_t pms;
     md5_byte_t digest[16];
 
-    static_assert(sizeof(md5_byte_t) == sizeof(BYTE), "Must be equivalent for the MD5 to work!");
+    static_assert(sizeof(md5_byte_t) == sizeof(unsigned char), "Must be equivalent for the MD5 to work!");
 
     md5_init(&pms);
     md5_append(&pms, pRawData, gsl::narrow_cast<int>(nDataLen));
@@ -56,7 +56,7 @@ std::string RAGenerateMD5(const BYTE* pRawData, size_t nDataLen)
     return RAFormatMD5(digest);
 }
 
-std::string RAGenerateMD5(const std::vector<BYTE> DataIn)
+std::string RAGenerateMD5(const std::vector<unsigned char> DataIn)
 {
     return RAGenerateMD5(DataIn.data(), DataIn.size());
 }

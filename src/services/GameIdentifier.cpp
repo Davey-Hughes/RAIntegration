@@ -30,7 +30,7 @@ namespace services {
 
 static constexpr const wchar_t* KNOWN_HASHES_KEY = L"Hashes";
 
-unsigned int GameIdentifier::IdentifyGame(const BYTE* pROM, size_t nROMSize)
+unsigned int GameIdentifier::IdentifyGame(const unsigned char* pROM, size_t nROMSize)
 {
     m_nPendingMode = ra::data::context::GameContext::Mode::Normal;
 
@@ -222,7 +222,7 @@ void GameIdentifier::ActivateGame(unsigned int nGameId)
     ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>().ResetMemoryModified();
 }
 
-void GameIdentifier::IdentifyAndActivateGame(const BYTE* pROM, size_t nROMSize)
+void GameIdentifier::IdentifyAndActivateGame(const unsigned char* pROM, size_t nROMSize)
 {
     const auto nGameId = IdentifyGame(pROM, nROMSize);
     ActivateGame(nGameId);
