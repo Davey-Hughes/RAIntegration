@@ -271,7 +271,7 @@ void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) cons
         return;
     }
 
-    if (m_hDoFrameThread == 0 || IsOnDoFrameThread())
+    if (m_hDoFrameThread == std::thread::id{} || IsOnDoFrameThread())
     {
         fCallback();
         return;
@@ -925,7 +925,7 @@ void AchievementRuntime::DoFrame()
 {
     auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
 
-    m_hDoFrameThread = GetCurrentThreadId();
+    m_hDoFrameThread = std::this_thread::get_id();
 
     if (m_bPaused)
     {
