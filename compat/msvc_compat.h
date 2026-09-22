@@ -95,6 +95,61 @@ inline void _wassert(const wchar_t* pMessage, const wchar_t* pFile, unsigned nLi
     __assert_fail(sMessage.c_str(), sFile.c_str(), nLine, "");
 }
 
+
+/* ---- Win32 types that leak through the DLL export surface ----
+ * Exports.hh and RAInterface/RA_Interface.h type the emulator-facing API in
+ * Win32 terms. Modelling the window handle as an opaque pointer lets the rest
+ * of the codebase compile; a real port needs a platform-neutral interface. */
+struct HWND__;
+using HWND = HWND__*;
+struct HMENU__;
+using HMENU = HMENU__*;
+using BOOL = int;
+using DWORD = unsigned long;
+using LONG = long;
+using BYTE = unsigned char;
+using LPARAM = long;
+using WPARAM = unsigned long;
+using UINT = unsigned int;
+using WORD = unsigned short;
+using LPCWSTR = const wchar_t*;
+using LPWSTR = wchar_t*;
+using LPCSTR = const char*;
+using LPSTR = char*;
+using HANDLE = void*;
+struct HINSTANCE__;
+using HINSTANCE = HINSTANCE__*;
+
+/* ---- MSVC CRT extensions ---- */
+#include <cstdio>
+#include <cstdlib>
+#include <cwchar>
+#include <ctime>
+#include <chrono>
+#include <thread>
+
+#ifndef __fallthrough
+#define __fallthrough [[fallthrough]]
+#endif
+
+#define swprintf_s swprintf
+#define sprintf_s snprintf
+
+inline int localtime_s(std::tm* pResult, const std::time_t* pTime)
+{
+    return (::localtime_r(pTime, pResult) == nullptr) ? 1 : 0;
+}
+
+inline int _wtoi(const wchar_t* pString) noexcept
+{
+    return static_cast<int>(std::wcstol(pString, nullptr, 10));
+}
+
+inline void Sleep(unsigned long nMilliseconds)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(nMilliseconds));
+}
+
 #endif /* !_MSC_VER */
 
 #endif /* RA_MSVC_COMPAT_H */
