@@ -1,6 +1,6 @@
 #include "OverlayFriendsPageViewModel.hh"
 
-#include "context/IRCClient.hh"
+#include "context/IRcClient.hh"
 #include "context/UserContext.hh"
 
 #include "services/ServiceLocator.hh"
