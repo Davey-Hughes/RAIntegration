@@ -9,7 +9,9 @@
 
 #include <rcheevos/src/rapi/rc_api_common.h>
 
-#ifndef RA_UTEST
+// The only thing in this file that is not platform independent: a TLS 1.0 workaround
+// for Windows 8 and earlier, which uses WinHTTP and the Win32 Desktop directly.
+#if !defined(RA_UTEST) && defined(_WIN32)
 #include "services/impl/StringTextWriter.hh"
 #include "services/impl/WindowsHttpRequester.hh"
 #include "ui/win32/Desktop.hh"
@@ -326,7 +328,7 @@ void JsonFileConfiguration::UpdateHost()
         m_bCustomHost = false;
         m_sHostUrl = rc_api_default_host();
 
-#ifndef RA_UTEST
+#if !defined(RA_UTEST) && defined(_WIN32)
         const auto sOSVersion = ra::ui::win32::Desktop::GetWindowsVersionString();
         if (ra::util::String::StartsWith(sOSVersion, "WindowsNT "))
         {
