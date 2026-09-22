@@ -2,11 +2,24 @@
 #define RA_EXPORTS_H
 #pragma once
 
+/* RA_WindowHandle and RA_MenuItemId; also the Win32 types the _WIN32 branch
+ * below resolves them to. Previously this header relied on <Windows.h> having
+ * been included by whoever included it. */
+#include "RAInterface/RA_Interface.h"
+
 #ifndef CCONV
-#define CCONV __cdecl
+ #ifdef _WIN32
+  #define CCONV __cdecl
+ #else
+  #define CCONV
+ #endif
 #endif
 
-#define API __declspec(dllexport)
+#ifdef _WIN32
+ #define API __declspec(dllexport)
+#else
+ #define API __attribute__((visibility("default")))
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,28 +35,30 @@ extern "C" {
     API const char* CCONV _RA_HostUrl();
 
     // Initialize all data related to RA Engine. Call as early as possible.
-    API int CCONV _RA_InitI(HWND hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVersion);
+    API int CCONV _RA_InitI(RA_WindowHandle hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVersion);
 
     // Initialize all data related to RA Engine for offline mode. Call as early as possible.
-    API int CCONV _RA_InitOffline(HWND hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVersion);
+    API int CCONV _RA_InitOffline(RA_WindowHandle hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVersion);
 
     // Initialize all data related to RA Engine. Call as early as possible.
-    API int CCONV _RA_InitClient(HWND hMainHWND, const char* sClientName, const char* sClientVersion);
+    API int CCONV _RA_InitClient(RA_WindowHandle hMainHWND, const char* sClientName, const char* sClientVersion);
 
     // Initialize all data related to RA Engine for offline mode. Call as early as possible.
-    API int CCONV _RA_InitClientOffline(HWND hMainHWND, const char* sClientName, const char* sClientVersion);
+    API int CCONV _RA_InitClientOffline(RA_WindowHandle hMainHWND, const char* sClientName, const char* sClientVersion);
 
     // Specifies additional information to include in the UserAgent string
     API void CCONV _RA_SetUserAgentDetail(const char* sDetail);
 
     // Changes the HWND for the main emulator window
-    API void CCONV _RA_UpdateHWnd(HWND hMainHWND);
+    API void CCONV _RA_UpdateHWnd(RA_WindowHandle hMainHWND);
 
     // Call for a tidy exit at end of app.
     API int CCONV _RA_Shutdown();
 
+#ifdef _WIN32
     // Allocates and configures a popup menu, to be called, embedded and managed by the app.
     API HMENU CCONV _RA_CreatePopupMenu();
+#endif
 
     // Gets items for building a popup menu to be embedded and managed by the app.
     struct RA_MenuItem;
@@ -53,7 +68,7 @@ extern "C" {
     API int CCONV _RA_ConfirmLoadNewRom(int bQuittingApp);
 
     //  Gets the unique identifier of the game associated to the provided ROM data
-    API unsigned int CCONV _RA_IdentifyRom(const BYTE* pROMData, unsigned int nROMSize);
+    API unsigned int CCONV _RA_IdentifyRom(const unsigned char* pROMData, unsigned int nROMSize);
 
     //  Gets the unique identifier of the game associated to the provided file (which may already be loaded into memory)
     API unsigned int CCONV _RA_IdentifyHash(const char* sHash);
@@ -62,7 +77,7 @@ extern "C" {
     API void CCONV _RA_ActivateGame(unsigned int nGameId);
 
     //	Downloads and activates the achievements for the game associated to the provided ROM data
-    API int CCONV _RA_OnLoadNewRom(const BYTE* pROM, unsigned int nROMSize);
+    API int CCONV _RA_OnLoadNewRom(const unsigned char* pROM, unsigned int nROMSize);
 
     // On or immediately after a new ROM is loaded, for each memory bank found
     //  pReader is typedef unsigned char (_RAMByteReadFn)( unsigned nOffset );
@@ -111,7 +126,7 @@ extern "C" {
     API void CCONV _RA_UpdateAppTitle(const char* sMessage = nullptr);
 
     // Display or unhide an RA dialog.
-    API void CCONV _RA_InvokeDialog(LPARAM nID);
+    API void CCONV _RA_InvokeDialog(RA_MenuItemId nID);
 
     // Call this when the pause state changes, to update RA with the new state.
     API void CCONV _RA_SetPaused(int bIsPaused);

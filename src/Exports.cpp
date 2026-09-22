@@ -259,6 +259,7 @@ API void CCONV _RA_InstallSharedFunctionsExt(bool(*)(void), void(*fpCauseUnpause
     pEmulatorContext.SetRebuildMenuFunction(fpRebuildMenu);
 }
 
+#ifdef _WIN32
 API HMENU CCONV _RA_CreatePopupMenu()
 {
     HMENU hMenu = CreatePopupMenu();
@@ -279,6 +280,7 @@ API HMENU CCONV _RA_CreatePopupMenu()
 
     return hMenu;
 }
+#endif /* _WIN32 */
 
 API int CCONV _RA_GetPopupMenuItems(RA_MenuItem *pItems)
 {
@@ -459,7 +461,7 @@ API void CCONV _RA_ClearMemoryBanks()
         pEmulatorMemoryContext->ClearMemoryBlocks();;
 }
 
-API unsigned int CCONV _RA_IdentifyRom(const BYTE* pROM, unsigned int nROMSize)
+API unsigned int CCONV _RA_IdentifyRom(const unsigned char* pROM, unsigned int nROMSize)
 {
     return ra::services::ServiceLocator::GetMutable<ra::services::GameIdentifier>().IdentifyGame(pROM, nROMSize);
 }
@@ -487,7 +489,7 @@ API void CCONV _RA_ActivateGame(unsigned int nGameId)
     _RA_ResumeRepaint();
 }
 
-API int CCONV _RA_OnLoadNewRom(const BYTE* pROM, unsigned int nROMSize)
+API int CCONV _RA_OnLoadNewRom(const unsigned char* pROM, unsigned int nROMSize)
 {
     ra::services::ServiceLocator::GetMutable<ra::services::GameIdentifier>().IdentifyAndActivateGame(pROM, nROMSize);
     return 0;
