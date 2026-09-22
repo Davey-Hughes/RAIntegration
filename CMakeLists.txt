@@ -47,7 +47,13 @@ target_include_directories(ra_portable PRIVATE
 
 # RA_EXPORTS is what the DLL build defines; in RA_Defs.h it also selects the
 # branch that does not pull in <Windows.h>.
-target_compile_definitions(ra_portable PRIVATE RA_EXPORTS=1)
+#
+# RC_CLIENT_SUPPORTS_HASH mirrors src/base.props, which sets it for every MSVC
+# translation unit. Without it rc_client_internal.h skips rhash/rc_hash_internal.h
+# (and with it rc_consoles.h), so RC_CONSOLE_* and rc_console_name go undeclared,
+# and rc_client.h hides rc_client_begin_identify_and_load_game /
+# rc_client_begin_identify_and_change_media behind the same guard.
+target_compile_definitions(ra_portable PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH)
 
 target_compile_options(ra_portable PRIVATE
   -include msvc_compat.h
