@@ -3,7 +3,11 @@
 
 /* Compatibility shim for building RAIntegration with non-MSVC toolchains.
  * MSVC provides these as intrinsic macros (SAL annotations from sal.h and
- * _NODISCARD from the MS STL); on clang/gcc they need definitions. */
+ * _NODISCARD from the MS STL), as forced-include pch.h content, or as CRT
+ * extensions; on clang/gcc they need definitions.
+ *
+ * It deliberately declares no Win32 types. Code that needs them is Windows
+ * code and is excluded from this build. */
 
 #ifndef _MSC_VER
 
@@ -95,30 +99,6 @@ inline void _wassert(const wchar_t* pMessage, const wchar_t* pFile, unsigned nLi
     __assert_fail(sMessage.c_str(), sFile.c_str(), nLine, "");
 }
 
-
-/* ---- Win32 types that leak through the DLL export surface ----
- * Exports.hh and RAInterface/RA_Interface.h type the emulator-facing API in
- * Win32 terms. Modelling the window handle as an opaque pointer lets the rest
- * of the codebase compile; a real port needs a platform-neutral interface. */
-struct HWND__;
-using HWND = HWND__*;
-struct HMENU__;
-using HMENU = HMENU__*;
-using BOOL = int;
-using DWORD = unsigned long;
-using LONG = long;
-using BYTE = unsigned char;
-using LPARAM = long;
-using WPARAM = unsigned long;
-using UINT = unsigned int;
-using WORD = unsigned short;
-using LPCWSTR = const wchar_t*;
-using LPWSTR = wchar_t*;
-using LPCSTR = const char*;
-using LPSTR = char*;
-using HANDLE = void*;
-struct HINSTANCE__;
-using HINSTANCE = HINSTANCE__*;
 
 /* ---- MSVC CRT extensions ---- */
 #include <cstdio>
