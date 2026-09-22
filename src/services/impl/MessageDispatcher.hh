@@ -2,9 +2,9 @@
 #define RA_SERVICES_MESSAGE_DISPATCHER_HH
 #pragma once
 
-#include "services\IMessageDispatcher.hh"
+#include "services/IMessageDispatcher.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 namespace ra {
 namespace services {

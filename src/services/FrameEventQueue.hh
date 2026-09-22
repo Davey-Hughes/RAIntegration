@@ -2,9 +2,9 @@
 #define RA_SERVICES_FRAME_EVENT_QUEUE_HH
 #pragma once
 
-#include "data\Types.hh"
+#include "data/Types.hh"
 
-#include "util\GSL.hh"
+#include "util/GSL.hh"
 
 namespace ra {
 namespace services {

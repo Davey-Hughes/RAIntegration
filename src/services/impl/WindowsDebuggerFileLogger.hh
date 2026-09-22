@@ -2,7 +2,7 @@
 #define RA_SERVICES_WINDOWS_DEBUGGER_FILELOGGER_HH
 #pragma once
 
-#include "services\impl\FileLogger.hh"
+#include "services/impl/FileLogger.hh"
 
 namespace ra {
 namespace services {

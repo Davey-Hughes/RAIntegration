@@ -4,8 +4,8 @@
 
 #include "RA_Core.h"
 
-#include "ui\drawing\gdi\GDISurface.hh"
-#include "ui\drawing\gdi\ResourceRepository.hh"
+#include "ui/drawing/gdi/GDISurface.hh"
+#include "ui/drawing/gdi/ResourceRepository.hh"
 
 namespace ra {
 namespace ui {

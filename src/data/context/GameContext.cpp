@@ -4,39 +4,39 @@
 
 #include "RA_Defs.h"
 #include "RA_md5factory.h"
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "data\models\AchievementModel.hh"
-#include "data\models\MemoryNotesModel.hh"
-#include "data\models\LocalBadgesModel.hh"
-#include "data\models\RichPresenceModel.hh"
+#include "data/models/AchievementModel.hh"
+#include "data/models/MemoryNotesModel.hh"
+#include "data/models/LocalBadgesModel.hh"
+#include "data/models/RichPresenceModel.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\FrameEventQueue.hh"
-#include "services\IAudioSystem.hh"
-#include "services\IConfiguration.hh"
-#include "services\ILocalStorage.hh"
-#include "services\impl\FileTextReader.hh"
-#include "services\impl\FileTextWriter.hh"
-#include "services\impl\StringTextReader.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/IAudioSystem.hh"
+#include "services/IConfiguration.hh"
+#include "services/ILocalStorage.hh"
+#include "services/impl/FileTextReader.hh"
+#include "services/impl/FileTextWriter.hh"
+#include "services/impl/StringTextReader.hh"
 
-#include "ui\ImageReference.hh"
+#include "ui/ImageReference.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\ScoreboardViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/ScoreboardViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include <rcheevos\src\rc_client_internal.h>
-#include <rcheevos\include\rc_api_runtime.h>
+#include <rcheevos/src/rc_client_internal.h>
+#include <rcheevos/include/rc_api_runtime.h>
 
 namespace ra {
 namespace data {

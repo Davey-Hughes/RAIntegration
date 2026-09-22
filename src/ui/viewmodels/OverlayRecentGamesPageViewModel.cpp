@@ -1,20 +1,20 @@
 #include "OverlayRecentGamesPageViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\GameContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IConfiguration.hh"
-#include "services\ILocalStorage.hh"
-#include "services\IThreadPool.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IConfiguration.hh"
+#include "services/ILocalStorage.hh"
+#include "services/IThreadPool.hh"
 
-#include <rcheevos\include\rc_api_info.h>
-#include <rcheevos\include\rc_api_runtime.h>
+#include <rcheevos/include/rc_api_info.h>
+#include <rcheevos/include/rc_api_runtime.h>
 
 namespace ra {
 namespace ui {

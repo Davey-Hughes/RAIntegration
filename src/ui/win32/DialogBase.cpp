@@ -1,11 +1,11 @@
 #include "DialogBase.hh"
 
-#include "ui\win32\bindings\ControlBinding.hh"
-#include "ui\win32\bindings\GridBinding.hh"
-#include "ui\win32\bindings\NumericUpDownBinding.hh"
-#include "ui\win32\bindings\WindowBinding.hh"
+#include "ui/win32/bindings/ControlBinding.hh"
+#include "ui/win32/bindings/GridBinding.hh"
+#include "ui/win32/bindings/NumericUpDownBinding.hh"
+#include "ui/win32/bindings/WindowBinding.hh"
 
-#include "util\EnumOps.hh"
+#include "util/EnumOps.hh"
 
 #include "RA_Core.h" // g_RAMainWnd, g_hThisDLLInst
 

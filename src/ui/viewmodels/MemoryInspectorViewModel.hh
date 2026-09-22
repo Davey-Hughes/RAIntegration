@@ -2,14 +2,14 @@
 #define RA_UI_MEMORYINSPECTORVIEWMODEL_H
 #pragma once
 
-#include "data\Types.hh"
-#include "data\context\GameContext.hh"
+#include "data/Types.hh"
+#include "data/context/GameContext.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
-#include "ui\viewmodels\MemorySearchViewModel.hh"
-#include "ui\viewmodels\MemoryViewerViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
+#include "ui/viewmodels/MemorySearchViewModel.hh"
+#include "ui/viewmodels/MemoryViewerViewModel.hh"
 
 namespace ra {
 namespace ui {

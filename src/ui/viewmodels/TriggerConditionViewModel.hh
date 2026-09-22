@@ -2,13 +2,13 @@
 #define RA_UI_TRIGGERCONDITIONVIEWMODEL_H
 #pragma once
 
-#include "data\Requirement.hh"
-#include "data\models\MemoryNoteModel.hh"
+#include "data/Requirement.hh"
+#include "data/models/MemoryNoteModel.hh"
 
-#include "ui\ViewModelBase.hh"
-#include "ui\Types.hh"
+#include "ui/ViewModelBase.hh"
+#include "ui/Types.hh"
 
-#include "util\TypeCasts.hh"
+#include "util/TypeCasts.hh"
 
 struct rc_condition_t;
 

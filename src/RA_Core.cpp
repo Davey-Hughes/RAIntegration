@@ -2,23 +2,23 @@
 
 #include "Exports.hh"
 
-#include "context\IRcClient.hh"
+#include "context/IRcClient.hh"
 
-#include "util\Log.hh"
+#include "util/Log.hh"
 
-#include "data\context\SessionTracker.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\GameIdentifier.hh"
-#include "services\IConfiguration.hh"
-#include "services\IThreadPool.hh"
-#include "services\Initialization.hh"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/GameIdentifier.hh"
+#include "services/IConfiguration.hh"
+#include "services/IThreadPool.hh"
+#include "services/Initialization.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 HMODULE g_hThisDLLInst = nullptr;
 HWND g_RAMainWnd = nullptr;

@@ -1,23 +1,23 @@
 #include "LoginService.hh"
 
 #include "Exports.hh"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "api\impl\DisconnectedServer.hh"
+#include "api/impl/DisconnectedServer.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\AchievementRuntimeExports.hh"
-#include "services\IConfiguration.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/AchievementRuntimeExports.hh"
+#include "services/IConfiguration.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace services {

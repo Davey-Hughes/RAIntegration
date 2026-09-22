@@ -1,20 +1,20 @@
 #include "MemorySearchViewModel.hh"
 
-#include "context\IConsoleContext.hh"
+#include "context/IConsoleContext.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\IClock.hh"
-#include "services\IFileSystem.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClock.hh"
+#include "services/IFileSystem.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\FileDialogViewModel.hh"
-#include "ui\viewmodels\MemoryRegionsViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\ProgressViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
+#include "ui/viewmodels/MemoryRegionsViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/ProgressViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 #include "RA_Defs.h"
 

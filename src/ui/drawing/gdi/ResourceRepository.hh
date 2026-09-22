@@ -2,9 +2,9 @@
 #define RA_UI_DRAWING_GDI_RESOURCEREPOSITORY_HH
 #pragma once
 
-#include "ui\Types.hh"
+#include "ui/Types.hh"
 
-#include "util\EnumOps.hh"
+#include "util/EnumOps.hh"
 
 namespace ra {
 namespace ui {

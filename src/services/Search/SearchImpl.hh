@@ -2,9 +2,9 @@
 #define SEARCHIMPL_H
 #pragma once
 
-#include "data\Types.hh"
+#include "data/Types.hh"
 
-#include "services\SearchResults.h"
+#include "services/SearchResults.h"
 
 // define this to use the generic filtering code for all search types
 // if defined, specialized templated code will be used for little endian searches

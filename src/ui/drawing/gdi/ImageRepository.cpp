@@ -4,19 +4,19 @@
 
 #include "RA_Defs.h"
 #include "RA_md5factory.h"
-#include "util\Log.hh"
+#include "util/Log.hh"
 
-#include "context\IRcClient.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\Http.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/Http.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
-#include <rcheevos\include\rc_api_runtime.h>
+#include <rcheevos/include/rc_api_runtime.h>
 
 namespace ra {
 namespace ui {

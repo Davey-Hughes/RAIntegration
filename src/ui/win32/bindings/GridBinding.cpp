@@ -1,12 +1,12 @@
 #include "GridBinding.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #include "GridCheckBoxColumnBinding.hh"
 #include "GridTextColumnBinding.hh"
 
-#include "services\IClock.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClock.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

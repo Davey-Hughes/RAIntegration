@@ -2,15 +2,15 @@
 #define RA_UI_ASSETLIST_VIEW_MODEL_H
 #pragma once
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\ViewModelCollection.hh"
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/ViewModelCollection.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
-#include "data\DataModelCollection.hh"
-#include "data\Types.hh"
-#include "data\context\GameContext.hh"
-#include "data\models\AchievementModel.hh"
-#include "data\models\AssetModelBase.hh"
+#include "data/DataModelCollection.hh"
+#include "data/Types.hh"
+#include "data/context/GameContext.hh"
+#include "data/models/AchievementModel.hh"
+#include "data/models/AssetModelBase.hh"
 
 namespace ra {
 namespace ui {

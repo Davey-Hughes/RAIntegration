@@ -4,10 +4,10 @@
 
 #include "ProgressViewModel.hh"
 
-#include "data\models\AchievementModel.hh"
-#include "data\models\MemoryNotesModel.hh"
-#include "data\models\LeaderboardModel.hh"
-#include "data\models\RichPresenceModel.hh"
+#include "data/models/AchievementModel.hh"
+#include "data/models/MemoryNotesModel.hh"
+#include "data/models/LeaderboardModel.hh"
+#include "data/models/RichPresenceModel.hh"
 
 namespace ra {
 namespace ui {

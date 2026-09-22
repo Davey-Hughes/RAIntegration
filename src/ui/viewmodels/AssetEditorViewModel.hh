@@ -4,12 +4,12 @@
 
 #include "TriggerViewModel.hh"
 
-#include "data\Value.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\models\AchievementModel.hh"
-#include "data\models\AssetModelBase.hh"
+#include "data/Value.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/models/AchievementModel.hh"
+#include "data/models/AssetModelBase.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
 namespace ra {
 namespace ui {

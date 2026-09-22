@@ -4,10 +4,10 @@
 
 #include "ControlBinding.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "ui\ViewModelCollection.hh"
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/ViewModelCollection.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

@@ -6,11 +6,11 @@
 #include "RA_Resource.h"
 #include "RA_md5factory.h"
 
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
 
 #include "ra_math.h"
 

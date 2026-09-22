@@ -1,17 +1,17 @@
 #include "WindowBinding.hh"
 
 #include "RA_Core.h"
-#include "util\Log.hh"
+#include "util/Log.hh"
 #include "RA_Resource.h"
 
-#include "data\ModelProperty.hh"
+#include "data/ModelProperty.hh"
 
-#include "services\IWindowConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IWindowConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\WindowManager.hh"
-#include "ui\win32\bindings\ControlBinding.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/WindowManager.hh"
+#include "ui/win32/bindings/ControlBinding.hh"
 
 namespace ra {
 namespace ui {

@@ -1,11 +1,11 @@
 #include "PopupViewModelBase.hh"
 
-#include "util\TypeCasts.hh"
+#include "util/TypeCasts.hh"
 
-#include "services\IConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\OverlayTheme.hh"
+#include "ui/OverlayTheme.hh"
 
 namespace ra {
 namespace ui {

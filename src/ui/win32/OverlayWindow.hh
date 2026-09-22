@@ -2,8 +2,8 @@
 #define RA_UI_WIN32_OVERLAYWINDOW_H
 #pragma once
 
-#include "ui\viewmodels\OverlayViewModel.hh"
-#include "ui\win32\IDialogPresenter.hh"
+#include "ui/viewmodels/OverlayViewModel.hh"
+#include "ui/win32/IDialogPresenter.hh"
 
 namespace ra {
 namespace ui {

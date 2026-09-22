@@ -4,9 +4,9 @@
 
 #include "TextBoxBinding.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 namespace ra {
 namespace ui {

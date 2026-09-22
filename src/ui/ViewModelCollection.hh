@@ -4,8 +4,8 @@
 
 #include "ViewModelBase.hh"
 
-#include "data\ModelCollectionBase.hh"
-#include "data\NotifyTargetSet.hh"
+#include "data/ModelCollectionBase.hh"
+#include "data/NotifyTargetSet.hh"
 
 namespace ra {
 namespace ui {

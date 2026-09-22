@@ -1,6 +1,6 @@
 #include "FileDialog.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #include "services/ServiceLocator.hh"
 

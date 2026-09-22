@@ -2,13 +2,13 @@
 #define RA_SERVICES_FILELOGGER_HH
 #pragma once
 
-#include "services\IClock.hh"
-#include "services\IFileSystem.hh"
-#include "services\ILogger.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
-#include "services\TextWriter.hh"
-#include "services\impl\FileTextWriter.hh"
+#include "services/IClock.hh"
+#include "services/IFileSystem.hh"
+#include "services/ILogger.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
+#include "services/TextWriter.hh"
+#include "services/impl/FileTextWriter.hh"
 
 namespace ra {
 namespace services {

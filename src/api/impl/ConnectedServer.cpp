@@ -1,16 +1,16 @@
 #include "ConnectedServer.hh"
 
-#include "util\Json.hh"
-#include "util\Log.hh"
+#include "util/Json.hh"
+#include "util/Log.hh"
 
-#include "context\UserContext.hh"
+#include "context/UserContext.hh"
 
-#include "services\Http.hh"
-#include "services\IFileSystem.hh"
-#include "services\IHttpRequester.hh"
-#include "services\ServiceLocator.hh"
+#include "services/Http.hh"
+#include "services/IFileSystem.hh"
+#include "services/IHttpRequester.hh"
+#include "services/ServiceLocator.hh"
 
-#include <rcheevos\src\rapi\rc_api_common.h> // for parsing cached patchdata response
+#include <rcheevos/src/rapi/rc_api_common.h> // for parsing cached patchdata response
 #include <rc_api_editor.h>
 #include <rc_api_info.h>
 #include <rc_api_runtime.h>

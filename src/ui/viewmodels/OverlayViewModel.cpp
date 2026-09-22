@@ -1,24 +1,24 @@
 #include "OverlayViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IClock.hh"
-#include "services\IConfiguration.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IClock.hh"
+#include "services/IConfiguration.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\OverlayTheme.hh"
-#include "ui\viewmodels\OverlayAchievementsPageViewModel.hh"
-#include "ui\viewmodels\OverlayFriendsPageViewModel.hh"
-#include "ui\viewmodels\OverlayLeaderboardsPageViewModel.hh"
-#include "ui\viewmodels\OverlayRecentGamesPageViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/OverlayTheme.hh"
+#include "ui/viewmodels/OverlayAchievementsPageViewModel.hh"
+#include "ui/viewmodels/OverlayFriendsPageViewModel.hh"
+#include "ui/viewmodels/OverlayLeaderboardsPageViewModel.hh"
+#include "ui/viewmodels/OverlayRecentGamesPageViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

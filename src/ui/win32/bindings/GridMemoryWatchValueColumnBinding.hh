@@ -5,8 +5,8 @@
 #include "GridBinding.hh"
 #include "GridTextColumnBinding.hh"
 
-#include "ui\viewmodels\MemoryWatchViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MemoryWatchViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 namespace ra {
 namespace ui {

@@ -2,9 +2,9 @@
 #define RA_UI_WIN32_DIALOGBASE_H
 #pragma once
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\win32\IDialogPresenter.hh"
-#include "ui\win32\bindings\WindowBinding.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/win32/IDialogPresenter.hh"
+#include "ui/win32/bindings/WindowBinding.hh"
 
 namespace ra {
 namespace ui {

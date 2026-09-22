@@ -2,15 +2,15 @@
 
 #include "RA_Defs.h"
 
-#include "data\Memory.hh"
-#include "data\context\GameContext.hh"
-#include "data\util\IndirectNoteResolver.hh"
+#include "data/Memory.hh"
+#include "data/context/GameContext.hh"
+#include "data/util/IndirectNoteResolver.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\EditorTheme.hh"
+#include "ui/EditorTheme.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #include <rcheevos/src/rcheevos/rc_internal.h>
 

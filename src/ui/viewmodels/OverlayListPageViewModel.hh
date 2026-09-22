@@ -3,10 +3,10 @@
 
 #include "OverlayViewModel.hh"
 
-#include "data\models\AssetModelBase.hh"
+#include "data/models/AssetModelBase.hh"
 
-#include "ui\ViewModelCollection.hh"
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/ViewModelCollection.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

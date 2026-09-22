@@ -2,11 +2,11 @@
 #define RA_UI_MEMORYREGIONSVIEWMODEL_H
 #pragma once
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

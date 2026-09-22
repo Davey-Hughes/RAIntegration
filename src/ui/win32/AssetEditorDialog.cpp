@@ -3,22 +3,22 @@
 #include "RA_Defs.h"
 #include "RA_Resource.h"
 
-#include "context\IRcClient.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\IConfiguration.hh"
+#include "services/IConfiguration.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include "ui\win32\bindings\GridAddressColumnBinding.hh"
-#include "ui\win32\bindings\GridLookupColumnBinding.hh"
-#include "ui\win32\bindings\GridNumberColumnBinding.hh"
-#include "ui\win32\bindings\GridTextColumnBinding.hh"
+#include "ui/win32/bindings/GridAddressColumnBinding.hh"
+#include "ui/win32/bindings/GridLookupColumnBinding.hh"
+#include "ui/win32/bindings/GridNumberColumnBinding.hh"
+#include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 #include <rcheevos/include/rc_api_editor.h>
 

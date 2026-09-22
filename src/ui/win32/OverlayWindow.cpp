@@ -1,13 +1,13 @@
 #include "OverlayWindow.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\IClock.hh"
+#include "services/IClock.hh"
 
-#include "ui\OverlayTheme.hh"
-#include "ui\drawing\gdi\GDISurface.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\win32\bindings\ControlBinding.hh"
+#include "ui/OverlayTheme.hh"
+#include "ui/drawing/gdi/GDISurface.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/win32/bindings/ControlBinding.hh"
 
 namespace ra {
 namespace ui {

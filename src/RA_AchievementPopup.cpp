@@ -2,7 +2,7 @@
 
 #include "RA_Core.h"
 
-#include "ui\drawing\gdi\GDISurface.hh"
+#include "ui/drawing/gdi/GDISurface.hh"
 
 #include "ra_math.h"
 

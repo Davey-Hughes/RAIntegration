@@ -1,10 +1,10 @@
 #include "WindowsFileSystem.hh"
 
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "services\impl\FileTextReader.hh"
-#include "services\impl\FileTextWriter.hh"
+#include "services/impl/FileTextReader.hh"
+#include "services/impl/FileTextWriter.hh"
 
 #undef DeleteFile
 #undef MoveFile

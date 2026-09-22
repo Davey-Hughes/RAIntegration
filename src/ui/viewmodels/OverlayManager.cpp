@@ -1,16 +1,16 @@
 #include "OverlayManager.hh"
 
-#include "util\Log.hh"
+#include "util/Log.hh"
 
-#include "services\IClock.hh"
-#include "services\IThreadPool.hh"
-#include "services\IWindowConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClock.hh"
+#include "services/IThreadPool.hh"
+#include "services/IWindowConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\OverlayTheme.hh"
+#include "ui/IDesktop.hh"
+#include "ui/OverlayTheme.hh"
 
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

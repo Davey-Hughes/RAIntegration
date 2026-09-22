@@ -1,26 +1,26 @@
 #include "AssetEditorViewModel.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "data\models\AchievementModel.hh"
-#include "data\models\LeaderboardModel.hh"
+#include "data/models/AchievementModel.hh"
+#include "data/models/LeaderboardModel.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\EditorTheme.hh"
-#include "ui\ImageReference.hh"
-#include "ui\IImageRepository.hh"
-#include "ui\viewmodels\FileDialogViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/EditorTheme.hh"
+#include "ui/ImageReference.hh"
+#include "ui/IImageRepository.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Strings.hh"
+#include "util/EnumOps.hh"
+#include "util/Strings.hh"
 
-#include <rcheevos\src\rcheevos\rc_internal.h>
+#include <rcheevos/src/rcheevos/rc_internal.h>
 
 namespace ra {
 namespace ui {

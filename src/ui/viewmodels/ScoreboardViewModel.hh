@@ -4,7 +4,7 @@
 
 #include "PopupViewModelBase.hh"
 
-#include "ui\ViewModelCollection.hh"
+#include "ui/ViewModelCollection.hh"
 
 namespace ra {
 namespace ui {

@@ -2,8 +2,8 @@
 
 #include "RA_Resource.h"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 namespace ra {
 namespace ui {

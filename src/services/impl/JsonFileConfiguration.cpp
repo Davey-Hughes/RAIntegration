@@ -1,18 +1,18 @@
 #include "JsonFileConfiguration.hh"
 
-#include "util\Json.hh"
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Json.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
 
-#include <rcheevos\src\rapi\rc_api_common.h>
+#include <rcheevos/src/rapi/rc_api_common.h>
 
 #ifndef RA_UTEST
-#include "services\impl\StringTextWriter.hh"
-#include "services\impl\WindowsHttpRequester.hh"
-#include "ui\win32\Desktop.hh"
+#include "services/impl/StringTextWriter.hh"
+#include "services/impl/WindowsHttpRequester.hh"
+#include "ui/win32/Desktop.hh"
 #endif
 
 namespace ra {

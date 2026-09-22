@@ -2,11 +2,11 @@
 #define RA_UI_TRIGGERVIEWMODEL_H
 #pragma once
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "ui\ViewModelBase.hh"
-#include "ui\ViewModelCollection.hh"
-#include "ui\Types.hh"
+#include "ui/ViewModelBase.hh"
+#include "ui/ViewModelCollection.hh"
+#include "ui/Types.hh"
 
 #include "LookupItemViewModel.hh"
 #include "TriggerConditionViewModel.hh"

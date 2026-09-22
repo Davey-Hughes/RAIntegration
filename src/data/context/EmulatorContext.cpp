@@ -3,29 +3,29 @@
 #include "Exports.hh"
 #include "RA_BuildVer.h"
 #include "RA_Resource.h"
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\AchievementRuntimeExports.hh"
-#include "services\IClock.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\IHttpRequester.hh"
-#include "services\ILoginService.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/AchievementRuntimeExports.hh"
+#include "services/IClock.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/IHttpRequester.hh"
+#include "services/ILoginService.hh"
 
-#include "ui\IDesktop.hh"
+#include "ui/IDesktop.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include "RAInterface\RA_Consoles.h"
-#include "RAInterface\RA_Emulators.h"
+#include "RAInterface/RA_Consoles.h"
+#include "RAInterface/RA_Emulators.h"
 
 #include <rcheevos/src/rc_client_internal.h>
 #include <rcheevos/src/rapi/rc_api_common.h>

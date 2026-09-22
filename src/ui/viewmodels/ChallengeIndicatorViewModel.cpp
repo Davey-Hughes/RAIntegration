@@ -1,9 +1,9 @@
 #include "ChallengeIndicatorViewModel.hh"
 
-#include "util\TypeCasts.hh"
+#include "util/TypeCasts.hh"
 
-#include "ui\OverlayTheme.hh"
-#include "ui\viewmodels\OverlayManager.hh"
+#include "ui/OverlayTheme.hh"
+#include "ui/viewmodels/OverlayManager.hh"
 
 namespace ra {
 namespace ui {

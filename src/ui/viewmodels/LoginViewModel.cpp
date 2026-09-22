@@ -1,20 +1,20 @@
 #include "LoginViewModel.hh"
 
 #include "Exports.hh"
-#include "RAInterface\RA_Interface.h"
+#include "RAInterface/RA_Interface.h"
 
-#include "context\UserContext.hh"
+#include "context/UserContext.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\IConfiguration.hh"
-#include "services\ILoginService.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/ILoginService.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

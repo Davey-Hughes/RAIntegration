@@ -1,10 +1,10 @@
 #include "OverlaySettingsViewModel.hh"
 
-#include "services\IConfiguration.hh"
-#include "services\IWindowConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/IWindowConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
 
 namespace ra {
 namespace ui {

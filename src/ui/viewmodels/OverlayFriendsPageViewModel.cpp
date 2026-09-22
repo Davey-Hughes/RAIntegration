@@ -1,13 +1,13 @@
 #include "OverlayFriendsPageViewModel.hh"
 
-#include "context\IRCClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRCClient.hh"
+#include "context/UserContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "ui\IImageRepository.hh"
+#include "ui/IImageRepository.hh"
 
 #include <rcheevos/include/rc_api_user.h>
 

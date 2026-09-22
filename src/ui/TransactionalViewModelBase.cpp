@@ -1,6 +1,6 @@
 #include "TransactionalViewModelBase.hh"
 
-#include "data\ModelProperty.hh"
+#include "data/ModelProperty.hh"
 
 namespace ra {
 namespace ui {

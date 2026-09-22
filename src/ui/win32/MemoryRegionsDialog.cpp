@@ -2,15 +2,15 @@
 
 #include "RA_Resource.h"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include "ui\win32\bindings\GridAddressColumnBinding.hh"
-#include "ui\win32\bindings\GridTextColumnBinding.hh"
+#include "ui/win32/bindings/GridAddressColumnBinding.hh"
+#include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 using ra::ui::viewmodels::MemoryRegionsViewModel;
 using ra::ui::win32::bindings::GridColumnBinding;

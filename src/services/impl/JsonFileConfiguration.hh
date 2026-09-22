@@ -2,8 +2,8 @@
 #define RA_SERVICES_JSON_FILE_CONFIGUATION_HH
 #pragma once
 
-#include "services\IConfiguration.hh"
-#include "services\IWindowConfiguration.hh"
+#include "services/IConfiguration.hh"
+#include "services/IWindowConfiguration.hh"
 
 namespace ra {
 namespace services {

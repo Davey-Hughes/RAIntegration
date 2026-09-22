@@ -2,10 +2,10 @@
 
 #include "GridBinding.hh"
 
-#include "util\Strings.hh"
-#include "util\TypeCasts.hh"
+#include "util/Strings.hh"
+#include "util/TypeCasts.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 namespace ra {
 namespace ui {

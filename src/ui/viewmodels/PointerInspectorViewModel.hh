@@ -2,13 +2,13 @@
 #define RA_UI_POINTERINSPECTORVIEWMODEL_H
 #pragma once
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "util\StringBuilder.hh"
+#include "util/StringBuilder.hh"
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\viewmodels\MemoryWatchListViewModel.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/viewmodels/MemoryWatchListViewModel.hh"
 
 namespace ra {
 namespace data {

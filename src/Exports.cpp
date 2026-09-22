@@ -2,52 +2,52 @@
 
 #include "RA_BuildVer.h"
 #include "RA_Defs.h"
-#include "util\Log.hh"
+#include "util/Log.hh"
 #include "RA_Resource.h"
 
-#include "api\IServer.hh"
+#include "api/IServer.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
-#include "context\impl\ConsoleContext.hh"
-#include "context\impl\EmulatorMemoryContext.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
+#include "context/impl/ConsoleContext.hh"
+#include "context/impl/EmulatorMemoryContext.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\AchievementRuntimeExports.hh"
-#include "services\FrameEventQueue.hh"
-#include "services\GameIdentifier.hh"
-#include "services\Http.hh"
-#include "services\IAudioSystem.hh"
-#include "services\IDebuggerDetector.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\ILoginService.hh"
-#include "services\Initialization.hh"
-#include "services\PerformanceCounter.hh"
-#include "services\ServiceLocator.hh"
-#include "services\impl\LoginService.hh"
-#include "services\impl\OfflineRcClient.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/AchievementRuntimeExports.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/GameIdentifier.hh"
+#include "services/Http.hh"
+#include "services/IAudioSystem.hh"
+#include "services/IDebuggerDetector.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/ILoginService.hh"
+#include "services/Initialization.hh"
+#include "services/PerformanceCounter.hh"
+#include "services/ServiceLocator.hh"
+#include "services/impl/LoginService.hh"
+#include "services/impl/OfflineRcClient.hh"
 
-#include "ui\drawing\gdi\GDISurface.hh"
-#include "ui\viewmodels\IntegrationMenuViewModel.hh"
-#include "ui\viewmodels\LoginViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\WindowManager.hh"
-#include "ui\win32\Desktop.hh"
-#include "ui\win32\OverlayWindow.hh"
-#include "ui\win32\bindings\ControlBinding.hh"
+#include "ui/drawing/gdi/GDISurface.hh"
+#include "ui/viewmodels/IntegrationMenuViewModel.hh"
+#include "ui/viewmodels/LoginViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
+#include "ui/win32/Desktop.hh"
+#include "ui/win32/OverlayWindow.hh"
+#include "ui/win32/bindings/ControlBinding.hh"
 
-#include <RAInterface\RA_Emulators.h>
+#include <RAInterface/RA_Emulators.h>
 
-#include <rcheevos\include\rc_api_runtime.h>
-#include <rcheevos\src\rapi\rc_api_common.h>
-#include <rcheevos\src\rc_client_internal.h>
+#include <rcheevos/include/rc_api_runtime.h>
+#include <rcheevos/src/rapi/rc_api_common.h>
+#include <rcheevos/src/rc_client_internal.h>
 
 API const char* CCONV _RA_IntegrationVersion() { return RA_INTEGRATION_VERSION; }
 

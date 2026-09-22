@@ -2,8 +2,8 @@
 #define RA_UI_DRAWING_ISURFACE_HH
 #pragma once
 
-#include "ui\ImageReference.hh"
-#include "ui\Types.hh"
+#include "ui/ImageReference.hh"
+#include "ui/Types.hh"
 
 #include <string>
 

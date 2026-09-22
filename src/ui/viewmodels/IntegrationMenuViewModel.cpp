@@ -1,6 +1,6 @@
 #include "IntegrationMenuViewModel.hh"
 
-#include "util\Log.hh"
+#include "util/Log.hh"
 #include "RA_Resource.h"
 
 #include "context/IConsoleContext.hh"

@@ -2,19 +2,19 @@
 #define RA_UI_MEMORYSEARCHVIEWMODEL_H
 #pragma once
 
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\SearchResults.h"
-#include "services\TextReader.hh"
-#include "services\TextWriter.hh"
+#include "services/SearchResults.h"
+#include "services/TextReader.hh"
+#include "services/TextWriter.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

@@ -2,13 +2,13 @@
 #define RA_UI_UNKNOWNGAMEVIEWMODEL_H
 #pragma once
 
-#include "RAInterface\RA_Consoles.h"
+#include "RAInterface/RA_Consoles.h"
 
-#include "data\AsyncObject.hh"
+#include "data/AsyncObject.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

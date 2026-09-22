@@ -2,14 +2,14 @@
 #define RA_DATA_EMULATORCONTEXT_HH
 #pragma once
 
-#include "RAInterface\RA_Emulators.h"
+#include "RAInterface/RA_Emulators.h"
 
-#include "data\Types.hh"
+#include "data/Types.hh"
 
 #include <string>
 
-#include "data\NotifyTargetSet.hh"
-#include "data\CapturedMemoryBlock.hh"
+#include "data/NotifyTargetSet.hh"
+#include "data/CapturedMemoryBlock.hh"
 
 namespace ra {
 namespace data {

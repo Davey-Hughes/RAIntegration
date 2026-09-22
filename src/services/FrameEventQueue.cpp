@@ -2,13 +2,13 @@
 
 #include "RA_Defs.h"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace services {

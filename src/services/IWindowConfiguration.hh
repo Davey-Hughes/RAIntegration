@@ -2,8 +2,8 @@
 #define RA_SERVICES_IWINDOWCONFIGURATION
 #pragma once
 
-#include "ui\Types.hh"
-#include "ui\viewmodels\PopupViewModelBase.hh"
+#include "ui/Types.hh"
+#include "ui/viewmodels/PopupViewModelBase.hh"
 
 namespace ra {
 namespace services {

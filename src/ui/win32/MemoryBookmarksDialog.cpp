@@ -2,20 +2,20 @@
 
 #include "RA_Resource.h"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\PointerInspectorViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/PointerInspectorViewModel.hh"
 
-#include "ui\win32\bindings\GridAddressColumnBinding.hh"
-#include "ui\win32\bindings\GridMemoryWatchFormatColumnBinding.hh"
-#include "ui\win32\bindings\GridMemoryWatchValueColumnBinding.hh"
-#include "ui\win32\bindings\GridLookupColumnBinding.hh"
-#include "ui\win32\bindings\GridNumberColumnBinding.hh"
-#include "ui\win32\bindings\GridTextColumnBinding.hh"
+#include "ui/win32/bindings/GridAddressColumnBinding.hh"
+#include "ui/win32/bindings/GridMemoryWatchFormatColumnBinding.hh"
+#include "ui/win32/bindings/GridMemoryWatchValueColumnBinding.hh"
+#include "ui/win32/bindings/GridLookupColumnBinding.hh"
+#include "ui/win32/bindings/GridNumberColumnBinding.hh"
+#include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 using ra::ui::viewmodels::MemoryBookmarksViewModel;
 using ra::ui::win32::bindings::GridColumnBinding;

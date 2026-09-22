@@ -1,11 +1,11 @@
 #include "FileLocalStorage.hh"
 
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "services\IClock.hh"
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClock.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

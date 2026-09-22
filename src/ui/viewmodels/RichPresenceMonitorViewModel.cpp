@@ -1,15 +1,15 @@
 #include "RichPresenceMonitorViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IRcClient.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IConfiguration.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IConfiguration.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

@@ -1,7 +1,7 @@
 #include "ScoreTrackerViewModel.hh"
 
-#include "ui\OverlayTheme.hh"
-#include "ui\viewmodels\OverlayManager.hh"
+#include "ui/OverlayTheme.hh"
+#include "ui/viewmodels/OverlayManager.hh"
 
 namespace ra {
 namespace ui {

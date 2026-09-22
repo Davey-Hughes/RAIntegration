@@ -2,13 +2,13 @@
 #define RA_SERVICES_ACHIEVEMENT_RUNTIME_HH
 #pragma once
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\models\AchievementModel.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/models/AchievementModel.hh"
 
 #include <string>
 
-#include <rcheevos\include\rc_client.h>
+#include <rcheevos/include/rc_client.h>
 
 struct rc_api_fetch_game_sets_response_t;
 

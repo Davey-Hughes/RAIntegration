@@ -2,8 +2,8 @@
 #define RA_UI_VIEW_MODEL_BASE_H
 #pragma once
 
-#include "data\ModelBase.hh"
-#include "data\NotifyTargetSet.hh"
+#include "data/ModelBase.hh"
+#include "data/NotifyTargetSet.hh"
 
 namespace ra {
 namespace ui {

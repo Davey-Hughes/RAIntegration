@@ -2,17 +2,17 @@
 
 #include "RA_Resource.h"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "ui\win32\bindings\GridAddressColumnBinding.hh"
-#include "ui\win32\bindings\GridLookupColumnBinding.hh"
-#include "ui\win32\bindings\GridNumberColumnBinding.hh"
-#include "ui\win32\bindings\GridTextColumnBinding.hh"
+#include "ui/win32/bindings/GridAddressColumnBinding.hh"
+#include "ui/win32/bindings/GridLookupColumnBinding.hh"
+#include "ui/win32/bindings/GridNumberColumnBinding.hh"
+#include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 using ra::data::models::AssetModelBase;
 using ra::ui::viewmodels::AssetListViewModel;

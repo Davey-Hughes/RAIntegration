@@ -2,11 +2,11 @@
 #define RA_UI_PROGRESS_VIEW_MODEL_H
 #pragma once
 
-#include "data\AsyncObject.hh"
+#include "data/AsyncObject.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "data\models\AchievementModel.hh"
+#include "data/models/AchievementModel.hh"
 
 namespace ra {
 namespace ui {

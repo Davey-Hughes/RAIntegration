@@ -2,11 +2,11 @@
 #define RA_UI_MEMORYWATCHVIEWMODEL_H
 #pragma once
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "ui\Types.hh"
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/Types.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

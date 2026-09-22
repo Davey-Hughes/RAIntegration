@@ -1,11 +1,11 @@
 #include "NewAssetViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\IClipboard.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClipboard.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

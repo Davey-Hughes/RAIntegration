@@ -1,17 +1,17 @@
 #include "MemoryNotesViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\IConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\EditorTheme.hh"
-#include "ui\viewmodels\AssetUploadViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/EditorTheme.hh"
+#include "ui/viewmodels/AssetUploadViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

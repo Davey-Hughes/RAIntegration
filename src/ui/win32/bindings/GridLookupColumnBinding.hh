@@ -4,7 +4,7 @@
 
 #include "GridColumnBinding.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

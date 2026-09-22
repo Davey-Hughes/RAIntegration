@@ -1,11 +1,11 @@
 #include "EditorTheme.hh"
 #include "OverlayTheme.hh"
 
-#include "util\Json.hh"
-#include "util\Log.hh"
+#include "util/Json.hh"
+#include "util/Log.hh"
 
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

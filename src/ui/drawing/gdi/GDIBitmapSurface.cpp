@@ -1,6 +1,6 @@
 #include "GDIBitmapSurface.hh"
 
-#include "ui\drawing\gdi\ImageRepository.hh"
+#include "ui/drawing/gdi/ImageRepository.hh"
 
 namespace ra {
 namespace ui {

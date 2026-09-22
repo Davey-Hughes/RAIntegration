@@ -2,22 +2,22 @@
 
 #include "Exports.hh"
 #include "RA_md5factory.h"
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IClock.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\ILocalStorage.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IClock.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/ILocalStorage.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace data {

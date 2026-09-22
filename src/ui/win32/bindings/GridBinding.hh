@@ -5,7 +5,7 @@
 #include "ControlBinding.hh"
 #include "GridColumnBinding.hh"
 
-#include "ui\ViewModelCollection.hh"
+#include "ui/ViewModelCollection.hh"
 
 namespace ra {
 namespace ui {

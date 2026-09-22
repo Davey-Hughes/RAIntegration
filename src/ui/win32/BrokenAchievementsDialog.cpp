@@ -2,11 +2,11 @@
 
 #include "RA_Resource.h"
 
-#include "ui\win32\bindings\GridBooleanColumnBinding.hh"
-#include "ui\win32\bindings\GridCheckBoxColumnBinding.hh"
-#include "ui\win32\bindings\GridTextColumnBinding.hh"
+#include "ui/win32/bindings/GridBooleanColumnBinding.hh"
+#include "ui/win32/bindings/GridCheckBoxColumnBinding.hh"
+#include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
+#include "util/EnumOps.hh"
 
 using ra::ui::viewmodels::BrokenAchievementsViewModel;
 using ra::ui::win32::bindings::GridColumnBinding;

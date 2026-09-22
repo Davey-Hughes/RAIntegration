@@ -2,9 +2,9 @@
 #define RA_SERVICES_WIN32_HTTPREQUESTER_HH
 #pragma once
 
-#include "services\IHttpRequester.hh"
+#include "services/IHttpRequester.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 namespace ra {
 namespace services {

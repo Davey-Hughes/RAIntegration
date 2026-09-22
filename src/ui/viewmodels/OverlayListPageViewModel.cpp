@@ -1,13 +1,13 @@
 #include "OverlayListPageViewModel.hh"
 
-#include "util\Strings.hh"
-#include "util\TypeCasts.hh"
+#include "util/Strings.hh"
+#include "util/TypeCasts.hh"
 
-#include "services\IThreadPool.hh"
+#include "services/IThreadPool.hh"
 
-#include "ui\OverlayTheme.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/OverlayTheme.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

@@ -1,23 +1,23 @@
 #include "AssetUploadViewModel.hh"
 
-#include "api\UpdateAchievement.hh"
-#include "api\UpdateLeaderboard.hh"
-#include "api\UpdateRichPresence.hh"
-#include "api\UploadBadge.hh"
+#include "api/UpdateAchievement.hh"
+#include "api/UpdateLeaderboard.hh"
+#include "api/UpdateRichPresence.hh"
+#include "api/UploadBadge.hh"
 
-#include "context\UserContext.hh"
-#include "context\IRcClient.hh"
+#include "context/UserContext.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\Http.hh"
+#include "services/Http.hh"
 
-#include "ui\ImageReference.hh"
-#include "ui\IImageRepository.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/ImageReference.hh"
+#include "ui/IImageRepository.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Log.hh"
+#include "util/Log.hh"
 
 #include <rcheevos/include/rc_api_runtime.h>
 #include <rcheevos/include/rc_api_editor.h>

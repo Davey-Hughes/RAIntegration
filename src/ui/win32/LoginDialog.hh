@@ -2,11 +2,11 @@
 #define RA_UI_WIN32_DLG_LOGIN_H
 #pragma once
 
-#include "ui\viewmodels\LoginViewModel.hh"
-#include "ui\win32\DialogBase.hh"
-#include "ui\win32\IDialogPresenter.hh"
-#include "ui\win32\bindings\CheckBoxBinding.hh"
-#include "ui\win32\bindings\TextBoxBinding.hh"
+#include "ui/viewmodels/LoginViewModel.hh"
+#include "ui/win32/DialogBase.hh"
+#include "ui/win32/IDialogPresenter.hh"
+#include "ui/win32/bindings/CheckBoxBinding.hh"
+#include "ui/win32/bindings/TextBoxBinding.hh"
 
 #include <memory>
 

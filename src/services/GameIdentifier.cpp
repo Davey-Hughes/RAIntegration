@@ -1,29 +1,29 @@
 #include "GameIdentifier.hh"
 
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
 #include <rc_hash.h>
 
-#include "api\ResolveHash.hh"
+#include "api/ResolveHash.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\IAudioSystem.hh"
-#include "services\IConfiguration.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ILoginService.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IAudioSystem.hh"
+#include "services/IConfiguration.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ILoginService.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\UnknownGameViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/UnknownGameViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace services {

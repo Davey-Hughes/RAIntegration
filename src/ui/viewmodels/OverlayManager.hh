@@ -1,7 +1,7 @@
 #ifndef RA_UI_OVERLAY_MANAGER_H
 #define RA_UI_OVERLAY_MANAGER_H
 
-#include "RAInterface\RA_Interface.h"
+#include "RAInterface/RA_Interface.h"
 
 #include "OverlayViewModel.hh"
 #include "ChallengeIndicatorViewModel.hh"
@@ -10,12 +10,12 @@
 #include "ScoreboardViewModel.hh"
 #include "ScoreTrackerViewModel.hh"
 
-#include "data\Types.hh"
-#include "data\context\GameContext.hh"
+#include "data/Types.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IImageRepository.hh"
+#include "ui/IImageRepository.hh"
 
 namespace ra {
 namespace ui {

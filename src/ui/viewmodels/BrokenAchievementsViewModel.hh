@@ -2,9 +2,9 @@
 #define RA_UI_BROKENACHIEVEMENTSVIEWMODEL_H
 #pragma once
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

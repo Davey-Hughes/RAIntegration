@@ -2,8 +2,8 @@
 #define RA_UI_POPUPVIEWMODELBASE_H
 #pragma once
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\drawing\ISurface.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/drawing/ISurface.hh"
 
 namespace ra {
 namespace ui {

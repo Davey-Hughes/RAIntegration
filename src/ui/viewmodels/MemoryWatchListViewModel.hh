@@ -2,17 +2,17 @@
 #define RA_UI_MEMORYWATCHLISTVIEWMODEL_H
 #pragma once
 
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\TextReader.hh"
-#include "services\TextWriter.hh"
+#include "services/TextReader.hh"
+#include "services/TextWriter.hh"
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\viewmodels\MemoryWatchViewModel.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/viewmodels/MemoryWatchViewModel.hh"
 
 namespace ra {
 namespace ui {

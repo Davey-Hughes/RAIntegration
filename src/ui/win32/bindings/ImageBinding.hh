@@ -4,8 +4,8 @@
 
 #include "ControlBinding.hh"
 
-#include "ui\IImageRepository.hh"
-#include "ui\drawing\gdi\ImageRepository.hh"
+#include "ui/IImageRepository.hh"
+#include "ui/drawing/gdi/ImageRepository.hh"
 
 namespace ra {
 namespace ui {

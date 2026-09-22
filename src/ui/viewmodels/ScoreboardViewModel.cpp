@@ -1,10 +1,10 @@
 #include "ScoreboardViewModel.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "ui\OverlayTheme.hh"
+#include "ui/OverlayTheme.hh"
 
 namespace ra {
 namespace ui {

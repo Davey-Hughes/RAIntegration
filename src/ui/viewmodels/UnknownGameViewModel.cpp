@@ -2,26 +2,26 @@
 
 #include "RA_Defs.h"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IRcClient.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\AchievementRuntimeExports.hh"
-#include "services\IClipboard.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ILoginService.hh"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/AchievementRuntimeExports.hh"
+#include "services/IClipboard.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ILoginService.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include <rcheevos\include\rc_api_editor.h>
-#include <rcheevos\include\rc_api_info.h>
-#include <rcheevos\src\rc_client_external.h>
-#include <rcheevos\src\rc_client_internal.h>
+#include <rcheevos/include/rc_api_editor.h>
+#include <rcheevos/include/rc_api_info.h>
+#include <rcheevos/src/rc_client_external.h>
+#include <rcheevos/src/rc_client_internal.h>
 
 namespace ra {
 namespace ui {

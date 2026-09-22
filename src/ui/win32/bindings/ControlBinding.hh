@@ -2,9 +2,9 @@
 #define RA_UI_WIN32_CONTROLBINDING_H
 #pragma once
 
-#include "data\AsyncObject.hh"
-#include "ui\BindingBase.hh"
-#include "ui\win32\DialogBase.hh"
+#include "data/AsyncObject.hh"
+#include "ui/BindingBase.hh"
+#include "ui/win32/DialogBase.hh"
 
 namespace ra {
 namespace ui {

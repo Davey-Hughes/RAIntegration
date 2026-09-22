@@ -2,7 +2,7 @@
 
 #include "GridBinding.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #include "ui/viewmodels/WindowManager.hh"
 

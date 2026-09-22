@@ -4,8 +4,8 @@
 
 #include "ControlBinding.hh"
 
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

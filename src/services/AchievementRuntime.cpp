@@ -4,52 +4,52 @@
 #include "Exports.hh"
 #include "RA_Defs.h"
 #include "RA_Resource.h"
-#include "util\EnumOps.hh"
-#include "util\Json.hh"
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/EnumOps.hh"
+#include "util/Json.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
 #include "RA_md5factory.h"
 
-#include "api\impl\ConnectedServer.hh"
+#include "api/impl/ConnectedServer.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IEmulatorMemoryContext.hh"
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\FrameEventQueue.hh"
-#include "services\GameIdentifier.hh"
-#include "services\Http.hh"
-#include "services\IAudioSystem.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\IHttpRequester.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ILoginService.hh"
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
-#include "services\impl\JsonFileConfiguration.hh"
-#include "services\impl\LoginService.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/GameIdentifier.hh"
+#include "services/Http.hh"
+#include "services/IAudioSystem.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/IHttpRequester.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ILoginService.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
+#include "services/impl/JsonFileConfiguration.hh"
+#include "services/impl/LoginService.hh"
 
-#include "ui\viewmodels\IntegrationMenuViewModel.hh"
-#include "ui\viewmodels\LoginViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\OverlayManager.hh"
-#include "ui\viewmodels\PopupMessageViewModel.hh"
-#include "ui\viewmodels\UnknownGameViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/IntegrationMenuViewModel.hh"
+#include "ui/viewmodels/LoginViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "ui/viewmodels/PopupMessageViewModel.hh"
+#include "ui/viewmodels/UnknownGameViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include <rcheevos\include\rc_api_runtime.h>
-#include <rcheevos\include\rc_client_raintegration.h>
-#include <rcheevos\src\rapi\rc_api_common.h> // for parsing cached patchdata response
-#include <rcheevos\src\rcheevos\rc_internal.h>
-#include <rcheevos\src\rc_client_internal.h>
-#include <rcheevos\src\rhash\md5.h>
+#include <rcheevos/include/rc_api_runtime.h>
+#include <rcheevos/include/rc_client_raintegration.h>
+#include <rcheevos/src/rapi/rc_api_common.h> // for parsing cached patchdata response
+#include <rcheevos/src/rcheevos/rc_internal.h>
+#include <rcheevos/src/rc_client_internal.h>
+#include <rcheevos/src/rhash/md5.h>
 
 namespace ra {
 namespace services {

@@ -1,20 +1,20 @@
 #include "MemoryWatchListViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\util\AchievementLogicSerializer.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/util/AchievementLogicSerializer.hh"
 
-#include "services\FrameEventQueue.hh"
-#include "services\IConfiguration.hh"
-#include "services\IFileSystem.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ServiceLocator.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/IConfiguration.hh"
+#include "services/IFileSystem.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 #include <rcheevos/src/rcheevos/rc_internal.h>
 #include <rcheevos/src/rc_client_internal.h>

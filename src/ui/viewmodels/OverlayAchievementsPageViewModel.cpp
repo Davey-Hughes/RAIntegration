@@ -1,23 +1,23 @@
 #include "OverlayAchievementsPageViewModel.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "api\FetchAchievementInfo.hh"
+#include "api/FetchAchievementInfo.hh"
 
-#include "context\IRcClient.hh"
-#include "context\UserContext.hh"
+#include "context/IRcClient.hh"
+#include "context/UserContext.hh"
 
-#include "data\context\GameContext.hh"
-#include "data\context\SessionTracker.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IClock.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IClock.hh"
 
-#include "ui\OverlayTheme.hh"
+#include "ui/OverlayTheme.hh"
 
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
-#include <rcheevos\src\rc_client_internal.h>
+#include <rcheevos/src/rc_client_internal.h>
 
 namespace ra {
 namespace ui {
@@ -93,13 +93,13 @@ void OverlayAchievementsPageViewModel::Refresh()
 
     if (m_pMissableSurface == nullptr)
     {
-        #include "..\data\missable.h"
+        #include "../data/missable.h"
         m_pMissableSurface = LoadDecorator(MISSABLE_PIXELS, 20, 20);
 
-        #include "..\data\progression.h"
+        #include "../data/progression.h"
         m_pProgressionSurface = LoadDecorator(PROGRESSION_PIXELS, 20, 20);
 
-        #include "..\data\win-condition.h"
+        #include "../data/win-condition.h"
         m_pWinConditionSurface = LoadDecorator(WIN_CONDITION_PIXELS, 20, 20);
     }
 

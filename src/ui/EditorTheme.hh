@@ -2,9 +2,9 @@
 #define RA_UI_EDITOR_THEME_H
 #pragma once
 
-#include "util\GSL.hh"
+#include "util/GSL.hh"
 
-#include "ui\Types.hh"
+#include "ui/Types.hh"
 
 namespace ra {
 namespace ui {

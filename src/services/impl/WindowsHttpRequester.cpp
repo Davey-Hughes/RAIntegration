@@ -2,10 +2,10 @@
 
 #include "RA_Defs.h"
 
-#include "util\Log.hh"
-#include "util\Strings.hh"
+#include "util/Log.hh"
+#include "util/Strings.hh"
 
-#include "services\impl\StringTextWriter.hh"
+#include "services/impl/StringTextWriter.hh"
 
 #include <winhttp.h>
 

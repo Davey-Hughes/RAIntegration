@@ -2,7 +2,7 @@
 #define RA_SERVICES_INITIALIZATION_HH
 #pragma once
 
-#include "RAInterface\RA_Emulators.h"
+#include "RAInterface/RA_Emulators.h"
 
 namespace ra {
 namespace services {

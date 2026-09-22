@@ -2,15 +2,15 @@
 
 #include "RA_Defs.h"
 
-#include "context\IConsoleContext.hh"
+#include "context/IConsoleContext.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\EditorTheme.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/EditorTheme.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 namespace ra {
 namespace ui {

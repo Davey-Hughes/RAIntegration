@@ -7,8 +7,8 @@
 
 #include "ui/win32/bindings/GridTextColumnBinding.hh"
 
-#include "util\EnumOps.hh"
-#include "util\Log.hh"
+#include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 using ra::ui::viewmodels::PointerFinderViewModel;
 using ra::ui::win32::bindings::GridColumnBinding;

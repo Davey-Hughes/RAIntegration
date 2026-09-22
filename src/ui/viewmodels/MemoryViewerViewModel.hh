@@ -2,17 +2,17 @@
 #define RA_UI_MEMORYVIEWERVIEWMODEL_H
 #pragma once
 
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\Types.hh"
-#include "data\context\EmulatorContext.hh"
-#include "data\context\GameContext.hh"
+#include "data/Types.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "ui\drawing\ISurface.hh"
+#include "ui/drawing/ISurface.hh"
 
-#include "ui\viewmodels\LookupItemViewModel.hh"
+#include "ui/viewmodels/LookupItemViewModel.hh"
 
 namespace ra {
 namespace ui {

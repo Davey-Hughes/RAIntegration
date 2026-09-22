@@ -1,20 +1,20 @@
 #include "MemoryWatchViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "context\IConsoleContext.hh"
-#include "context\IRcClient.hh"
+#include "context/IConsoleContext.hh"
+#include "context/IRcClient.hh"
 
-#include "data\context\EmulatorContext.hh"
-#include "data\util\AchievementLogicSerializer.hh"
+#include "data/context/EmulatorContext.hh"
+#include "data/util/AchievementLogicSerializer.hh"
 
-#include "services\AchievementRuntime.hh"
-#include "services\IConfiguration.hh"
-#include "services\SearchResults.h"
-#include "services\ServiceLocator.hh"
+#include "services/AchievementRuntime.hh"
+#include "services/IConfiguration.hh"
+#include "services/SearchResults.h"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 #include <rcheevos/src/rcheevos/rc_internal.h>
 #include <rcheevos/src/rc_client_internal.h>

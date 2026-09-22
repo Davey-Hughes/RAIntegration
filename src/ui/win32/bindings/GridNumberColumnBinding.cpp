@@ -4,7 +4,7 @@
 
 #include "RA_Defs.h"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 namespace ra {
 namespace ui {

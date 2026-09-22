@@ -62,7 +62,7 @@
 
 /* gsl stuff */
 #define GSL_THROW_ON_CONTRACT_VIOLATION
-#include <gsl\gsl>
+#include <gsl/gsl>
 
 // the default GSL Expects() macro throws an exception, which we don't try to catch anywhere.
 // replace it with our custom handler, which will log and report the error before throwing it.
@@ -89,7 +89,7 @@
 #pragma warning(pop)
 
 #if RA_UTEST
- #include <CodeAnalysis\Warnings.h>
+ #include <CodeAnalysis/Warnings.h>
  #pragma warning(push)
   #pragma warning(disable : ALL_CPPCORECHECK_WARNINGS ALL_CODE_ANALYSIS_WARNINGS)
   #include "CppUnitTest.h"

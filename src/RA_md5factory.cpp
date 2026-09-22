@@ -2,8 +2,8 @@
 
 #include "RA_Defs.h"
 
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
 
 #include <rcheevos/src/rhash/md5.h>
 

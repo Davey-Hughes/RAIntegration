@@ -5,7 +5,7 @@
 #include "GridBinding.hh"
 #include "GridLookupColumnBinding.hh"
 
-#include "ui\viewmodels\MemoryWatchViewModel.hh"
+#include "ui/viewmodels/MemoryWatchViewModel.hh"
 
 namespace ra {
 namespace ui {

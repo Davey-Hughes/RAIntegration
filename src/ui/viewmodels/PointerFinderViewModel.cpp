@@ -1,7 +1,7 @@
 #include "PointerFinderViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #include "context/IConsoleContext.hh"
 

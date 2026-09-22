@@ -2,9 +2,9 @@
 #define RA_UI_TRIGGERSUMMARYVIEWMODEL_H
 #pragma once
 
-#include "ui\WindowViewModelBase.hh"
-#include "ui\ViewModelCollection.hh"
-#include "ui\Types.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/ViewModelCollection.hh"
+#include "ui/Types.hh"
 
 struct rc_condset_t;
 

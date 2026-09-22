@@ -4,7 +4,7 @@
 
 #include "SearchImpl_32bit.hh"
 
-#include <rcheevos\src\rcheevos\rc_internal.h>
+#include <rcheevos/src/rcheevos/rc_internal.h>
 
 namespace ra {
 namespace services {

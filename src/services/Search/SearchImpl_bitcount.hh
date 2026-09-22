@@ -4,7 +4,7 @@
 
 #include "SearchImpl.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 namespace ra {
 namespace services {

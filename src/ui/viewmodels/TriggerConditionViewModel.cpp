@@ -1,19 +1,19 @@
 #include "TriggerConditionViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\context\GameContext.hh"
-#include "data\util\AchievementLogicSerializer.hh"
-#include "data\util\IndirectNoteResolver.hh"
+#include "data/context/GameContext.hh"
+#include "data/util/AchievementLogicSerializer.hh"
+#include "data/util/IndirectNoteResolver.hh"
 
-#include "services\IConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\TriggerViewModel.hh"
-#include "ui\EditorTheme.hh"
+#include "ui/viewmodels/TriggerViewModel.hh"
+#include "ui/EditorTheme.hh"
 
-#include <rcheevos\src\rcheevos\rc_internal.h>
+#include <rcheevos/src/rcheevos/rc_internal.h>
 
 namespace ra {
 namespace ui {

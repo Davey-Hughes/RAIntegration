@@ -2,10 +2,10 @@
 #define RA_UI_DRAWING_GDI_SURFACE_H
 #pragma once
 
-#include "ui\drawing\ISurface.hh"
-#include "ui\drawing\gdi\ResourceRepository.hh"
+#include "ui/drawing/ISurface.hh"
+#include "ui/drawing/gdi/ResourceRepository.hh"
 
-#include "util\GSL.hh"
+#include "util/GSL.hh"
 
 namespace ra {
 namespace ui {

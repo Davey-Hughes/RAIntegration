@@ -5,7 +5,7 @@
 #include "Types.hh"
 #include "ViewModelBase.hh"
 
-#include "util\TypeCasts.hh"
+#include "util/TypeCasts.hh"
 
 namespace ra {
 namespace ui {

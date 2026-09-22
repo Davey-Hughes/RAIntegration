@@ -1,13 +1,13 @@
 #include "ControlBinding.hh"
 
-#include "data\context\EmulatorContext.hh"
+#include "data/context/EmulatorContext.hh"
 
-#include "services\ServiceLocator.hh"
-#include "services\IClock.hh"
+#include "services/ServiceLocator.hh"
+#include "services/IClock.hh"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "ui\win32\Desktop.hh"
+#include "ui/win32/Desktop.hh"
 
 namespace ra {
 namespace ui {

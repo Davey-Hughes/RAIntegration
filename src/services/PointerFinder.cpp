@@ -2,15 +2,15 @@
 
 #include "RA_Defs.h"
 
-#include "context\IConsoleContext.hh"
+#include "context/IConsoleContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "ui\IDesktop.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/IDesktop.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 /* General algorithm:
  * - For each of 2 or more snapshots, identify any memory that looks like a pointer

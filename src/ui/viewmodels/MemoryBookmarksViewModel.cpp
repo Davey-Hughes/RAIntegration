@@ -1,21 +1,21 @@
 #include "MemoryBookmarksViewModel.hh"
 
 #include "RA_Defs.h"
-#include "util\Json.hh"
-#include "util\Strings.hh"
+#include "util/Json.hh"
+#include "util/Strings.hh"
 
-#include "context\IEmulatorMemoryContext.hh"
+#include "context/IEmulatorMemoryContext.hh"
 
-#include "data\Types.hh"
-#include "data\util\AchievementLogicSerializer.hh"
+#include "data/Types.hh"
+#include "data/util/AchievementLogicSerializer.hh"
 
-#include "services\FrameEventQueue.hh"
-#include "services\IFileSystem.hh"
-#include "services\ILocalStorage.hh"
-#include "services\ServiceLocator.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/IFileSystem.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 #include <rcheevos/src/rcheevos/rc_internal.h>
 
