@@ -56,7 +56,7 @@ public:
 
 protected:
     template<typename TResponse>
-    inline typename TResponse UnsupportedApi(const char* const _RESTRICT apiName) const
+    inline TResponse UnsupportedApi(const char* const _RESTRICT apiName) const
     {
         static_assert(std::is_base_of<ApiResponseBase, TResponse>::value, "TResponse must derive from ApiResponseBase");
 

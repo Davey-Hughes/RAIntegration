@@ -16,7 +16,12 @@ class FileTextReader : public ra::services::TextReader
 {
 public:
     explicit FileTextReader(const std::wstring& sFilename)
+        #ifdef _MSC_VER
         : m_iStream(sFilename, std::ios::binary)
+#else
+        /* only MSVC accepts a wide path here; elsewhere it must be narrowed */
+        : m_iStream(ra::util::String::Narrow(sFilename), std::ios::binary)
+#endif
     {
     }
 

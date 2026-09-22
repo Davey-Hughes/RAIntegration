@@ -8,6 +8,8 @@
 #include "ui/Types.hh"
 #include "ui/viewmodels/LookupItemViewModel.hh"
 
+#include <rcheevos/include/rc_runtime_types.h>
+
 namespace ra {
 namespace ui {
 namespace viewmodels {

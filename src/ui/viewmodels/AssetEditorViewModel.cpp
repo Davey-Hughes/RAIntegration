@@ -132,7 +132,7 @@ void AssetEditorViewModel::SelectBadgeFile()
         ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(ra::util::String::Printf(L"Could not read %s", pFileName));
         return;
     }
-    byte pHeader[16]{};
+    uint8_t pHeader[16]{};
     pFile->GetBytes(pHeader, sizeof(pHeader));
 
     auto sExtension = ra::util::String::Narrow(pFileSystemService.GetExtension(pFileName));

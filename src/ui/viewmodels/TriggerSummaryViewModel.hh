@@ -6,6 +6,8 @@
 #include "ui/ViewModelCollection.hh"
 #include "ui/Types.hh"
 
+#include <rcheevos/include/rc_runtime_types.h>
+
 struct rc_condset_t;
 
 namespace ra {

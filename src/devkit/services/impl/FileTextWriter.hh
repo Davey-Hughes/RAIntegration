@@ -16,7 +16,11 @@ class FileTextWriter : public ra::services::TextWriter
 {
 public:
     explicit FileTextWriter(const std::wstring& sFilename, std::ios_base::openmode nMode = std::ios::out)
+        #ifdef _MSC_VER
         : m_oStream(sFilename, std::ios::binary | nMode)
+#else
+        : m_oStream(ra::util::String::Narrow(sFilename), std::ios::binary | nMode)
+#endif
     {
     }
 
