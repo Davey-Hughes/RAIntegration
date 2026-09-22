@@ -10,6 +10,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Fail a single translation unit after 180s instead of letting it spin (a C file
+# force-including a C++ header under -ferror-limit=0 can loop in error recovery).
+find_program(TIMEOUT_EXE timeout)
+if(TIMEOUT_EXE)
+  set(CMAKE_C_COMPILER_LAUNCHER ${TIMEOUT_EXE} 180)
+  set(CMAKE_CXX_COMPILER_LAUNCHER ${TIMEOUT_EXE} 180)
+endif()
+
 file(GLOB_RECURSE PORTABLE_SOURCES
   src/api/*.cpp
   src/data/*.cpp
