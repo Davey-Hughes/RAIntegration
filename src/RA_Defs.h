@@ -2,7 +2,7 @@
 #define RA_DEFS_H
 #pragma once
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 #if !(RA_EXPORTS || RA_UTEST)
 #include "windows_nodefines.h"
@@ -26,14 +26,14 @@
 //	Version Information is integrated into tags
 #else
 
-#include "util\Log.hh"
+#include "util/Log.hh"
 
 //	RA-Only
 using namespace std::string_literals;
 #endif	// RA_EXPORTS
 
-#include "data\Types.hh"
-#include "data\Memory.hh"
+#include "data/Types.hh"
+#include "data/Memory.hh"
 
 #define RA_DIR_OVERLAY                  L"Overlay\\"
 #define RA_DIR_BASE                     L"RACache\\"
@@ -53,112 +53,9 @@ using namespace std::string_literals;
 #define SIZEOF_ARRAY( ar )  ( sizeof( ar ) / sizeof( ar[ 0 ] ) )
 #define SAFE_DELETE( x )    { if( x != nullptr ) { delete x; x = nullptr; } }
 
-//namespace RA
-//{
-class RARect : public RECT
-{
-public:
-    RARect() noexcept = default;
-    explicit RARect(LONG nX, LONG nY, LONG nW, LONG nH) noexcept
-    {
-        left = nX;
-        right = nX + nW;
-        top = nY;
-        bottom = nY + nH;
-    }
-
-public:
-    _NODISCARD _CONSTANT_FN Width() const noexcept { return (right - left); }
-    _NODISCARD _CONSTANT_FN Height() const noexcept { return (bottom - top); }
-};
-
-class ResizeContent
-{
-public:
-    enum class AlignType
-    {
-        Right,
-        Bottom,
-        BottomRight
-    };
-
-public:
-    HWND hwnd{};
-    POINT pLT{};
-    POINT pRB{};
-    AlignType nAlignType{};
-    int nDistanceX{};
-    int nDistanceY{};
-    bool bResize{};
-
-    explicit ResizeContent(_In_ HWND contentHwnd, _In_ AlignType newAlignType, _In_ bool isResize) noexcept :
-        hwnd{ contentHwnd },
-        nAlignType{ newAlignType },
-        bResize{ isResize }
-    {
-        RARect rect{};
-        auto check = ::GetWindowRect(hwnd, &rect);
-        assert(check != 0);
-
-        pLT ={ rect.left, rect.top };
-        pRB ={ rect.right, rect.bottom };
-
-        HWND__* const _RESTRICT parentHwnd = ::GetParent(contentHwnd);
-        check = ::ScreenToClient(parentHwnd, &pLT);
-        assert(check != 0);
-        check = ::ScreenToClient(parentHwnd, &pRB);
-        assert(check != 0);
-
-        check = ::GetWindowRect(parentHwnd, &rect);
-        assert(check != 0);
-        nDistanceX = rect.Width() - pLT.x;
-        nDistanceY = rect.Height() - pLT.y;
-
-        if (bResize)
-        {
-            nDistanceX -= (pRB.x - pLT.x);
-            nDistanceY -= (pRB.y - pLT.y);
-        }
-    }
-
-    void Resize(_In_ int width, _In_ int height) const noexcept
-    {
-        int xPos = 0, yPos = 0;
-
-        switch (nAlignType)
-        {
-            case AlignType::Right:
-                xPos = width - nDistanceX - (bResize ? pLT.x : 0);
-                yPos = bResize ? (pRB.y - pLT.y) : pLT.y;
-                break;
-            case AlignType::Bottom:
-                xPos = bResize ? (pRB.x - pLT.x) : pLT.x;
-                yPos = height - nDistanceY - (bResize ? pLT.y : 0);
-                break;
-            case AlignType::BottomRight:
-                xPos = width - nDistanceX - (bResize ? pLT.x : 0);
-                yPos = height - nDistanceY - (bResize ? pLT.y : 0);
-                break;
-            default:
-                xPos = bResize ? (pRB.x - pLT.x) : pLT.x;
-                yPos = bResize ? (pRB.y - pLT.x) : pLT.y;
-        }
-
-        if (BOOL check = 0; !bResize)
-        {
-            check = ::SetWindowPos(hwnd, nullptr, xPos, yPos, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-            assert(check != 0);
-        }
-        else
-        {
-            check = ::SetWindowPos(hwnd, nullptr, 0, 0, xPos, yPos, SWP_NOMOVE | SWP_NOZORDER);
-            assert(check != 0);
-        }
-    }
-};
-
-//};
-//using namespace RA;
+/* RARect and ResizeContent (Win32 dialog layout helpers) were removed here:
+ * they had no callers anywhere in src/ or tests/, and their presence forced
+ * every translation unit including RA_Defs.h to depend on <Windows.h>. */
 
 namespace ra {
 bool ParseUnsignedInt(const std::wstring& sValue, unsigned int nMaximumValue, _Out_ unsigned int& nValue, _Out_ std::wstring& sError);
