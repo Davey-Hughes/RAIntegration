@@ -2,9 +2,10 @@
 
 #include "services/impl/PlatformServices.hh"
 
-#include "services/impl/FileLogger.hh"
+#include "services/impl/LinuxDebuggerDetector.hh"
 #include "services/impl/LinuxFileSystem.hh"
 #include "services/impl/LinuxHttpRequester.hh"
+#include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
 #include "ui/null/NullDesktop.hh"
@@ -21,7 +22,7 @@ std::unique_ptr<ra::services::IFileSystem> CreatePlatformFileSystem()
 
 std::unique_ptr<ra::services::ILogger> CreatePlatformLogger(const ra::services::IFileSystem& pFileSystem)
 {
-    return std::make_unique<FileLogger>(pFileSystem); // StderrFileLogger in Task 7
+    return std::make_unique<StderrFileLogger>(pFileSystem);
 }
 
 std::unique_ptr<ra::services::IHttpRequester> CreatePlatformHttpRequester()
@@ -41,7 +42,7 @@ std::unique_ptr<ra::services::IAudioSystem> CreatePlatformAudioSystem()
 
 std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector()
 {
-    return nullptr; // LinuxDebuggerDetector in Task 7
+    return std::make_unique<LinuxDebuggerDetector>();
 }
 
 std::unique_ptr<ra::ui::IDesktop> CreatePlatformDesktop()
