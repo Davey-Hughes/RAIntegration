@@ -6,7 +6,6 @@
 #include "services/ILocalStorage.hh"
 #include "services/ServiceLocator.hh"
 
-#include "util/Log.hh"
 #include "util/Strings.hh"
 
 #include <rcheevos/src/rc_client_internal.h>
@@ -97,6 +96,22 @@ static void ConvertHttpResponseToApiServerResponse(rc_api_server_response_t& pRe
     }
 }
 
+// RA_LOG_INFO (util/Log.hh) is a no-op under RA_UTEST: most unit tests never
+// register an ILogger, and code that logs unconditionally must not throw
+// (ServiceLocator::Get<ILogger>() throws when nothing was provided). The
+// callers below guard on ServiceLocator::Exists<ILogger>() themselves - they
+// need to actually reach the logger when a test *does* register one, to
+// prove credentials are redacted before they're logged (see RcClient_Tests).
+// So log directly here instead of through the macro; this is exactly what
+// RA_LOG_INFO expands to outside of RA_UTEST, which is how this file is
+// always built on Windows, so behavior there is unchanged.
+static void LogInfo(const std::string& sMessage)
+{
+    const auto& pLogger = ra::services::ServiceLocator::Get<ra::services::ILogger>();
+    if (pLogger.IsEnabled(ra::services::LogLevel::Info))
+        pLogger.LogMessage(ra::services::LogLevel::Info, sMessage);
+}
+
 static std::string_view FindParameter(const std::string& sInput, const std::string& sParameter)
 {
     auto nIndex = sInput.find(sParameter);
@@ -139,7 +154,7 @@ static std::string LogRequest(std::string sParams)
                     sParams.replace(svPassword.data() - sParams.data(), svPassword.length(), "[redacted]");
             }
 
-            RA_LOG_INFO(">> %s request: %s", sApi.c_str(), sParams.c_str());
+            LogInfo(ra::util::String::Printf(">> %s request: %s", sApi.c_str(), sParams.c_str()));
         }
     }
 
@@ -162,11 +177,11 @@ void RcClient::LogResponse(const std::string& sApi, const ra::services::Http::Re
                 if (nIndex2 != std::string::npos)
                     sResponse.replace(nIndex, nIndex2 - nIndex, "[redacted]");
             }
-            RA_LOG_INFO("<< %s %s (%d): %s", sApi.c_str(), GetResponseLogQualifier(), ra::etoi(httpResponse.StatusCode()), sResponse.c_str());
+            LogInfo(ra::util::String::Printf("<< %s %s (%d): %s", sApi.c_str(), GetResponseLogQualifier(), ra::etoi(httpResponse.StatusCode()), sResponse.c_str()));
         }
         else
         {
-            RA_LOG_INFO("<< %s %s (%d): %s", sApi.c_str(), GetResponseLogQualifier(), ra::etoi(httpResponse.StatusCode()), httpResponse.Content().c_str());
+            LogInfo(ra::util::String::Printf("<< %s %s (%d): %s", sApi.c_str(), GetResponseLogQualifier(), ra::etoi(httpResponse.StatusCode()), httpResponse.Content().c_str()));
         }
     }
 }
