@@ -1,5 +1,7 @@
 #include "OverlayViewModel.hh"
 
+#include "RA_Defs.h"
+
 #include "util/Strings.hh"
 
 #include "context/IRcClient.hh"
@@ -135,7 +137,7 @@ void OverlayViewModel::CreateRenderImage()
     constexpr auto nMargin = 8;
 
     // background image
-    const ImageReference pOverlayBackground(ra::ui::ImageType::Local, "Overlay\\overlayBG.png");
+    const ImageReference pOverlayBackground(ra::ui::ImageType::Local, "Overlay" RA_DIR_SEP "overlayBG.png");
     if (ra::services::ServiceLocator::Get<ra::ui::IImageRepository>().IsImageAvailable(pOverlayBackground.Type(), pOverlayBackground.Name()))
     {
         m_pSurface->DrawImageStretched(0, 0, nWidth, nHeight, pOverlayBackground);

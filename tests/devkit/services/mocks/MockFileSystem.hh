@@ -7,6 +7,7 @@
 #include "services/impl/StringTextReader.hh"
 #include "services/impl/StringTextWriter.hh"
 
+#include <algorithm>
 #include <set>
 
 namespace ra {
@@ -29,25 +30,27 @@ public:
 
     bool DirectoryExists(const std::wstring& sDirectory) const override
     {
-        return m_vDirectories.find(sDirectory) != m_vDirectories.end();
+        return m_vDirectories.find(NormalizeKey(sDirectory)) != m_vDirectories.end();
     }
 
     bool CreateDirectory(const std::wstring& sDirectory) const override
     {
-        m_vDirectories.insert(sDirectory);
+        m_vDirectories.insert(NormalizeKey(sDirectory));
         return true;
     }
-    
+
     size_t GetFilesInDirectory(const std::wstring& sDirectory, _Inout_ std::vector<std::wstring>& vResults) const override
     {
+        const std::wstring sNormalizedDirectory = NormalizeKey(sDirectory);
         const size_t nInitialSize = vResults.size();
 
         for (auto& sFile : m_mFileContents)
         {
-            const size_t nIndex = sFile.first.find_last_of('\\');
-            if (nIndex == sDirectory.length() - 1)
+            // keys are stored normalized (Step 2), so the separator to look for is '/'
+            const size_t nIndex = sFile.first.find_last_of('/');
+            if (nIndex == sNormalizedDirectory.length() - 1)
             {
-                if (sFile.first.compare(0, nIndex, sDirectory.c_str(), 0, nIndex) == 0)
+                if (sFile.first.compare(0, nIndex, sNormalizedDirectory.c_str(), 0, nIndex) == 0)
                     vResults.emplace_back(sFile.first, nIndex + 1, sFile.first.length() - nIndex);
             }
         }
@@ -62,20 +65,21 @@ public:
     /// <param name="sContents">The contents of the file.</param>
     void MockFile(const std::wstring& sPath, const std::string& sContents)
     {
-        m_mFileSizes.erase(sPath);
-        m_mFileContents.insert_or_assign(sPath, sContents);
+        const std::wstring sKey = NormalizeKey(sPath);
+        m_mFileSizes.erase(sKey);
+        m_mFileContents.insert_or_assign(sKey, sContents);
     }
 
     const std::string& GetFileContents(const std::wstring& sPath)
     {
-        const auto pIter = m_mFileContents.find(sPath);
+        const auto pIter = m_mFileContents.find(NormalizeKey(sPath));
         if (pIter != m_mFileContents.end())
             return pIter->second;
 
         static const std::string sEmpty;
         return sEmpty;
     }
-    
+
     /// <summary>
     /// Mocks the size of the file.
     /// </summary>
@@ -84,16 +88,18 @@ public:
     /// <remarls>Mocked size will be discarded if the file is updated (MockFile, CreateTextFile, or AppendTextFile is called for the file).</remarks>
     void MockFileSize(const std::wstring& sPath, int64_t nFileSize)
     {
-        m_mFileSizes.insert_or_assign(sPath, nFileSize);
+        m_mFileSizes.insert_or_assign(NormalizeKey(sPath), nFileSize);
     }
 
     int64_t GetFileSize(const std::wstring& sPath) const override
     {
-        const auto pIter = m_mFileSizes.find(sPath);
+        const std::wstring sKey = NormalizeKey(sPath);
+
+        const auto pIter = m_mFileSizes.find(sKey);
         if (pIter != m_mFileSizes.end())
             return pIter->second;
 
-        const auto pIter2 = m_mFileContents.find(sPath);
+        const auto pIter2 = m_mFileContents.find(sKey);
         if (pIter2 != m_mFileContents.end())
             return pIter2->second.length();
 
@@ -102,11 +108,13 @@ public:
 
     std::chrono::system_clock::time_point GetLastModified(const std::wstring& sPath) const override
     {
-        const auto pIter = m_mFileModifiedTimes.find(sPath);
+        const std::wstring sKey = NormalizeKey(sPath);
+
+        const auto pIter = m_mFileModifiedTimes.find(sKey);
         if (pIter != m_mFileModifiedTimes.end())
             return pIter->second;
 
-        const auto pIter2 = m_mFileContents.find(sPath);
+        const auto pIter2 = m_mFileContents.find(sKey);
         if (pIter2 != m_mFileContents.end())
             return std::chrono::system_clock::now();
 
@@ -115,29 +123,33 @@ public:
 
     void MockLastModified(const std::wstring& sPath, std::chrono::system_clock::time_point tLastModified)
     {
-        m_mFileModifiedTimes.insert_or_assign(sPath, tLastModified);
+        m_mFileModifiedTimes.insert_or_assign(NormalizeKey(sPath), tLastModified);
     }
 
     bool DeleteFile(const std::wstring& sPath) const noexcept override
     {
-        m_mFileSizes.erase(sPath);
-        m_mFileModifiedTimes.erase(sPath);
-        return m_mFileContents.erase(sPath) != 0;
+        const std::wstring sKey = NormalizeKey(sPath);
+        m_mFileSizes.erase(sKey);
+        m_mFileModifiedTimes.erase(sKey);
+        return m_mFileContents.erase(sKey) != 0;
     }
 
     bool MoveFile(const std::wstring& sOldPath, const std::wstring& sNewPath) const override
     {
-        auto hNode = m_mFileContents.extract(sOldPath);
+        const std::wstring sOldKey = NormalizeKey(sOldPath);
+        const std::wstring sNewKey = NormalizeKey(sNewPath);
+
+        auto hNode = m_mFileContents.extract(sOldKey);
         if (hNode.empty())
             return false;
 
-        hNode.key() = sNewPath;
+        hNode.key() = sNewKey;
         (void)m_mFileContents.insert(std::move(hNode));
 
-        auto hNode2 = m_mFileSizes.extract(sOldPath);
+        auto hNode2 = m_mFileSizes.extract(sOldKey);
         if (!hNode2.empty())
         {
-            hNode2.key() = sNewPath;
+            hNode2.key() = sNewKey;
             (void)m_mFileSizes.insert(std::move(hNode2));
         }
 
@@ -146,22 +158,25 @@ public:
 
     bool CopyFile(const std::wstring& sOldPath, const std::wstring& sNewPath) const override
     {
-        const auto hNode = m_mFileContents.find(sOldPath);
+        const std::wstring sOldKey = NormalizeKey(sOldPath);
+        const std::wstring sNewKey = NormalizeKey(sNewPath);
+
+        const auto hNode = m_mFileContents.find(sOldKey);
         if (hNode == m_mFileContents.end())
             return false;
 
-        m_mFileContents.insert_or_assign(sNewPath, hNode->second);
+        m_mFileContents.insert_or_assign(sNewKey, hNode->second);
 
-        const auto hNode2 = m_mFileSizes.find(sOldPath);
+        const auto hNode2 = m_mFileSizes.find(sOldKey);
         if (hNode2 != m_mFileSizes.end())
-            m_mFileSizes.insert_or_assign(sNewPath, hNode2->second);
+            m_mFileSizes.insert_or_assign(sNewKey, hNode2->second);
 
         return true;
     }
 
     std::unique_ptr<TextReader> OpenTextFile(const std::wstring& sPath) const override
     {
-        const auto pIter = m_mFileContents.find(sPath);
+        const auto pIter = m_mFileContents.find(NormalizeKey(sPath));
         if (pIter == m_mFileContents.end())
             return std::unique_ptr<TextReader>();
 
@@ -171,20 +186,22 @@ public:
 
     std::unique_ptr<TextWriter> CreateTextFile(const std::wstring& sPath) const override
     {
-        m_mFileSizes.erase(sPath);
+        const std::wstring sKey = NormalizeKey(sPath);
+        m_mFileSizes.erase(sKey);
 
         // insert_or_assign will replace any existing value
-        const auto iter = m_mFileContents.insert_or_assign(sPath, "");
+        const auto iter = m_mFileContents.insert_or_assign(sKey, "");
         auto pWriter = std::make_unique<ra::services::impl::StringTextWriter>(iter.first->second);
         return std::unique_ptr<TextWriter>(pWriter.release());
     }
 
     std::unique_ptr<TextWriter> AppendTextFile(const std::wstring& sPath) const override
     {
-        m_mFileSizes.erase(sPath);
+        const std::wstring sKey = NormalizeKey(sPath);
+        m_mFileSizes.erase(sKey);
 
         // insert will return a pointer to the new (or previously existing) value
-        const auto iter = m_mFileContents.insert({ sPath, "" });
+        const auto iter = m_mFileContents.insert({ sKey, "" });
         auto pWriter = std::make_unique<ra::services::impl::StringTextWriter>(iter.first->second);
         return std::unique_ptr<TextWriter>(pWriter.release());
     }
@@ -226,6 +243,17 @@ public:
     }
 
 private:
+    // Test data spells paths with backslashes throughout, because that is what
+    // the Windows build produces. The mock stores and looks up keys in one
+    // canonical form so the suite does not have to care which separator the
+    // platform's IFileSystem emits.
+    static std::wstring NormalizeKey(const std::wstring& sPath)
+    {
+        std::wstring sResult(sPath);
+        std::replace(sResult.begin(), sResult.end(), L'\\', L'/');
+        return sResult;
+    }
+
     ra::services::ServiceLocator::ServiceOverride<ra::services::IFileSystem> m_Override;
     std::wstring m_sBaseDirectory = L".\\";
     mutable std::set<std::wstring> m_vDirectories;

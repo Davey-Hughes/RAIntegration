@@ -1,5 +1,7 @@
 #include "services/AchievementRuntime.hh"
 
+#include "RA_Defs.h"
+
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/data/DataAsserts.hh"
 #include "tests/devkit/context/mocks/MockConsoleContext.hh"
@@ -1595,7 +1597,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventHardcore)
@@ -1630,7 +1632,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventHardcoreRare)
@@ -1666,7 +1668,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\rareunlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"rareunlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventNoRichPresence)
@@ -1698,7 +1700,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventLocal)
@@ -1730,7 +1732,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventUnpromoted)
@@ -1763,7 +1765,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventCompatibilityMode)
@@ -1796,7 +1798,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventModified)
@@ -1829,7 +1831,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventLocalModified)
@@ -1862,7 +1864,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventMemoryModified)
@@ -1895,7 +1897,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventMemoryInsecureHardcore)
@@ -1930,7 +1932,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventMemoryInsecureSoftcore)
@@ -1967,7 +1969,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventOffline)
@@ -2000,7 +2002,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventOnlyHardcoreWithHardcoreOff)
@@ -2034,7 +2036,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({ 0U }, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventOnlyHardcoreWithHardcoreOn)
@@ -2070,7 +2072,7 @@ public:
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
         Assert::AreEqual({ 0U }, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredEventNoPopup)
@@ -2096,7 +2098,7 @@ public:
         auto* pPopup = runtime.mockOverlayManager.GetMessage(1);
         Assert::IsNull(pPopup);
         Assert::AreEqual({0U}, runtime.mockFrameEventQueue.NumTriggeredTriggers());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleAchievementTriggeredServerError)
@@ -2129,7 +2131,7 @@ public:
         Assert::IsTrue(pPopup->IsDetailError());
         Assert::AreEqual(ra::ui::ImageType::Badge, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleChallengeIndicatorShowEvent)
@@ -2360,7 +2362,7 @@ public:
         Assert::AreEqual(std::wstring(L"User_ | Play time: 5h33m"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::Icon, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleGameCompletedEventSoftcore)
@@ -2393,7 +2395,7 @@ public:
         Assert::AreEqual(std::wstring(L"User_ | Play time: 5h33m"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::Icon, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleSubsetCompletedEventHardcore)
@@ -2429,7 +2431,7 @@ public:
         Assert::AreEqual(std::wstring(L"User_ | Play time: 5h33m"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::Icon, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleSubsetCompletedEventSoftcore)
@@ -2465,7 +2467,7 @@ public:
         Assert::AreEqual(std::wstring(L"User_ | Play time: 5h33m"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::Icon, pPopup->GetImage().Type());
         Assert::AreEqual(std::string("012345"), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\unlock.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"unlock.wav"));
     }
 
     TEST_METHOD(TestHandleLeaderboardStartedEvent)
@@ -2491,7 +2493,7 @@ public:
         Assert::AreEqual(std::wstring(L"Description 4"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\lb.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"lb.wav"));
     }
 
     TEST_METHOD(TestHandleLeaderboardStartedEventNoPopup)
@@ -2555,7 +2557,7 @@ public:
         Assert::AreEqual(std::wstring(L"Description 4"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\lbcancel.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"lbcancel.wav"));
     }
 
     TEST_METHOD(TestHandleLeaderboardFailedEventNoPopup)
@@ -2663,7 +2665,7 @@ public:
         Assert::AreEqual(std::wstring(L"Local leaderboards are not submitted."), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2694,7 +2696,7 @@ public:
         Assert::AreEqual(std::wstring(L"Leaderboards are not submitted in compatibility test mode."), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2725,7 +2727,7 @@ public:
         Assert::AreEqual(std::wstring(L"Modified leaderboards are not submitted."), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2757,7 +2759,7 @@ public:
         Assert::AreEqual(std::wstring(L"Modified leaderboards are not submitted."), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2788,7 +2790,7 @@ public:
         Assert::AreEqual(std::wstring(L"Error: RAM tampered with"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2818,7 +2820,7 @@ public:
         Assert::AreEqual(std::wstring(L"Submission requires Hardcore mode"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2849,7 +2851,7 @@ public:
         Assert::AreEqual(std::wstring(L"Error: RAM insecure"), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -2880,7 +2882,7 @@ public:
         Assert::AreEqual(std::wstring(L"Leaderboards are not submitted in offline mode."), pPopup->GetDetail());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\info.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"info.wav"));
 
         AssertSimpleScoreboard(runtime, 4U);
     }
@@ -3338,7 +3340,7 @@ public:
         Assert::IsTrue(pPopup->IsDetailError());
         Assert::AreEqual(ra::ui::ImageType::None, pPopup->GetImage().Type());
         Assert::AreEqual(std::string(), pPopup->GetImage().Name());
-        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\acherror.wav"));
+        Assert::IsTrue(runtime.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"acherror.wav"));
     }
 
     TEST_METHOD(TestHandleResetEvent)

@@ -1,5 +1,7 @@
 #include "CppUnitTest.h"
 
+#include "RA_Defs.h"
+
 #include "ui/viewmodels/OverlaySettingsViewModel.hh"
 
 #include "ui/viewmodels/FileDialogViewModel.hh"
@@ -187,14 +189,15 @@ public:
         ValidatePopupLocationCommit(ra::ui::viewmodels::Popup::Progress, [](OverlaySettingsViewModel& vm, ra::ui::viewmodels::PopupLocation nValue) { return vm.SetProgressTrackerLocation(nValue); });
 
         OverlaySettingsViewModelHarness vmSettings;
-        vmSettings.SetScreenshotLocation(L"C:\\Screenshots\\");
+        // already terminated with the platform separator - Commit should not double it up
+        vmSettings.SetScreenshotLocation(std::wstring(L"C:\\Screenshots") + RA_DIR_SEP_L);
         vmSettings.Commit();
-        Assert::AreEqual(std::wstring(L"C:\\Screenshots\\"), vmSettings.mockConfiguration.GetScreenshotDirectory());
+        Assert::AreEqual(std::wstring(L"C:\\Screenshots") + RA_DIR_SEP_L, vmSettings.mockConfiguration.GetScreenshotDirectory());
 
-        // make sure the path ends with a slash
+        // make sure the path ends with a separator
         vmSettings.SetScreenshotLocation(L"C:\\Temp");
         vmSettings.Commit();
-        Assert::AreEqual(std::wstring(L"C:\\Temp\\"), vmSettings.mockConfiguration.GetScreenshotDirectory());
+        Assert::AreEqual(std::wstring(L"C:\\Temp") + RA_DIR_SEP_L, vmSettings.mockConfiguration.GetScreenshotDirectory());
     }
 
     TEST_METHOD(TestAchievementTriggerDependencies)
@@ -297,7 +300,7 @@ public:
 
         vmSettings.BrowseLocation();
 
-        Assert::AreEqual(std::wstring(L"C:\\NewFolder\\"), vmSettings.ScreenshotLocation());
+        Assert::AreEqual(std::wstring(L"C:\\NewFolder") + RA_DIR_SEP_L, vmSettings.ScreenshotLocation());
     }
 
     TEST_METHOD(TestBrowseLocationCancel)

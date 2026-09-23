@@ -219,7 +219,7 @@ void GameContext::FinishLoadGame(int nResult, const char* sErrorMessage, bool bW
             rc_client_get_user_game_summary(pClient, &pSummary);
 
             // show "game loaded" popup
-            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\info.wav");
+            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"info.wav");
             std::wstring sDescription = ra::util::String::Printf(L"%u achievements, %u points",
                                                             pSummary.num_promoted_achievements, pSummary.points_available);
             if (pSummary.num_unsupported_achievements)
@@ -378,7 +378,7 @@ void GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowSoftcoreWa
         {
             const bool bLeaderboardsEnabled = pConfiguration.IsFeatureEnabled(ra::services::Feature::Leaderboards);
 
-            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\info.wav");
+            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"info.wav");
             ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(
                 L"Playing in Softcore Mode",
                 bLeaderboardsEnabled ? L"Leaderboard entries will not be submitted." : L"");

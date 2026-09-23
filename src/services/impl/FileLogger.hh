@@ -2,6 +2,8 @@
 #define RA_SERVICES_FILELOGGER_HH
 #pragma once
 
+#include "RA_Defs.h"
+
 #include "services/IClock.hh"
 #include "services/IFileSystem.hh"
 #include "services/ILogger.hh"
@@ -19,13 +21,13 @@ class FileLogger : public ra::services::ILogger
 public:
     explicit FileLogger(const ra::services::IFileSystem& pFileSystem)
     {
-        const std::wstring sLogFilePath = pFileSystem.BaseDirectory() + L"RACache\\RALog.txt";
+        const std::wstring sLogFilePath = pFileSystem.BaseDirectory() + L"RACache" RA_DIR_SEP_L L"RALog.txt";
 
         // if the file is over 1MB, rename it and start a new one
         const int64_t nLogSize = pFileSystem.GetFileSize(sLogFilePath);
         if (nLogSize > 1024 * 1024)
         {
-            const std::wstring sOldLogFilePath = pFileSystem.BaseDirectory() + L"RACache\\RALog-old.txt";
+            const std::wstring sOldLogFilePath = pFileSystem.BaseDirectory() + L"RACache" RA_DIR_SEP_L L"RALog-old.txt";
             pFileSystem.DeleteFile(sOldLogFilePath);
             pFileSystem.MoveFile(sLogFilePath, sOldLogFilePath);
         }

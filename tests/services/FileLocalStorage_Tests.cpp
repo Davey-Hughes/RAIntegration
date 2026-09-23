@@ -1,5 +1,7 @@
 #include "services/impl/FileLocalStorage.hh"
 
+#include "RA_Defs.h"
+
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/devkit/services/mocks/MockFileSystem.hh"
 #include "tests/RA_UnitTestHelpers.h"
@@ -110,14 +112,17 @@ public:
     {
         MockFileSystem mockFileSystem;
         FileLocalStorage storage(mockFileSystem);
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::GameData, L"12345"), std::wstring(L".\\RACache\\Data\\12345.json"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::MemoryNotes, L"12345"), std::wstring(L".\\RACache\\Data\\12345-Notes.json"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::RichPresence, L"12345"), std::wstring(L".\\RACache\\Data\\12345-Rich.txt"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::UserAchievements, L"12345"), std::wstring(L".\\RACache\\Data\\12345-User.txt"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::Badge, L"12345"), std::wstring(L".\\RACache\\Badge\\12345.png"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::UserPic, L"12345"), std::wstring(L".\\RACache\\UserPic\\12345.png"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::Bookmarks, L"12345"), std::wstring(L".\\RACache\\Bookmarks\\12345-Bookmarks.json"));
-        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::HashMapping, L"0123456789abcdef0123456789abcdef"), std::wstring(L".\\RACache\\Data\\0123456789abcdef0123456789abcdef.txt"));
+        // MockFileSystem's default BaseDirectory (".\\") is a mock-only literal, unrelated to
+        // RA_DIR_SEP; the RA_DIR_* segments after it come from production code and must agree
+        // with whatever separator this platform's RA_DIR_SEP_L expands to.
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::GameData, L"12345"), std::wstring(L".\\") + RA_DIR_DATA + L"12345.json");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::MemoryNotes, L"12345"), std::wstring(L".\\") + RA_DIR_DATA + L"12345-Notes.json");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::RichPresence, L"12345"), std::wstring(L".\\") + RA_DIR_DATA + L"12345-Rich.txt");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::UserAchievements, L"12345"), std::wstring(L".\\") + RA_DIR_DATA + L"12345-User.txt");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::Badge, L"12345"), std::wstring(L".\\") + RA_DIR_BADGE + L"12345.png");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::UserPic, L"12345"), std::wstring(L".\\") + RA_DIR_USERPIC + L"12345.png");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::Bookmarks, L"12345"), std::wstring(L".\\") + RA_DIR_BOOKMARKS + L"12345-Bookmarks.json");
+        Assert::AreEqual(storage.GetPath(ra::services::StorageItemType::HashMapping, L"0123456789abcdef0123456789abcdef"), std::wstring(L".\\") + RA_DIR_DATA + L"0123456789abcdef0123456789abcdef.txt");
     }
 
     TEST_METHOD(TestReadTextNonExistant)

@@ -3,6 +3,7 @@
 #include "Exports.hh"
 
 #include "RA_BuildVer.h"
+#include "RA_Defs.h"
 #include "RAInterface/RA_Emulators.h"
 #include "RA_Resource.h"
 
@@ -176,7 +177,7 @@ public:
         Assert::AreEqual(std::wstring(L"User"), harness.mockSessionTracker.GetUsername());
 
         // popup notification and sound
-        Assert::IsTrue(harness.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\login.wav"));
+        Assert::IsTrue(harness.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"login.wav"));
         const auto* pPopup = harness.mockOverlayManager.GetMessage(1);
         Assert::IsNotNull(pPopup);
         Ensures(pPopup != nullptr);
@@ -225,7 +226,7 @@ public:
         Assert::AreEqual(std::wstring(L"User"), harness.mockSessionTracker.GetUsername());
 
         // popup notification and sound
-        Assert::IsTrue(harness.mockAudioSystem.WasAudioFilePlayed(L"Overlay\\login.wav"));
+        Assert::IsTrue(harness.mockAudioSystem.WasAudioFilePlayed(L"Overlay" RA_DIR_SEP_L L"login.wav"));
         const auto* pPopup = harness.mockOverlayManager.GetMessage(1);
         Assert::IsNotNull(pPopup);
         Ensures(pPopup != nullptr);

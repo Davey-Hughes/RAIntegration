@@ -1,6 +1,8 @@
 #include "EditorTheme.hh"
 #include "OverlayTheme.hh"
 
+#include "RA_Defs.h"
+
 #include "util/Json.hh"
 #include "util/Log.hh"
 
@@ -31,7 +33,7 @@ static void ReadColor(Color& nColor, const ra::util::Json::Reader::Node& pColors
 void OverlayTheme::LoadFromFile()
 {
     const auto& pFileSystem = ra::services::ServiceLocator::Get<ra::services::IFileSystem>();
-    std::wstring sFullPath = pFileSystem.BaseDirectory() + L"Overlay\\theme.json";
+    std::wstring sFullPath = pFileSystem.BaseDirectory() + L"Overlay" RA_DIR_SEP_L L"theme.json";
     if (pFileSystem.GetFileSize(sFullPath) == -1)
         return;
 
@@ -42,7 +44,7 @@ void OverlayTheme::LoadFromFile()
     ra::util::Json::Reader pJson;
     if (!pJson.Parse(*pFile))
     {
-        RA_LOG_ERR("Unable to read %s: %s (%zu)", L"Overlay\\theme.json", pJson.GetParseError(), pJson.GetParseErrorOffset());
+        RA_LOG_ERR("Unable to read %s: %s (%zu)", L"Overlay" RA_DIR_SEP_L L"theme.json", pJson.GetParseError(), pJson.GetParseErrorOffset());
         return;
     }
 
@@ -115,7 +117,7 @@ void OverlayTheme::LoadFromFile()
 void EditorTheme::LoadFromFile()
 {
     const auto& pFileSystem = ra::services::ServiceLocator::Get<ra::services::IFileSystem>();
-    std::wstring sFullPath = pFileSystem.BaseDirectory() + L"Overlay\\editor_theme.json";
+    std::wstring sFullPath = pFileSystem.BaseDirectory() + L"Overlay" RA_DIR_SEP_L L"editor_theme.json";
     if (pFileSystem.GetFileSize(sFullPath) == -1)
         return;
 
@@ -126,7 +128,7 @@ void EditorTheme::LoadFromFile()
     ra::util::Json::Reader pJson;
     if (!pJson.Parse(*pFile))
     {
-        RA_LOG_ERR("Unable to read %s: %s (%zu)", L"Overlay\\editor_theme.json", pJson.GetParseError(), pJson.GetParseErrorOffset());
+        RA_LOG_ERR("Unable to read %s: %s (%zu)", L"Overlay" RA_DIR_SEP_L L"editor_theme.json", pJson.GetParseError(), pJson.GetParseErrorOffset());
         return;
     }
 

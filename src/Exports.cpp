@@ -329,7 +329,7 @@ static void HandleLoginResponse(int nResult, const char* sErrorMessage, rc_clien
     if (nResult == RC_OK)
     {
         // play the login sound
-        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\login.wav");
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"login.wav");
 
         const auto& pSessionTracker = ra::services::ServiceLocator::Get<ra::data::context::SessionTracker>();
         const auto* pUser = rc_client_get_user_info(pClient);

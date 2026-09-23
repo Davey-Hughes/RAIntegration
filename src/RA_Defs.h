@@ -35,12 +35,23 @@ using namespace std::string_literals;
 #include "data/Types.hh"
 #include "data/Memory.hh"
 
-#define RA_DIR_OVERLAY                  L"Overlay\\"
-#define RA_DIR_BASE                     L"RACache\\"
-#define RA_DIR_DATA                     RA_DIR_BASE L"Data\\"
-#define RA_DIR_BADGE                    RA_DIR_BASE L"Badge\\"
-#define RA_DIR_USERPIC                  RA_DIR_BASE L"UserPic\\"
-#define RA_DIR_BOOKMARKS                RA_DIR_BASE L"Bookmarks\\"
+/* Path separator. MSVC accepts '/' in most API calls but the tree's cached
+ * paths are compared as strings, so they have to agree with what the platform's
+ * IFileSystem produces. RALibretro carries the same pair (commit 15aa33b). */
+#ifdef _WIN32
+ #define RA_DIR_SEP    "\\"
+ #define RA_DIR_SEP_L L"\\"
+#else
+ #define RA_DIR_SEP    "/"
+ #define RA_DIR_SEP_L L"/"
+#endif
+
+#define RA_DIR_OVERLAY                  L"Overlay" RA_DIR_SEP_L
+#define RA_DIR_BASE                     L"RACache" RA_DIR_SEP_L
+#define RA_DIR_DATA                     RA_DIR_BASE L"Data" RA_DIR_SEP_L
+#define RA_DIR_BADGE                    RA_DIR_BASE L"Badge" RA_DIR_SEP_L
+#define RA_DIR_USERPIC                  RA_DIR_BASE L"UserPic" RA_DIR_SEP_L
+#define RA_DIR_BOOKMARKS                RA_DIR_BASE L"Bookmarks" RA_DIR_SEP_L
 
 #define RA_GAME_HASH_FILENAME           RA_DIR_DATA L"gamehashlibrary.txt"
 #define RA_MY_PROGRESS_FILENAME         RA_DIR_DATA L"myprogress.txt"

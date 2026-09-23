@@ -1,5 +1,7 @@
 #include "CppUnitTest.h"
 
+#include "RA_Defs.h"
+
 #include "data/context/GameContext.hh"
 
 #include "data/models/AchievementModel.hh"
@@ -255,7 +257,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -308,7 +310,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -337,7 +339,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -366,7 +368,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -396,7 +398,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -428,7 +430,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);
@@ -460,7 +462,7 @@ public:
 
         game.LoadGame(1U, "0123456789abcdeffedcba987654321");
 
-        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay\\info.wav")));
+        Assert::IsTrue(game.mockAudioSystem.WasAudioFilePlayed(std::wstring(L"Overlay" RA_DIR_SEP_L L"info.wav")));
 
         const auto* pPopup = game.mockOverlayManager.GetMessage(1);
         Expects(pPopup != nullptr);

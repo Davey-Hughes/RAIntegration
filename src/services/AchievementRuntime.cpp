@@ -1106,11 +1106,11 @@ static void HandleAchievementTriggeredEvent(const rc_client_achievement_t& pAchi
         Expects(!CanSubmitAchievementUnlock(pAchievement.id, nullptr));
 #endif
 
-    const wchar_t* sAudioPath = L"Overlay\\unlock.wav";
+    const wchar_t* sAudioPath = L"Overlay" RA_DIR_SEP_L L"unlock.wav";
 
     if (bIsError)
     {
-        sAudioPath = L"Overlay\\acherror.wav";
+        sAudioPath = L"Overlay" RA_DIR_SEP_L L"acherror.wav";
     }
     else if (bSubmit)
     {
@@ -1125,7 +1125,7 @@ static void HandleAchievementTriggeredEvent(const rc_client_achievement_t& pAchi
         {
             vmPopup->SetTitle(ra::util::String::Printf(L"Rare Achievement Unlocked - %0.2f%%", nRarity));
 
-            const wchar_t* sPath = L"Overlay\\rareunlock.wav";
+            const wchar_t* sPath = L"Overlay" RA_DIR_SEP_L L"rareunlock.wav";
             const auto& pFileSystem = ra::services::ServiceLocator::Get<ra::services::IFileSystem>();
             const std::wstring sFullPath = pFileSystem.BaseDirectory() + sPath;
             if (pFileSystem.GetFileSize(sFullPath) > 0)
@@ -1243,7 +1243,7 @@ static void ShowCompletionPopup(uint32_t nGameId, const std::wstring& sTitle, ui
     vmMessage->SetImage(ra::ui::ImageType::Icon, sBadgeName);
     vmMessage->SetPopupType(ra::ui::viewmodels::Popup::Mastery);
 
-    ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\unlock.wav");
+    ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"unlock.wav");
     auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
     const auto nPopupId = pOverlayManager.QueueMessage(vmMessage);
 
@@ -1303,7 +1303,7 @@ static void HandleLeaderboardStartedEvent(const rc_client_leaderboard_t& pLeader
         ra::ui::viewmodels::PopupLocation::None &&
         pConfiguration.IsFeatureEnabled(ra::services::Feature::Leaderboards))
     {
-        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\lb.wav");
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"lb.wav");
         auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
         pOverlayManager.QueueMessage(ra::ui::viewmodels::Popup::LeaderboardStarted, L"Leaderboard attempt started",
                                      ra::util::String::Widen(pLeaderboard.title), ra::util::String::Widen(pLeaderboard.description));
@@ -1326,7 +1326,7 @@ static void HandleLeaderboardFailedEvent(const rc_client_leaderboard_t& pLeaderb
         ra::ui::viewmodels::PopupLocation::None &&
         pConfiguration.IsFeatureEnabled(ra::services::Feature::Leaderboards))
     {
-        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\lbcancel.wav");
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"lbcancel.wav");
         auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
         pOverlayManager.QueueMessage(ra::ui::viewmodels::Popup::LeaderboardCanceled, L"Leaderboard attempt failed",
                                      ra::util::String::Widen(pLeaderboard.title), ra::util::String::Widen(pLeaderboard.description));
@@ -1438,7 +1438,7 @@ static void HandleLeaderboardSubmittedEvent(const rc_client_leaderboard_t& pLead
     if (!bSubmit)
     {
         vmPopup->SetTitle(sTitle);
-        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\info.wav");
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"info.wav");
         ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(vmPopup);
 
 #ifndef NDEBUG
@@ -1578,7 +1578,7 @@ static void HandleServerError(const rc_client_server_error_t& pServerError)
                 vmPopup->SetDescription(ra::util::String::Printf(L"Achievement %u", nAchievementId));
             }
 
-            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\acherror.wav");
+            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"acherror.wav");
             pOverlayManager.QueueMessage(vmPopup);
         }
 
@@ -1607,7 +1607,7 @@ static void HandleServerError(const rc_client_server_error_t& pServerError)
         auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
         pOverlayManager.QueueMessage(vmMessage);
 
-        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\acherror.wav");
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay" RA_DIR_SEP_L L"acherror.wav");
 
         return;
     }

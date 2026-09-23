@@ -1,5 +1,7 @@
 #include "OverlaySettingsViewModel.hh"
 
+#include "RA_Defs.h"
+
 #include "services/IConfiguration.hh"
 #include "services/IWindowConfiguration.hh"
 #include "services/ServiceLocator.hh"
@@ -85,8 +87,8 @@ void OverlaySettingsViewModel::Commit()
     pWindowConfiguration.SetPopupLocation(Popup::Progress, GetProgressTrackerLocation());
 
     std::wstring sLocation = ScreenshotLocation();
-    if (!sLocation.empty() && sLocation.back() != '\\')
-        sLocation.push_back('\\');
+    if (!sLocation.empty() && sLocation.back() != RA_DIR_SEP_L[0])
+        sLocation.push_back(RA_DIR_SEP_L[0]);
 
     pConfiguration.SetScreenshotDirectory(sLocation);
 
@@ -128,8 +130,8 @@ void OverlaySettingsViewModel::BrowseLocation()
     if (vmFolder.ShowSelectFolderDialog(*this) == ra::ui::DialogResult::OK)
     {
         std::wstring sLocation = vmFolder.GetFileName();
-        if (!sLocation.empty() && sLocation.back() != '\\')
-            sLocation.push_back('\\');
+        if (!sLocation.empty() && sLocation.back() != RA_DIR_SEP_L[0])
+            sLocation.push_back(RA_DIR_SEP_L[0]);
 
         SetScreenshotLocation(sLocation);
     }
