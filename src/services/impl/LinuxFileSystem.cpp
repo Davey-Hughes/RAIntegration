@@ -1,3 +1,5 @@
+#ifndef _WIN32
+
 #include "LinuxFileSystem.hh"
 
 #include "util/Log.hh"
@@ -7,6 +9,8 @@
 #include "services/impl/FileTextWriter.hh"
 #include "services/ServiceLocator.hh"
 
+#include <cerrno>
+#include <climits>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -26,7 +30,22 @@ LinuxFileSystem::LinuxFileSystem() noexcept
     std::error_code oError;
     const auto oExe = std::filesystem::read_symlink("/proc/self/exe", oError);
 
-    std::string sDirectory = oError ? std::string(".") : oExe.parent_path().string();
+    std::string sDirectory;
+    if (!oError)
+    {
+        sDirectory = oExe.parent_path().string();
+    }
+    else
+    {
+        // No /proc (e.g. a sandboxed environment without procfs mounted).
+        // BaseDirectory() is documented - and relied on by every MakeAbsolute
+        // call - to be absolute, so falling back to a bare "./" would be
+        // silently wrong; fall back to the current working directory instead,
+        // and to "/" if even that isn't available.
+        char sCwd[PATH_MAX]{};
+        sDirectory = (getcwd(sCwd, sizeof(sCwd)) != nullptr) ? std::string(sCwd) : std::string("/");
+    }
+
     if (sDirectory.empty() || sDirectory.back() != '/')
         sDirectory.push_back('/');
 
@@ -101,13 +120,37 @@ size_t LinuxFileSystem::GetFilesInDirectory(const std::wstring& sDirectory,
         return 0U;
 
     const size_t nInitialSize = vResults.size();
-    for (const auto& oEntry : oIterator)
-    {
-        if (oEntry.is_directory(oError))
-            continue;
+    const std::filesystem::directory_iterator oEnd;
 
-        // FindFirstFileW reports cFileName, not the full path
-        vResults.emplace_back(ra::util::String::Widen(oEntry.path().filename().string()));
+    // Manual loop with the non-throwing increment(error_code&), not a
+    // range-for: a range-for over a directory_iterator calls the throwing
+    // operator++, which can raise filesystem_error mid-enumeration (e.g.
+    // ESTALE/EIO on a network mount). FindFirstFileW/FindNextFileW on
+    // Windows simply end the loop on failure and return what was collected,
+    // so end the loop here too instead of letting the exception propagate.
+    while (oIterator != oEnd)
+    {
+        std::error_code oTypeError;
+        const bool bIsDirectory = oIterator->is_directory(oTypeError);
+        if (oTypeError)
+        {
+            // The entry's type couldn't be determined (e.g. a dangling
+            // symlink, or the same class of stat failure as above racing an
+            // individual entry). FindFirstFileW/FindNextFileW get their
+            // attributes from the directory read itself and cannot fail this
+            // way, so there's no Windows behaviour to match; skip the entry
+            // rather than risk reporting a directory (or something we simply
+            // don't know about) as a file.
+        }
+        else if (!bIsDirectory)
+        {
+            // FindFirstFileW reports cFileName, not the full path
+            vResults.emplace_back(ra::util::String::Widen(oIterator->path().filename().string()));
+        }
+
+        oIterator.increment(oError);
+        if (oError)
+            break;
     }
 
     return vResults.size() - nInitialSize;
@@ -124,6 +167,20 @@ bool LinuxFileSystem::MoveFile(const std::wstring& sOldPath, const std::wstring&
 
     // rename() overwrites silently; MoveFileW fails. Preserve the Windows
     // contract - FileLogger's rotation relies on it.
+    //
+    // This stat-then-rename is not atomic: a concurrent creator of sTo
+    // between the two calls would be silently overwritten, which is the
+    // exact thing this check exists to prevent. The portable atomic idiom is
+    // link(old, new) (fails EEXIST) followed by unlink(old). It was not
+    // applied here: link() cannot target a directory on Linux (EPERM),
+    // while rename() can, and IFileSystem::MoveFile's contract doesn't rule
+    // out directories - so link() would trade this race for a new failure
+    // mode on an input rename() currently accepts. (Cross-filesystem use
+    // isn't a reason either way: link() and rename() both fail with EXDEV
+    // there.) The sole caller (FileLogger's log rotation) is single-process,
+    // single-threaded, and only ever targets a private RACache path with no
+    // other writer, so the window this leaves open is not reachable in
+    // practice.
     struct stat oStat{};
     if (stat(sTo.c_str(), &oStat) == 0)
         return false;
@@ -141,12 +198,23 @@ bool LinuxFileSystem::CopyFile(const std::wstring& sSourcePath, const std::wstri
 
 int64_t LinuxFileSystem::GetFileSize(const std::wstring& sPath) const
 {
+    // MakeAbsolute's result is captured in a named local, not passed inline
+    // to stat(): a temporary would be destroyed at the end of the full
+    // expression containing the stat() call - i.e. before the errno read
+    // below runs at all - and freeing it isn't guaranteed to preserve errno.
+    const std::string sAbsolutePath = MakeAbsolute(sPath);
+
     struct stat oStat{};
-    if (stat(MakeAbsolute(sPath).c_str(), &oStat) != 0)
+    if (stat(sAbsolutePath.c_str(), &oStat) != 0)
     {
-        if (errno != ENOENT && ra::services::ServiceLocator::Exists<ra::services::ILogger>())
+        // Captured immediately, before any other call (including the
+        // ServiceLocator/Narrow calls below) can clobber it, and used
+        // throughout rather than re-reading errno - RA_LOG_ERR's argument
+        // evaluation order is otherwise unspecified.
+        const int nError = errno;
+        if (nError != ENOENT && ra::services::ServiceLocator::Exists<ra::services::ILogger>())
         {
-            RA_LOG_ERR("Error %d getting file size: %s", errno, ra::util::String::Narrow(sPath).c_str());
+            RA_LOG_ERR("Error %d getting file size: %s", nError, ra::util::String::Narrow(sPath).c_str());
         }
 
         return -1;
@@ -169,10 +237,19 @@ std::chrono::system_clock::time_point LinuxFileSystem::GetLastModified(const std
 {
     // stat(), not std::filesystem::last_write_time: C++17 has no portable
     // conversion from file_time_type to system_clock (clock_cast is C++20).
+    // Do not "simplify" this to last_write_time() - see
+    // LinuxFileSystem_Tests.cpp's TestGetLastModified for what such a change
+    // would break (FileLocalStorage's 30-day cache expiry reads this value
+    // on every launch).
+    const std::string sAbsolutePath = MakeAbsolute(sPath);
+
     struct stat oStat{};
-    if (stat(MakeAbsolute(sPath).c_str(), &oStat) != 0)
+    if (stat(sAbsolutePath.c_str(), &oStat) != 0)
     {
-        RA_LOG_ERR("Error %d getting last modified for file: %s", errno,
+        // See GetFileSize for why this is captured immediately into a named
+        // local rather than read from a later, separate errno access.
+        const int nError = errno;
+        RA_LOG_ERR("Error %d getting last modified for file: %s", nError,
                    ra::util::String::Narrow(sPath).c_str());
         return std::chrono::system_clock::time_point();
     }
@@ -241,3 +318,5 @@ std::unique_ptr<TextWriter> LinuxFileSystem::AppendTextFile(const std::wstring& 
 } // namespace impl
 } // namespace services
 } // namespace ra
+
+#endif // !_WIN32
