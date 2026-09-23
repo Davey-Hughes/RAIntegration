@@ -32,6 +32,7 @@
 #include "context/IRcClient.hh"
 #include "services/impl/OfflineRcClient.hh"
 
+#include <cstdio>
 #include <rcheevos/src/rc_client_internal.h>
 #include <rcheevos/src/rcheevos/rc_internal.h>
 
@@ -102,7 +103,13 @@ public:
         memset(core_subset, 0, sizeof(*core_subset));
         core_subset->public_.id = game->public_.id;
         core_subset->public_.title = game->public_.title;
-        strcpy_s(core_subset->public_.badge_name, sizeof(core_subset->public_.badge_name), game->public_.badge_name);
+        // rcheevos/src/rc_compat.h redefines strcpy_s(dest, sz, src) as an
+        // unbounded strcpy(dest, src) here, silently dropping the size
+        // argument, so it cannot be used to fill this buffer. snprintf (used
+        // unqualified: rc_compat.h #defines it to rc_snprintf outside MSVC)
+        // stays bounded on every platform.
+        snprintf(core_subset->public_.badge_name, sizeof(core_subset->public_.badge_name), "%s",
+                 game->public_.badge_name);
         core_subset->public_.badge_url = game->public_.badge_url;
         core_subset->active = 1;
 
@@ -435,7 +442,12 @@ private:
         subset = static_cast<rc_client_subset_info_t*>(rc_buffer_alloc(&game->buffer, sizeof(rc_client_subset_info_t)));
         memset(subset, 0, sizeof(*subset));
         subset->public_.id = subset_id;
-        strcpy_s(subset->public_.badge_name, sizeof(subset->public_.badge_name), game->public_.badge_name);
+        // rcheevos/src/rc_compat.h redefines strcpy_s(dest, sz, src) as an
+        // unbounded strcpy(dest, src) here, silently dropping the size
+        // argument, so it cannot be used to fill this buffer. snprintf (used
+        // unqualified: rc_compat.h #defines it to rc_snprintf outside MSVC)
+        // stays bounded on every platform.
+        snprintf(subset->public_.badge_name, sizeof(subset->public_.badge_name), "%s", game->public_.badge_name);
         subset->public_.title = name;
         subset->active = 1;
 

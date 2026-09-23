@@ -3,6 +3,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstring>
+#include <cwchar>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -17,11 +19,6 @@ struct TestCase
 };
 
 std::vector<TestCase>& Registry();
-
-struct Registrar
-{
-    Registrar(const char* sSuite, const char* sName, void (*pRun)());
-};
 
 [[noreturn]] void Fail(const std::wstring& sMessage);
 
@@ -106,6 +103,9 @@ public:
     template<typename T>
     static void AreEqual(const T& tExpected, const T& tActual, const wchar_t* sMessage = nullptr)
     {
+        static_assert(!std::is_array_v<T>,
+                      "Assert::AreEqual on two arrays of the same extent would bind here and compare "
+                      "addresses; add/use a char or wchar_t array overload, or decay to a pointer.");
         if (!(tExpected == tActual))
             ::ratest::Fail(BuildMessage(L"AreEqual", ToString(tExpected), ToString(tActual), sMessage));
     }
@@ -113,11 +113,58 @@ public:
     static void AreEqual(const char* sExpected, const char* sActual, const wchar_t* sMessage = nullptr);
     static void AreEqual(const wchar_t* sExpected, const wchar_t* sActual, const wchar_t* sMessage = nullptr);
 
+    // Equal-extent `char`/`wchar_t` arrays (e.g. two `char[8]` fields, or a
+    // string literal compared against one) would otherwise deduce the generic
+    // template above with T = the array type and compare addresses instead of
+    // contents. N is a single template parameter, not one per side: that
+    // makes this overload strictly more specialized than the generic one
+    // (partial ordering can go only one way, since the generic template can
+    // be deduced from this overload's synthesized arguments but not the
+    // reverse), so it wins outright instead of tying with it and making the
+    // call ambiguous. A mismatched-extent pair (N != M) simply doesn't match
+    // this overload and falls back to array-to-pointer decay into the
+    // pointer overload below, which is exactly what should happen. This
+    // forwards to that pointer overload so the comparison is strcmp/wcscmp.
+    template<size_t N>
+    static void AreEqual(const char (&sExpected)[N], const char (&sActual)[N], const wchar_t* sMessage = nullptr)
+    {
+        AreEqual(static_cast<const char*>(sExpected), static_cast<const char*>(sActual), sMessage);
+    }
+
+    template<size_t N>
+    static void AreEqual(const wchar_t (&sExpected)[N], const wchar_t (&sActual)[N], const wchar_t* sMessage = nullptr)
+    {
+        AreEqual(static_cast<const wchar_t*>(sExpected), static_cast<const wchar_t*>(sActual), sMessage);
+    }
+
     template<typename T>
     static void AreNotEqual(const T& tNotExpected, const T& tActual, const wchar_t* sMessage = nullptr)
     {
+        static_assert(!std::is_array_v<T>,
+                      "Assert::AreNotEqual on two arrays of the same extent would bind here and compare "
+                      "addresses; add/use a char or wchar_t array overload, or decay to a pointer.");
         if (tNotExpected == tActual)
             ::ratest::Fail(BuildMessage(L"AreNotEqual", ToString(tNotExpected), ToString(tActual), sMessage));
+    }
+
+    // Same reasoning as the AreEqual array overloads above: a single N (not
+    // one per side) keeps this strictly more specialized than the generic
+    // AreNotEqual template so the call isn't ambiguous, and lets a
+    // mismatched-extent pair fall back to array-to-pointer decay instead.
+    template<size_t N>
+    static void AreNotEqual(const char (&sNotExpected)[N], const char (&sActual)[N], const wchar_t* sMessage = nullptr)
+    {
+        if (std::strcmp(sNotExpected, sActual) == 0)
+            ::ratest::Fail(BuildMessage(L"AreNotEqual", ToString(static_cast<const char*>(sNotExpected)),
+                                        ToString(static_cast<const char*>(sActual)), sMessage));
+    }
+
+    template<size_t N>
+    static void AreNotEqual(const wchar_t (&sNotExpected)[N], const wchar_t (&sActual)[N], const wchar_t* sMessage = nullptr)
+    {
+        if (std::wcscmp(sNotExpected, sActual) == 0)
+            ::ratest::Fail(BuildMessage(L"AreNotEqual", ToString(static_cast<const wchar_t*>(sNotExpected)),
+                                        ToString(static_cast<const wchar_t*>(sActual)), sMessage));
     }
 
     static void IsTrue(bool bCondition, const wchar_t* sMessage = nullptr);

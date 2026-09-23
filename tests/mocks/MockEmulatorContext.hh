@@ -9,6 +9,7 @@
 
 #include "ui/WindowViewModelBase.hh"
 
+#include <cstdio>
 #include <gsl/span>
 
 namespace ra {
@@ -42,7 +43,12 @@ public:
 
     void MockGameTitle(const char* sTitle)
     {
-        SetGetGameTitleFunction([sTitle](char* sBuffer) noexcept { strcpy_s(sBuffer, 64, sTitle); });
+        // rcheevos/src/rc_compat.h redefines strcpy_s(dest, sz, src) as an
+        // unbounded strcpy(dest, src) here, silently dropping the size
+        // argument, so it cannot be used to fill this buffer. snprintf (used
+        // unqualified: rc_compat.h #defines it to rc_snprintf outside MSVC)
+        // stays bounded on every platform.
+        SetGetGameTitleFunction([sTitle](char* sBuffer) noexcept { snprintf(sBuffer, 64, "%s", sTitle); });
     }
 
     void MockDisableHardcoreWarning(ra::ui::DialogResult nPromptResult) noexcept

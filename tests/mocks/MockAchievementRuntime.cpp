@@ -9,6 +9,7 @@
 
 #include "data/models/GameAssets.hh"
 
+#include <cstdio>
 #include <rcheevos/src/rapi/rc_api_common.h>
 #include <rcheevos/src/rc_client_internal.h>
 
@@ -41,7 +42,12 @@ static rc_client_subset_info_t* GetSubset(rc_client_game_info_t* game, uint32_t 
     subset = static_cast<rc_client_subset_info_t*>(rc_buffer_alloc(&game->buffer, sizeof(rc_client_subset_info_t)));
     memset(subset, 0, sizeof(*subset));
     subset->public_.id = subset_id;
-    strcpy_s(subset->public_.badge_name, sizeof(subset->public_.badge_name), game->public_.badge_name);
+    // rcheevos/src/rc_compat.h redefines strcpy_s(dest, sz, src) as an
+    // unbounded strcpy(dest, src) here, silently dropping the size argument,
+    // so it cannot be used to fill this buffer. snprintf (used unqualified:
+    // rc_compat.h #defines it to rc_snprintf outside MSVC) stays bounded on
+    // every platform.
+    snprintf(subset->public_.badge_name, sizeof(subset->public_.badge_name), "%s", game->public_.badge_name);
     subset->public_.title = name;
     subset->active = 1;
 

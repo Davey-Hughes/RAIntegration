@@ -12,11 +12,6 @@ std::vector<TestCase>& Registry()
     return s_vRegistry;
 }
 
-Registrar::Registrar(const char* sSuite, const char* sName, void (*pRun)())
-{
-    Registry().push_back({sSuite, sName, pRun});
-}
-
 struct AssertionFailure
 {
     std::wstring sMessage;
@@ -145,6 +140,12 @@ int main(int argc, char* argv[])
             sFilter = argv[i] + 9;
         else if (std::strcmp(argv[i], "--list") == 0)
             bList = true;
+        else
+        {
+            std::fprintf(stderr, "unrecognised argument: %s\n", argv[i]);
+            std::fprintf(stderr, "usage: ra_tests [--filter=ClassName] [--list]\n");
+            return 2;
+        }
     }
 
     auto& vTests = ::ratest::Registry();
@@ -191,5 +192,12 @@ int main(int argc, char* argv[])
     }
 
     std::printf("%zu run, %zu failed\n", nRun, nFailed);
+
+    if (sFilter && nRun == 0)
+    {
+        std::fprintf(stderr, "no tests matched --filter=%s\n", sFilter);
+        return 2;
+    }
+
     return nFailed == 0 ? 0 : 1;
 }
