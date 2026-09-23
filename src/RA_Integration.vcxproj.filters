@@ -102,6 +102,9 @@
     <ClCompile Include="ui\win32\bindings\WindowBinding.cpp">
       <Filter>UI\Win32\Bindings</Filter>
     </ClCompile>
+    <ClCompile Include="services\impl\PlatformServices_Win32.cpp">
+      <Filter>Services\Impl</Filter>
+    </ClCompile>
     <ClCompile Include="services\impl\ThreadPool.cpp">
       <Filter>Services\Impl</Filter>
     </ClCompile>
@@ -423,6 +426,9 @@
       <Filter>Services</Filter>
     </ClInclude>
     <ClInclude Include="services\impl\WindowsFileSystem.hh">
+      <Filter>Services\Impl</Filter>
+    </ClInclude>
+    <ClInclude Include="services\impl\PlatformServices.hh">
       <Filter>Services\Impl</Filter>
     </ClInclude>
     <ClInclude Include="services\impl\ThreadPool.hh">

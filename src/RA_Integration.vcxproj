@@ -96,6 +96,7 @@
     <ClCompile Include="services\impl\JsonFileConfiguration.cpp" />
     <ClCompile Include="services\impl\LoginService.cpp" />
     <ClCompile Include="services\impl\OfflineRcClient.cpp" />
+    <ClCompile Include="services\impl\PlatformServices_Win32.cpp" />
     <ClCompile Include="services\impl\ThreadPool.cpp" />
     <ClCompile Include="services\impl\WindowsDebuggerDetector.cpp" />
     <ClCompile Include="services\impl\WindowsFileSystem.cpp" />
@@ -230,6 +231,7 @@
     <ClInclude Include="services\impl\JsonFileConfiguration.hh" />
     <ClInclude Include="services\impl\LoginService.hh" />
     <ClInclude Include="services\impl\OfflineRcClient.hh" />
+    <ClInclude Include="services\impl\PlatformServices.hh" />
     <ClInclude Include="services\impl\ThreadPool.hh" />
     <ClInclude Include="services\impl\WindowsAudioSystem.hh" />
     <ClInclude Include="services\impl\WindowsClipboard.hh" />

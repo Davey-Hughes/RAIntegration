@@ -4,7 +4,8 @@ project(RAIntegrationPortable CXX C)
 # Spike build: compile only the platform-independent parts of RAIntegration with
 # a non-MSVC toolchain, to measure how much work a native Linux port would be.
 # Excluded on purpose: src/ui/win32 (Win32 views), src/ui/drawing/gdi (GDI
-# rendering), and the Windows* service implementations.
+# rendering), the Windows* service implementations, and the Win32 half of the
+# platform service factory.
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +48,9 @@ list(APPEND PORTABLE_SOURCES
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/ui/win32/")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/ui/drawing/gdi/")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/services/impl/Windows")
+# PlatformServices_Win32.cpp names the Windows*, win32 and gdi types, but its
+# filename does not start with "Windows", so the filter above does not reach it.
+list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "PlatformServices_Win32")
 
 add_library(ra_portable OBJECT ${PORTABLE_SOURCES})
 
@@ -159,12 +163,11 @@ list(FILTER TEST_SOURCES EXCLUDE REGEX "/tests/services/RcheevosClient_Tests\\.c
 #    behaviour difference. The MSVC test project does the same thing: it lists
 #    67 of the src .cpp files in its own ClCompile set.
 #
-#  * src/services/Initialization.cpp is the composition root that wires up the
-#    Windows* service implementations, and is expected not to compile until the
-#    Linux ones exist. It stays in ra_portable, which is the measurement target
-#    and is meant to report it; the test binary leaves it out. Nothing had to
-#    be stubbed for it - every reference to Initialization::RegisterServices is
-#    itself inside an #ifndef RA_UTEST.
+#  * src/services/Initialization.cpp is the composition root. No .vcxproj under
+#    tests/ compiles it either, so the test binary leaves it out to match;
+#    ra_portable keeps it, which is what makes the measurement cover it.
+#    Nothing had to be stubbed for it - every reference to
+#    Initialization::RegisterServices is itself inside an #ifndef RA_UTEST.
 set(PORTABLE_TEST_SOURCES ${PORTABLE_SOURCES})
 list(FILTER PORTABLE_TEST_SOURCES EXCLUDE REGEX "/services/Initialization\\.cpp$")
 
