@@ -56,7 +56,9 @@
 
 #include <QEventLoop>
 #include <QGuiApplication>
+#include <QSoundEffect>
 #include <QTimer>
+#include <QUrl>
 
 #include <dirent.h>
 
@@ -69,8 +71,10 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 static int g_nFailures = 0;
 static int g_nPassed = 0;
@@ -145,18 +149,27 @@ static void StartWatchdog(unsigned int nSeconds)
 //
 // Both halves of the cost are backend implementation details, so neither is
 // hard-coded and neither is assumed. They are separated by calibrating at two
-// points - one sound, then two - because a single point cannot tell them
-// apart. It yields only a total, and turning a total into a count means
-// assuming a marginal cost; assume one descriptor per stream, as this did
-// before, and a backend that shares descriptors between streams produces a
-// confident wrong answer instead of a failure. The marginal cost is the
-// difference between the two calibration points, and the fixed cost is what
-// is left of the one-sound measurement once the marginal is taken out.
+// points - one stream, then two - because a single point cannot tell them
+// apart: the difference between the two points is the marginal cost, and what
+// is left of the one-stream measurement once the marginal is taken out is the
+// fixed cost.
 //
-// Where the measured marginal cost is not at least one descriptor - a backend
-// that pools them, or a machine too noisy to measure on - there is no
-// per-stream signal to count with, and the overlap step reports [obs] rather
-// than a verdict it cannot support.
+// The two calibration points are QSoundEffect instances this harness creates
+// and holds itself, looped indefinitely, never handed to QtAudioSystem and
+// never reaped by anything - so "two held" really are two concurrent streams,
+// regardless of what the reap logic under test does with the burst it is
+// scored against. Calibrating through QtAudioSystem instead would make the
+// measurement depend on the correctness of the thing it exists to check: a
+// reaper that cannot tell "finished" from "still loading" destroys each sound
+// as the next arrives, so a two-sound calibration run through it never has
+// more than one stream alive, the measured marginal comes out non-positive,
+// and the check below concludes the backend gives no signal instead of
+// concluding the burst it just measured was wrong.
+//
+// Where the independently measured marginal cost is not at least one
+// descriptor - a backend that pools them, or a machine too noisy to measure
+// on - there is genuinely no per-stream signal to count the burst with, and
+// the overlap step reports [obs] rather than a verdict it cannot support.
 
 static int OpenFileDescriptors() noexcept
 {
@@ -236,6 +249,46 @@ static AudioMeasurement MeasureAudio(const std::function<void()>& fFire, int nPl
         Pump(50);
         oMeasurement.nPeak = std::max(oMeasurement.nPeak, OpenFileDescriptors());
     }
+
+    Pump(nSettleMs);
+    oMeasurement.nFinal = OpenFileDescriptors();
+    return oMeasurement;
+}
+
+// Independent calibration point: nCount QSoundEffects this function creates,
+// starts and holds itself - not through IAudioSystem, so QtAudioSystem's pool
+// and reap logic never see them and cannot destroy one early. Looped
+// indefinitely so every one of them is still playing, not finished and freed,
+// at every sample point in the window; nCount held instances are therefore
+// really nCount concurrent streams, which is the property the burst check
+// needs a reference for.
+static AudioMeasurement MeasureConcurrentSoundEffects(const std::string& sWavPath, int nCount,
+                                                       int nPlayMs = 1400, int nSettleMs = 1000)
+{
+    AudioMeasurement oMeasurement;
+    oMeasurement.nBase = QuiesceFileDescriptors();
+
+    const QUrl oSource = QUrl::fromLocalFile(QString::fromStdString(sWavPath));
+    std::vector<std::unique_ptr<QSoundEffect>> vEffects;
+    for (int i = 0; i < nCount; ++i)
+    {
+        auto pEffect = std::make_unique<QSoundEffect>();
+        pEffect->setSource(oSource);
+        pEffect->setLoopCount(QSoundEffect::Infinite);
+        pEffect->play();
+        vEffects.push_back(std::move(pEffect));
+    }
+
+    oMeasurement.nPeak = oMeasurement.nBase;
+    for (int nElapsed = 0; nElapsed < nPlayMs; nElapsed += 50)
+    {
+        Pump(50);
+        oMeasurement.nPeak = std::max(oMeasurement.nPeak, OpenFileDescriptors());
+    }
+
+    // Stop and destroy - this harness reaps its own reference instances
+    // directly, deliberately not by the mechanism under test.
+    vEffects.clear();
 
     Pump(nSettleMs);
     oMeasurement.nFinal = OpenFileDescriptors();
@@ -577,18 +630,18 @@ static void RunChecks()
             MeasureAudio([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
 
             // --- calibration ----------------------------------------------
-            // Two points, because one cannot separate the backend's fixed
-            // per-burst cost from its per-stream cost. See the note above
-            // MeasureAudio.
+            // One point through PlayAudioFile, for the worker-thread check
+            // below. See the note above MeasureAudio.
             const auto oOne = MeasureAudio([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
             const int nOneSound = oOne.Delta();
 
-            const auto oTwo = MeasureAudio([&pAudio, &sWav]() {
-                pAudio.PlayAudioFile(sWav);
-                pAudio.PlayAudioFile(sWav);
-            });
-            const int nMarginal = oTwo.Delta() - nOneSound;
-            const int nFixed = nOneSound - nMarginal;
+            // Two more points, independent of PlayAudioFile entirely - see the
+            // note above MeasureConcurrentSoundEffects - for the burst check
+            // further down, which is the one a reap bug can corrupt.
+            const auto oRefOne = MeasureConcurrentSoundEffects(sWavPath, 1);
+            const auto oRefTwo = MeasureConcurrentSoundEffects(sWavPath, 2);
+            const int nRefMarginal = oRefTwo.Delta() - oRefOne.Delta();
+            const int nRefFixed = oRefOne.Delta() - nRefMarginal;
 
             // --- PlayAudioFile from a worker thread ------------------------
             // AchievementRuntime plays unlock sounds from the frame thread, so
@@ -622,24 +675,28 @@ static void RunChecks()
             });
 
             const std::string sCalibration =
-                "1 sound = " + std::to_string(nOneSound) + " fds, 2 = " +
-                std::to_string(oTwo.Delta()) + ", so marginal = " + std::to_string(nMarginal) +
-                " and fixed = " + std::to_string(nFixed) + "; burst = " +
+                "1 held stream = " + std::to_string(oRefOne.Delta()) + " fds, 2 held = " +
+                std::to_string(oRefTwo.Delta()) + ", so marginal = " + std::to_string(nRefMarginal) +
+                " and fixed = " + std::to_string(nRefFixed) + "; burst = " +
                 std::to_string(oBurst.Delta());
 
-            if (nMarginal < 1)
+            if (nRefMarginal < 1)
             {
                 // A backend that pools descriptors across streams lands here,
                 // and so does a machine too noisy to calibrate on. Counting
                 // anyway would have divided by an assumed marginal of one and
-                // reported a number; there is nothing to count with.
+                // reported a number; there is nothing to count with. This is
+                // measured against the harness's own held QSoundEffects, never
+                // against PlayAudioFile, so a reap bug in QtAudioSystem cannot
+                // manufacture this outcome - see the note above
+                // MeasureConcurrentSoundEffects.
                 Observe("simultaneous unlocks all play",
                         "not decidable: no per-stream descriptor signal on this backend (" +
                             sCalibration + ")");
             }
             else
             {
-                const int nConcurrent = (oBurst.Delta() - nFixed) / nMarginal;
+                const int nConcurrent = (oBurst.Delta() - nRefFixed) / nRefMarginal;
                 Check(nConcurrent >= nBurst, "simultaneous unlocks all play",
                       std::to_string(nConcurrent) + " of " + std::to_string(nBurst) +
                           " streams concurrent (" + sCalibration + ")");
