@@ -17,13 +17,14 @@ namespace impl {
 // a worker thread into the GUI thread is a deadlock waiting for a reason.
 static bool CanUseClipboard(const char* sOperation)
 {
-    if (QGuiApplication::instance() == nullptr)
+    auto* pApplication = QGuiApplication::instance();
+    if (pApplication == nullptr)
     {
         RA_LOG_WARN("Clipboard %s ignored: no QGuiApplication", sOperation);
         return false;
     }
 
-    if (QThread::currentThread() != QGuiApplication::instance()->thread())
+    if (QThread::currentThread() != pApplication->thread())
     {
         RA_LOG_WARN("Clipboard %s ignored: not on the GUI thread", sOperation);
         return false;

@@ -24,11 +24,33 @@ public:
     void Beep() const override;
 
 private:
-    // Effects must outlive the call that started them. Finished ones are
-    // reaped on the next call rather than through playingChanged, which keeps
-    // this class out of the moc and avoids mutating the list from a signal.
-    mutable std::mutex m_oMutex;
-    mutable std::vector<std::unique_ptr<QSoundEffect>> m_vEffects;
+    // Holds the effects PlayAudioFile creates, and the mutex guarding them.
+    // This lives behind a shared_ptr rather than as plain members so it can
+    // outlive *this*: PlayAudioFile hands a copy of the shared_ptr to the
+    // QMetaObject::invokeMethod call it queues onto the application thread,
+    // and each effect's own finish handler (see the .cpp) holds another
+    // copy. If the audio system were ever replaced via
+    // ServiceLocator::Provide while a call is still queued or a sound is
+    // still playing, the pool stays alive until the last reference drops
+    // it, instead of leaving those callbacks pointing at a freed
+    // QtAudioSystem. No member here needs `mutable`: PlayAudioFile only
+    // ever copies the shared_ptr, which is a const operation.
+    struct EffectPool
+    {
+        std::mutex m_oMutex;
+        std::vector<std::unique_ptr<QSoundEffect>> m_vEffects;
+    };
+
+    // Each effect reaps itself from the pool via its own playingChanged/
+    // statusChanged handlers (connected without moc - see the .cpp) once it
+    // can no longer be playing: either it finished after actually starting,
+    // or its source failed to load. isPlaying() alone cannot tell those
+    // apart from "still loading, hasn't started yet", which is why this is
+    // not a simple predicate swept over the pool. An effect whose source
+    // never reaches a terminal status at all - a hang or backend bug rather
+    // than a clean finish or Error - is never reaped; that residual leak
+    // cannot be detected from out here.
+    std::shared_ptr<EffectPool> m_pPool;
 };
 
 } // namespace impl
