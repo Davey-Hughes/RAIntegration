@@ -1,8 +1,8 @@
-#include "services\SearchResults.h"
+#include "services/SearchResults.h"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\testutil\MemoryAsserts.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/testutil/MemoryAsserts.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

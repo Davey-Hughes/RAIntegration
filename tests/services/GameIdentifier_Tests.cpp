@@ -1,28 +1,28 @@
-#include "services\GameIdentifier.hh"
+#include "services/GameIdentifier.hh"
 
-#include "ui\viewmodels\UnknownGameViewModel.hh"
+#include "ui/viewmodels/UnknownGameViewModel.hh"
 
-#include "tests\data\DataAsserts.hh"
-#include "tests\ui\UIAsserts.hh"
+#include "tests/data/DataAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockLocalStorage.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\mocks\MockAchievementRuntime.hh"
-#include "tests\mocks\MockAudioSystem.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockLoginService.hh"
-#include "tests\mocks\MockOverlayManager.hh"
-#include "tests\mocks\MockServer.hh"
-#include "tests\mocks\MockSessionTracker.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockLocalStorage.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockAudioSystem.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockLoginService.hh"
+#include "tests/mocks/MockOverlayManager.hh"
+#include "tests/mocks/MockServer.hh"
+#include "tests/mocks/MockSessionTracker.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -30,8 +30,8 @@ namespace ra {
 namespace services {
 namespace tests {
 
-static std::array<BYTE, 16> ROM = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-static std::array<BYTE, 16> ROM2 = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
+static std::array<unsigned char, 16> ROM = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+static std::array<unsigned char, 16> ROM2 = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 };
 static std::string ROM_HASH = "190c4c105786a2121d85018939108a6c";
 static std::wstring KNOWN_HASHES_KEY = L"Hashes";
 

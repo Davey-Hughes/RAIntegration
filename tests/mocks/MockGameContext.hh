@@ -2,11 +2,11 @@
 #define RA_DATA_MOCK_GAMECONTEXT_HH
 #pragma once
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
 namespace ra {
 namespace data {

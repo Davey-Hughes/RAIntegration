@@ -2,11 +2,11 @@
 #define RA_SERVICES_MOCK_HTTPREQUESTER_HH
 #pragma once
 
-#include "services\IHttpRequester.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IHttpRequester.hh"
+#include "services/ServiceLocator.hh"
 
-#include "util\Strings.hh"
-#include "util\TypeCasts.hh"
+#include "util/Strings.hh"
+#include "util/TypeCasts.hh"
 
 namespace ra {
 namespace services {

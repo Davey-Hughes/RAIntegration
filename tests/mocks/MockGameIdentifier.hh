@@ -2,9 +2,9 @@
 #define RA_DATA_MOCK_GAMEIDENTIFIER_HH
 #pragma once
 
-#include "services\GameIdentifier.hh"
+#include "services/GameIdentifier.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

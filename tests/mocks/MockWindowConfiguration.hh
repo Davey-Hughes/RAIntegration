@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_WINDOWCONFIGURATION_HH
 #pragma once
 
-#include "services\IWindowConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IWindowConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

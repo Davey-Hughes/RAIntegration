@@ -1,6 +1,8 @@
 #ifndef RA_CPP_UNIT_TEST_HH
 #define RA_CPP_UNIT_TEST_HH
 
+#ifdef _MSC_VER
+
 /* completely suppress everything inside the CppUnitTest.h file */
 #include <CodeAnalysis/Warnings.h>
 #pragma warning(push)
@@ -12,6 +14,12 @@
  * macros provided by the framework (i.e. TEST_METHOD).
  */
 #pragma warning(disable: 26477) /* Use 'nullptr' rather than 0 or NULL (es.47). */
+
+#else
+
+#include <CppUnitTest.h>
+
+#endif
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

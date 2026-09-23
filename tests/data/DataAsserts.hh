@@ -2,7 +2,7 @@
 #define RA_UNITTEST_DATAHELPERS_H
 #pragma once
 
-#include "data\context\GameContext.hh"
+#include "data/context/GameContext.hh"
 
 namespace Microsoft {
 namespace VisualStudio {
@@ -14,7 +14,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::context::GameContext::Mode>(const ra::data::context::GameContext::Mode& nMode)
+inline std::wstring ToString<ra::data::context::GameContext::Mode>(const ra::data::context::GameContext::Mode& nMode)
 {
     switch (nMode)
     {

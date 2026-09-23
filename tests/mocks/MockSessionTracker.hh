@@ -2,9 +2,9 @@
 #define RA_SERVICES_MOCK_SESSION_TRACKER_HH
 #pragma once
 
-#include "data\context\SessionTracker.hh"
+#include "data/context/SessionTracker.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace data {

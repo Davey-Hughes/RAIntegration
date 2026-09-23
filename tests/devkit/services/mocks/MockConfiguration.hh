@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_CONFIGURATION_HH
 #pragma once
 
-#include "services\IConfiguration.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IConfiguration.hh"
+#include "services/ServiceLocator.hh"
 
 #include <set>
 

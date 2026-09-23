@@ -147,7 +147,7 @@ public:
     class PointerNodeViewModel : public LookupItemViewModel
     {
     public:
-        static const int RootNodeId = -1;
+        static constexpr int RootNodeId = -1;
 
         PointerNodeViewModel(gsl::index nParentIndex, int32_t nOffset, const std::wstring& sLabel) noexcept
             : LookupItemViewModel(nParentIndex < 0 ? RootNodeId : gsl::narrow_cast<int>((nParentIndex << 24) | (nOffset & 0x00FFFFFF)), sLabel),

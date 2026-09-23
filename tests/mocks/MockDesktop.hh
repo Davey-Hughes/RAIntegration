@@ -2,9 +2,9 @@
 #define RA_SERVICES_MOCK_DESKTOP_HH
 #pragma once
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
+#include "ui/IDesktop.hh"
 
 namespace ra {
 namespace ui {

@@ -2,10 +2,10 @@
 #define RA_UNITTEST_UIHELPERS_H
 #pragma once
 
-#include "ui\ImageReference.hh"
-#include "ui\WindowViewModelBase.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\PopupViewModelBase.hh"
+#include "ui/ImageReference.hh"
+#include "ui/WindowViewModelBase.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/PopupViewModelBase.hh"
 
 namespace Microsoft {
 namespace VisualStudio {
@@ -17,7 +17,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::ui::DialogResult>(const ra::ui::DialogResult& result)
+inline std::wstring ToString<ra::ui::DialogResult>(const ra::ui::DialogResult& result)
 {
     switch (result)
     {
@@ -39,7 +39,7 @@ std::wstring ToString<ra::ui::DialogResult>(const ra::ui::DialogResult& result)
 }
 
 template<>
-std::wstring
+inline std::wstring
     ToString<ra::ui::viewmodels::MessageBoxViewModel::Icon>(const ra::ui::viewmodels::MessageBoxViewModel::Icon& icon)
 {
     switch (icon)
@@ -58,7 +58,7 @@ std::wstring
 }
 
 template<>
-std::wstring ToString<ra::ui::viewmodels::MessageBoxViewModel::Buttons>(
+inline std::wstring ToString<ra::ui::viewmodels::MessageBoxViewModel::Buttons>(
     const ra::ui::viewmodels::MessageBoxViewModel::Buttons& buttons)
 {
     switch (buttons)
@@ -78,7 +78,7 @@ std::wstring ToString<ra::ui::viewmodels::MessageBoxViewModel::Buttons>(
     }
 }
 
-template<> std::wstring ToString<ra::ui::ImageType>(const ra::ui::ImageType& type)
+template<> inline std::wstring ToString<ra::ui::ImageType>(const ra::ui::ImageType& type)
 {
     switch (type)
     {
@@ -92,7 +92,7 @@ template<> std::wstring ToString<ra::ui::ImageType>(const ra::ui::ImageType& typ
 }
 
 template<>
-std::wstring ToString<ra::ui::viewmodels::Popup>(const ra::ui::viewmodels::Popup& type)
+inline std::wstring ToString<ra::ui::viewmodels::Popup>(const ra::ui::viewmodels::Popup& type)
 {
     switch (type)
     {

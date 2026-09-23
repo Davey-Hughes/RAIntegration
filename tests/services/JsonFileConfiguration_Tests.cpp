@@ -1,7 +1,7 @@
-#include "services\impl\JsonFileConfiguration.hh"
+#include "services/impl/JsonFileConfiguration.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\devkit\services\mocks\MockFileSystem.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -12,7 +12,7 @@ namespace VisualStudio {
 namespace CppUnitTestFramework {
 
 template<>
-std::wstring ToString<ra::ui::viewmodels::PopupLocation>(
+inline std::wstring ToString<ra::ui::viewmodels::PopupLocation>(
     const ra::ui::viewmodels::PopupLocation& nPopupLocation)
 {
     switch (nPopupLocation)

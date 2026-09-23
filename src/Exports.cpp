@@ -33,15 +33,20 @@
 #include "services/impl/LoginService.hh"
 #include "services/impl/OfflineRcClient.hh"
 
-#include "ui/drawing/gdi/GDISurface.hh"
 #include "ui/viewmodels/IntegrationMenuViewModel.hh"
 #include "ui/viewmodels/LoginViewModel.hh"
 #include "ui/viewmodels/MessageBoxViewModel.hh"
 #include "ui/viewmodels/OverlayManager.hh"
 #include "ui/viewmodels/WindowManager.hh"
+
+#ifndef RA_UTEST
+/* Every use of these is already inside an #ifndef RA_UTEST below; the includes
+ * were unguarded only because the MSVC build always has Windows.h. */
+#include "ui/drawing/gdi/GDISurface.hh"
 #include "ui/win32/Desktop.hh"
 #include "ui/win32/OverlayWindow.hh"
 #include "ui/win32/bindings/ControlBinding.hh"
+#endif
 
 #include <RAInterface/RA_Emulators.h>
 
@@ -80,7 +85,7 @@ API int CCONV _RA_WarnDisableHardcore(const char* sActivity)
 }
 
 #ifndef RA_UTEST
-API void CCONV _RA_UpdateHWnd(HWND hMainHWND)
+API void CCONV _RA_UpdateHWnd(RA_WindowHandle hMainHWND)
 {
     auto& pDesktop = dynamic_cast<ra::ui::win32::Desktop&>(ra::services::ServiceLocator::GetMutable<ra::ui::IDesktop>());
     if (hMainHWND != pDesktop.GetMainHWnd())
@@ -155,7 +160,7 @@ static void Pulse()
     SchedulePulse();
 }
 
-static BOOL InitCommon([[maybe_unused]] HWND hMainHWND, [[maybe_unused]] int nEmulatorID,
+static int InitCommon([[maybe_unused]] RA_WindowHandle hMainHWND, [[maybe_unused]] int nEmulatorID,
     [[maybe_unused]] const char* sClientName, const char* sClientVer, bool bOffline)
 {
 #ifndef RA_UTEST
@@ -205,7 +210,7 @@ static BOOL InitCommon([[maybe_unused]] HWND hMainHWND, [[maybe_unused]] int nEm
                 L"A debugger or similar tool has been detected. If you do not disable hardcore mode, RetroAchievements functionality will be disabled.",
                 ra::ui::viewmodels::MessageBoxViewModel::Buttons::YesNo) == ra::ui::DialogResult::No)
             {
-                return FALSE;
+                return 0;
             }
 
             RA_LOG_INFO("Hardcore disabled by external tool");
@@ -219,25 +224,25 @@ static BOOL InitCommon([[maybe_unused]] HWND hMainHWND, [[maybe_unused]] int nEm
         SchedulePulse();
     }
 
-    return TRUE;
+    return 1;
 }
 
-API BOOL CCONV _RA_InitOffline(HWND hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVer)
+API int CCONV _RA_InitOffline(RA_WindowHandle hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVer)
 {
     return InitCommon(hMainHWND, nEmulatorID, nullptr, sClientVer, true);
 }
 
-API BOOL CCONV _RA_InitClientOffline(HWND hMainHWND, const char* sClientName, const char* sClientVer)
+API int CCONV _RA_InitClientOffline(RA_WindowHandle hMainHWND, const char* sClientName, const char* sClientVer)
 {
     return InitCommon(hMainHWND, EmulatorID::UnknownEmulator, sClientName, sClientVer, true);
 }
 
-API BOOL CCONV _RA_InitI(HWND hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVer)
+API int CCONV _RA_InitI(RA_WindowHandle hMainHWND, /*enum EmulatorID*/int nEmulatorID, const char* sClientVer)
 {
     return InitCommon(hMainHWND, nEmulatorID, nullptr, sClientVer, false);
 }
 
-API BOOL CCONV _RA_InitClient(HWND hMainHWND, const char* sClientName, const char* sClientVer)
+API int CCONV _RA_InitClient(RA_WindowHandle hMainHWND, const char* sClientName, const char* sClientVer)
 {
     return InitCommon(hMainHWND, EmulatorID::UnknownEmulator, sClientName, sClientVer, false);
 }
@@ -313,7 +318,7 @@ API int CCONV _RA_GetPopupMenuItems(RA_MenuItem *pItems)
     return gsl::narrow_cast<int>(vmMenuItems.Count());
 }
 
-API void CCONV _RA_InvokeDialog(LPARAM nID)
+API void CCONV _RA_InvokeDialog(RA_MenuItemId nID)
 {
     ra::ui::viewmodels::IntegrationMenuViewModel::ActivateMenuItem(gsl::narrow_cast<int>(nID));
 }
@@ -439,8 +444,8 @@ API void CCONV _RA_InstallMemoryBank(int nBankID, void* pReader, void* pWriter, 
     if (pEmulatorMemoryContext)
     {
         pEmulatorMemoryContext->AddMemoryBlock(nBankID, nBankSize,
-            static_cast<ra::context::impl::EmulatorMemoryContext::MemoryReadFunction*>(pReader),
-            static_cast<ra::context::impl::EmulatorMemoryContext::MemoryWriteFunction*>(pWriter));
+            reinterpret_cast<ra::context::impl::EmulatorMemoryContext::MemoryReadFunction*>(pReader),
+            reinterpret_cast<ra::context::impl::EmulatorMemoryContext::MemoryWriteFunction*>(pWriter));
     }
 }
 
@@ -450,7 +455,7 @@ API void CCONV _RA_InstallMemoryBankBlockReader(int nBankID, void* pReader)
     if (pEmulatorMemoryContext)
     {
         pEmulatorMemoryContext->AddMemoryBlockReader(
-            nBankID, static_cast<ra::context::impl::EmulatorMemoryContext::MemoryReadBlockFunction*>(pReader));
+            nBankID, reinterpret_cast<ra::context::impl::EmulatorMemoryContext::MemoryReadBlockFunction*>(pReader));
     }
 }
 

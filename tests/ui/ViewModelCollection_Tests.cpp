@@ -1,6 +1,6 @@
-#include "ui\ViewModelCollection.hh"
+#include "ui/ViewModelCollection.hh"
 
-#include "..\RA_UnitTestHelpers.h"
+#include "../RA_UnitTestHelpers.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

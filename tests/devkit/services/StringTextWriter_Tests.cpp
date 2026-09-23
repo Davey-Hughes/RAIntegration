@@ -1,6 +1,6 @@
-#include "services\impl\StringTextWriter.hh"
+#include "services/impl/StringTextWriter.hh"
 
-#include "testutil\CppUnitTest.hh"
+#include "testutil/CppUnitTest.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

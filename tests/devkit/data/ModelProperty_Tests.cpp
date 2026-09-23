@@ -1,6 +1,6 @@
-#include "data\ModelProperty.hh"
+#include "data/ModelProperty.hh"
 
-#include "testutil\CppUnitTest.hh"
+#include "testutil/CppUnitTest.hh"
 
 namespace ra {
 namespace data {

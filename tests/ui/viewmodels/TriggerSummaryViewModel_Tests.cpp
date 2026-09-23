@@ -1,13 +1,13 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\TriggerSummaryViewModel.hh"
+#include "ui/viewmodels/TriggerSummaryViewModel.hh"
 
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\mocks\MockGameContext.hh"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/mocks/MockGameContext.hh"
 
-#include "ui\EditorTheme.hh"
+#include "ui/EditorTheme.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

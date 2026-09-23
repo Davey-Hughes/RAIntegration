@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_CLIPBOARD_HH
 #pragma once
 
-#include "services\IClipboard.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IClipboard.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

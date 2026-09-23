@@ -1,21 +1,21 @@
 #include "CppUnitTest.h"
 
-#include "services\AchievementRuntime.hh"
+#include "services/AchievementRuntime.hh"
 
-#include "ui\EditorTheme.hh"
-#include "ui\viewmodels\TriggerConditionViewModel.hh"
-#include "ui\viewmodels\TriggerViewModel.hh"
+#include "ui/EditorTheme.hh"
+#include "ui/viewmodels/TriggerConditionViewModel.hh"
+#include "ui/viewmodels/TriggerViewModel.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\testutil\MemoryAsserts.hh"
-#include "tests\devkit\testutil\RequirementAsserts.hh"
-#include "tests\mocks\MockGameContext.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/testutil/MemoryAsserts.hh"
+#include "tests/devkit/testutil/RequirementAsserts.hh"
+#include "tests/mocks/MockGameContext.hh"
 
-#include <rcheevos\src\rcheevos\rc_internal.h>
+#include <rcheevos/src/rcheevos/rc_internal.h>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

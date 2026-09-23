@@ -2,10 +2,10 @@
 #define RA_SERVICES_MOCK_FILESYSTEM_HH
 #pragma once
 
-#include "services\IFileSystem.hh"
-#include "services\ServiceLocator.hh"
-#include "services\impl\StringTextReader.hh"
-#include "services\impl\StringTextWriter.hh"
+#include "services/IFileSystem.hh"
+#include "services/ServiceLocator.hh"
+#include "services/impl/StringTextReader.hh"
+#include "services/impl/StringTextWriter.hh"
 
 #include <set>
 

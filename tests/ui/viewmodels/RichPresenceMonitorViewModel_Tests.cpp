@@ -1,18 +1,18 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\RichPresenceMonitorViewModel.hh"
+#include "ui/viewmodels/RichPresenceMonitorViewModel.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "ui\IDesktop.hh"
+#include "ui/IDesktop.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\data\DataAsserts.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockLocalStorage.hh"
-#include "tests\mocks\MockAchievementRuntime.hh"
-#include "tests\mocks\MockGameContext.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/data/DataAsserts.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockLocalStorage.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockGameContext.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

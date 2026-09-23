@@ -1,11 +1,11 @@
-#include "ui\WindowViewModelBase.hh"
+#include "ui/WindowViewModelBase.hh"
 
-#include "services\ServiceLocator.hh"
-#include "ui\IDesktop.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\mocks\MockDesktop.hh"
+#include "services/ServiceLocator.hh"
+#include "ui/IDesktop.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockDesktop.hh"
 
-#include "tests\ui\UIAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

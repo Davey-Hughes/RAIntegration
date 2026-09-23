@@ -1,20 +1,20 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\UnknownGameViewModel.hh"
+#include "ui/viewmodels/UnknownGameViewModel.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\services\mocks\MockLocalStorage.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\mocks\MockAchievementRuntime.hh"
-#include "tests\mocks\MockClipboard.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockLoginService.hh"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/services/mocks/MockLocalStorage.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockClipboard.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockLoginService.hh"
 
-#include "tests\ui\UIAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

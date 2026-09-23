@@ -101,12 +101,15 @@ inline void _wassert(const wchar_t* pMessage, const wchar_t* pFile, unsigned nLi
 
 
 /* ---- MSVC CRT extensions ---- */
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cwchar>
 #include <ctime>
 #include <chrono>
 #include <thread>
+#include <unistd.h>
 
 #ifndef __fallthrough
 #define __fallthrough [[fallthrough]]
@@ -129,6 +132,110 @@ inline void Sleep(unsigned long nMilliseconds)
 {
     std::this_thread::sleep_for(std::chrono::milliseconds(nMilliseconds));
 }
+
+/* The Annex K "secure" string functions. Functions rather than macros, because
+ * the callers use both the explicit-size form and the array-reference form that
+ * MSVC provides as a template overload. Each returns 0 on success, like the
+ * MSVC original; the callers either ignore that or Expects() it. */
+inline int strcpy_s(char* pDest, std::size_t nDestSize, const char* pSource) noexcept
+{
+    if (pDest == nullptr || nDestSize == 0)
+        return EINVAL;
+
+    if (pSource == nullptr)
+    {
+        *pDest = '\0';
+        return EINVAL;
+    }
+
+    const std::size_t nLength = std::strlen(pSource);
+    if (nLength >= nDestSize)
+    {
+        *pDest = '\0';
+        return ERANGE;
+    }
+
+    std::memcpy(pDest, pSource, nLength + 1);
+    return 0;
+}
+
+template<std::size_t N>
+inline int strcpy_s(char (&pDest)[N], const char* pSource) noexcept
+{
+    return strcpy_s(pDest, N, pSource);
+}
+
+inline int wcscpy_s(wchar_t* pDest, std::size_t nDestSize, const wchar_t* pSource) noexcept
+{
+    if (pDest == nullptr || nDestSize == 0)
+        return EINVAL;
+
+    if (pSource == nullptr)
+    {
+        *pDest = L'\0';
+        return EINVAL;
+    }
+
+    const std::size_t nLength = std::wcslen(pSource);
+    if (nLength >= nDestSize)
+    {
+        *pDest = L'\0';
+        return ERANGE;
+    }
+
+    std::wmemcpy(pDest, pSource, nLength + 1);
+    return 0;
+}
+
+template<std::size_t N>
+inline int wcscpy_s(wchar_t (&pDest)[N], const wchar_t* pSource) noexcept
+{
+    return wcscpy_s(pDest, N, pSource);
+}
+
+/* MSVC's wctomb_s reports the byte count through pStatus and the error through
+ * the return value; std::wctomb folds both into its return. */
+inline int wctomb_s(int* pStatus, char* pDest, std::size_t nDestSize, wchar_t wc) noexcept
+{
+    if (pDest == nullptr || nDestSize == 0)
+    {
+        if (pStatus != nullptr)
+            *pStatus = -1;
+        return EINVAL;
+    }
+
+    const int nWritten = std::wctomb(pDest, wc);
+    if (nWritten < 0 || static_cast<std::size_t>(nWritten) > nDestSize)
+    {
+        if (pStatus != nullptr)
+            *pStatus = -1;
+        return ERANGE;
+    }
+
+    if (pStatus != nullptr)
+        *pStatus = nWritten;
+    return 0;
+}
+
+/* putenv() takes a non-const string and keeps the pointer, so the string has to
+ * outlive the call; setenv() copies, which is what callers of _putenv expect. */
+inline int _putenv(const char* pSetting)
+{
+    if (pSetting == nullptr)
+        return -1;
+
+    const char* pEquals = std::strchr(pSetting, '=');
+    if (pEquals == nullptr)
+        return ::unsetenv(pSetting);
+
+    const std::string sName(pSetting, pEquals - pSetting);
+    if (*(pEquals + 1) == '\0')
+        return ::unsetenv(sName.c_str());
+
+    return ::setenv(sName.c_str(), pEquals + 1, 1);
+}
+
+inline void _tzset() noexcept { ::tzset(); }
 
 #endif /* !_MSC_VER */
 

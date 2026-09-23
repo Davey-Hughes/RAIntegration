@@ -1,16 +1,16 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\MemoryViewerViewModel.hh"
+#include "ui/viewmodels/MemoryViewerViewModel.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\testutil\MemoryAsserts.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/testutil/MemoryAsserts.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 #undef GetMessage
 

@@ -1,10 +1,10 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\OverlayListPageViewModel.hh"
+#include "ui/viewmodels/OverlayListPageViewModel.hh"
 
-#include "tests\devkit\ui\mocks\MockImageRepository.hh"
-#include "tests\mocks\MockOverlayManager.hh"
-#include "tests\RA_UnitTestHelpers.h"
+#include "tests/devkit/ui/mocks/MockImageRepository.hh"
+#include "tests/mocks/MockOverlayManager.hh"
+#include "tests/RA_UnitTestHelpers.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

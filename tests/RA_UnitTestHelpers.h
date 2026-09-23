@@ -2,9 +2,9 @@
 #define RA_UNITTESTHELPERS_H
 #pragma once
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\Types.hh"
+#include "data/Types.hh"
 
 // The rcheevos nameless struct warning is only affecting the test project, for now we have
 // to disable the warning in the project or pragmatically in rcheevos. Careful not to use nameless structs here.
@@ -18,13 +18,13 @@ namespace CppUnitTestFramework {
 #pragma warning(push)
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 template<>
-std::wstring ToString<std::chrono::milliseconds>(const std::chrono::milliseconds& t)
+inline std::wstring ToString<std::chrono::milliseconds>(const std::chrono::milliseconds& t)
 {
     return std::to_wstring(t.count()) + L"ms";
 }
 
 template<>
-std::wstring ToString<ComparisonType>(const ComparisonType& t)
+inline std::wstring ToString<ComparisonType>(const ComparisonType& t)
 {
     switch (t)
     {

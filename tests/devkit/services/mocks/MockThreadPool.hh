@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_THREADPOOL_HH
 #pragma once
 
-#include "services\IThreadPool.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
 
 #include <queue>
 

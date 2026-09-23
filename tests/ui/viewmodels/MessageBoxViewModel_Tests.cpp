@@ -1,12 +1,12 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "services\ServiceLocator.hh"
-#include "ui\IDesktop.hh"
-#include "tests\mocks\MockDesktop.hh"
+#include "services/ServiceLocator.hh"
+#include "ui/IDesktop.hh"
+#include "tests/mocks/MockDesktop.hh"
 
-#include "tests\ui\UIAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
 #undef GetMessage
 

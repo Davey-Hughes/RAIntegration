@@ -1,39 +1,39 @@
-#include "services\AchievementRuntime.hh"
+#include "services/AchievementRuntime.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\data\DataAsserts.hh"
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockFileSystem.hh"
-#include "tests\devkit\services\mocks\MockLocalStorage.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\devkit\testutil\AssetAsserts.hh"
-#include "tests\devkit\ui\mocks\MockImageRepository.hh"
-#include "tests\mocks\MockAudioSystem.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockFrameEventQueue.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockGameIdentifier.hh"
-#include "tests\mocks\MockLoginService.hh"
-#include "tests\mocks\MockOverlayManager.hh"
-#include "tests\mocks\MockOverlayTheme.hh"
-#include "tests\mocks\MockSessionTracker.hh"
-#include "tests\mocks\MockSurface.hh"
-#include "tests\mocks\MockWindowConfiguration.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/data/DataAsserts.hh"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
+#include "tests/devkit/services/mocks/MockLocalStorage.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/devkit/testutil/AssetAsserts.hh"
+#include "tests/devkit/ui/mocks/MockImageRepository.hh"
+#include "tests/mocks/MockAudioSystem.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockFrameEventQueue.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockGameIdentifier.hh"
+#include "tests/mocks/MockLoginService.hh"
+#include "tests/mocks/MockOverlayManager.hh"
+#include "tests/mocks/MockOverlayTheme.hh"
+#include "tests/mocks/MockSessionTracker.hh"
+#include "tests/mocks/MockSurface.hh"
+#include "tests/mocks/MockWindowConfiguration.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
-#include "tests\ui\UIAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
-#include "context\IRcClient.hh"
-#include "services\impl\OfflineRcClient.hh"
+#include "context/IRcClient.hh"
+#include "services/impl/OfflineRcClient.hh"
 
-#include <rcheevos\src\rc_client_internal.h>
-#include <rcheevos\src\rcheevos\rc_internal.h>
+#include <rcheevos/src/rc_client_internal.h>
+#include <rcheevos/src/rcheevos/rc_internal.h>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -102,7 +102,7 @@ public:
         memset(core_subset, 0, sizeof(*core_subset));
         core_subset->public_.id = game->public_.id;
         core_subset->public_.title = game->public_.title;
-        strcpy_s(core_subset->public_.badge_name, game->public_.badge_name);
+        strcpy_s(core_subset->public_.badge_name, sizeof(core_subset->public_.badge_name), game->public_.badge_name);
         core_subset->public_.badge_url = game->public_.badge_url;
         core_subset->active = 1;
 

@@ -2,11 +2,11 @@
 #define RA_SERVICES_MOCK_LOGINSERVICE_HH
 #pragma once
 
-#include "services\ILoginService.hh"
+#include "services/ILoginService.hh"
 
-#include "context\UserContext.hh"
+#include "context/UserContext.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

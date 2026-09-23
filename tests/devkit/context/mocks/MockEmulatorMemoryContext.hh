@@ -8,7 +8,7 @@
 
 #pragma warning(push)
 #pragma warning(disable: 26440)
-#include <GSL/span>
+#include <gsl/span>
 #pragma warning(pop)
 
 #include <map>

@@ -1,14 +1,14 @@
-#include "services\RcheevosClient.hh"
+#include "services/RcheevosClient.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\data\DataAsserts.hh"
-#include "tests\mocks\MockConsoleContext.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockFileSystem.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockThreadPool.hh"
-#include "tests\mocks\MockUserContext.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/data/DataAsserts.hh"
+#include "tests/mocks/MockConsoleContext.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockFileSystem.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockUserContext.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -82,7 +82,7 @@ private:
     ra::services::ServiceLocator::ServiceOverride<ra::services::AchievementRuntime> m_Override;
 };
 
-TEST_CLASS(AchievementRuntime_Tests)
+TEST_CLASS(RcheevosClient_Tests)
 {
 private:
     std::array<unsigned char, 1024> sTriggerBuffer{};

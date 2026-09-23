@@ -1,8 +1,8 @@
-#include "services\impl\FileLogger.hh"
+#include "services/impl/FileLogger.hh"
 
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockFileSystem.hh"
-#include "tests\RA_UnitTestHelpers.h"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
+#include "tests/RA_UnitTestHelpers.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

@@ -2,15 +2,15 @@
 
 #include "MockEmulatorContext.hh"
 #include "MockGameContext.hh"
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
 #include "CppUnitTest.h"
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "data\models\GameAssets.hh"
+#include "data/models/GameAssets.hh"
 
-#include <rcheevos\src\rapi\rc_api_common.h>
-#include <rcheevos\src\rc_client_internal.h>
+#include <rcheevos/src/rapi/rc_api_common.h>
+#include <rcheevos/src/rc_client_internal.h>
 
 namespace ra {
 namespace services {

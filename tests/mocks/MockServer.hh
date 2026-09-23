@@ -2,10 +2,10 @@
 #define RA_SERVICES_MOCK_SERVER_HH
 #pragma once
 
-#include "util\Strings.hh"
+#include "util/Strings.hh"
 
-#include "api\IServer.hh"
-#include "services\ServiceLocator.hh"
+#include "api/IServer.hh"
+#include "services/ServiceLocator.hh"
 
 #include <CppUnitTest.h>
 
@@ -96,8 +96,11 @@ public:
     }
 
 protected:
+    // Spelled out rather than deduced: clang requires the definition of a
+    // function with a deduced return type to precede its use lexically, and the
+    // callers above are earlier in the class.
     template<typename TApi>
-    inline auto HandleRequest(const ApiRequestBase& pRequest) const
+    inline typename TApi::Response HandleRequest(const ApiRequestBase& pRequest) const
     {
         typename TApi::Response response;
         std::string sApiName(TApi::Name());

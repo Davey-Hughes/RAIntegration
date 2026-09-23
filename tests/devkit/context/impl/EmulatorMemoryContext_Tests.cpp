@@ -3,7 +3,7 @@
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/devkit/services/mocks/MockDebuggerDetector.hh"
 
-#include "testutil\CppUnitTest.hh"
+#include "testutil/CppUnitTest.hh"
 
 namespace ra {
 namespace context {

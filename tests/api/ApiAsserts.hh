@@ -2,7 +2,7 @@
 #define RA_UNITTEST_APIHELPERS_H
 #pragma once
 
-#include "api\ApiCall.hh"
+#include "api/ApiCall.hh"
 
 namespace Microsoft {
 namespace VisualStudio {
@@ -14,7 +14,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::api::ApiResult>(const ra::api::ApiResult& result)
+inline std::wstring ToString<ra::api::ApiResult>(const ra::api::ApiResult& result)
 {
     switch (result)
     {

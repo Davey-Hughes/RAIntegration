@@ -1,22 +1,22 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\PointerFinderViewModel.hh"
+#include "ui/viewmodels/PointerFinderViewModel.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
+#include "tests/RA_UnitTestHelpers.h"
 
-#include "tests\devkit\context\mocks\MockConsoleContext.hh"
-#include "tests\devkit\context\mocks\MockEmulatorMemoryContext.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockFileSystem.hh"
+#include "tests/devkit/context/mocks/MockConsoleContext.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
 
-#include "tests\mocks\MockClipboard.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/mocks/MockClipboard.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

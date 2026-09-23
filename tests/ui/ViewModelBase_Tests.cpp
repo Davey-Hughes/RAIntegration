@@ -1,4 +1,4 @@
-#include "ui\ViewModelBase.hh"
+#include "ui/ViewModelBase.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

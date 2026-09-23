@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_OVERLAY_THEME_HH
 #pragma once
 
-#include "ui\OverlayTheme.hh"
-#include "services\ServiceLocator.hh"
+#include "ui/OverlayTheme.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

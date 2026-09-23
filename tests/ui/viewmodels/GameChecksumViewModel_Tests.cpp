@@ -1,10 +1,10 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\GameChecksumViewModel.hh"
+#include "ui/viewmodels/GameChecksumViewModel.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\mocks\MockClipboard.hh"
-#include "tests\mocks\MockGameContext.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/mocks/MockClipboard.hh"
+#include "tests/mocks/MockGameContext.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using ra::data::context::mocks::MockGameContext;

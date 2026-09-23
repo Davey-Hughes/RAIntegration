@@ -18,7 +18,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::MemoryRegion::Type>(const ra::data::MemoryRegion::Type& t)
+inline std::wstring ToString<ra::data::MemoryRegion::Type>(const ra::data::MemoryRegion::Type& t)
 {
     switch (t)
     {

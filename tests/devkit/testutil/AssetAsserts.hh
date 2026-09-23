@@ -18,7 +18,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::models::AssetType>(const ra::data::models::AssetType& t)
+inline std::wstring ToString<ra::data::models::AssetType>(const ra::data::models::AssetType& t)
 {
     switch (t)
     {
@@ -42,7 +42,7 @@ std::wstring ToString<ra::data::models::AssetType>(const ra::data::models::Asset
 }
 
 template<>
-std::wstring ToString<ra::data::models::AssetCategory>(const ra::data::models::AssetCategory& t)
+inline std::wstring ToString<ra::data::models::AssetCategory>(const ra::data::models::AssetCategory& t)
 {
     switch (t)
     {
@@ -60,7 +60,7 @@ std::wstring ToString<ra::data::models::AssetCategory>(const ra::data::models::A
 }
 
 template<>
-std::wstring ToString<ra::data::models::AssetState>(const ra::data::models::AssetState& t)
+inline std::wstring ToString<ra::data::models::AssetState>(const ra::data::models::AssetState& t)
 {
     switch (t)
     {
@@ -84,7 +84,7 @@ std::wstring ToString<ra::data::models::AssetState>(const ra::data::models::Asse
 }
 
 template<>
-std::wstring ToString<ra::data::models::AssetChanges>(const ra::data::models::AssetChanges& t)
+inline std::wstring ToString<ra::data::models::AssetChanges>(const ra::data::models::AssetChanges& t)
 {
     switch (t)
     {

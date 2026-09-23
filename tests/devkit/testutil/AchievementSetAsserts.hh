@@ -18,7 +18,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::models::AchievementSetType>(const ra::data::models::AchievementSetType& t)
+inline std::wstring ToString<ra::data::models::AchievementSetType>(const ra::data::models::AchievementSetType& t)
 {
     switch (t)
     {

@@ -3,35 +3,35 @@
 #include "Exports.hh"
 
 #include "RA_BuildVer.h"
-#include "RAInterface\RA_Emulators.h"
+#include "RAInterface/RA_Emulators.h"
 #include "RA_Resource.h"
 
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\devkit\ui\mocks\MockImageRepository.hh"
-#include "tests\mocks\MockAchievementRuntime.hh"
-#include "tests\mocks\MockAudioSystem.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockFrameEventQueue.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockLoginService.hh"
-#include "tests\mocks\MockOverlayManager.hh"
-#include "tests\mocks\MockOverlayTheme.hh"
-#include "tests\mocks\MockServer.hh"
-#include "tests\mocks\MockSessionTracker.hh"
-#include "tests\mocks\MockSurface.hh"
-#include "tests\mocks\MockWindowManager.hh"
-#include "tests\ui\UIAsserts.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/devkit/ui/mocks/MockImageRepository.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockAudioSystem.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockFrameEventQueue.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockLoginService.hh"
+#include "tests/mocks/MockOverlayManager.hh"
+#include "tests/mocks/MockOverlayTheme.hh"
+#include "tests/mocks/MockServer.hh"
+#include "tests/mocks/MockSessionTracker.hh"
+#include "tests/mocks/MockSurface.hh"
+#include "tests/mocks/MockWindowManager.hh"
+#include "tests/ui/UIAsserts.hh"
 
-#include "services\AchievementRuntime.hh"
+#include "services/AchievementRuntime.hh"
 
-#include "ui\viewmodels\LoginViewModel.hh"
-#include "ui\viewmodels\MessageBoxViewModel.hh"
-#include "ui\viewmodels\WindowManager.hh"
+#include "ui/viewmodels/LoginViewModel.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
+#include "ui/viewmodels/WindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -447,7 +447,7 @@ private:
         MockUserContext mockUserContext;
     };
 
-    void AssertMenuItem(const RA_MenuItem* pItem, LPARAM nId, const wchar_t* sLabel, bool bChecked = false)
+    void AssertMenuItem(const RA_MenuItem* pItem, RA_MenuItemId nId, const wchar_t* sLabel, bool bChecked = false)
     {
         Assert::AreEqual((int)nId, (int)pItem->nID);
 

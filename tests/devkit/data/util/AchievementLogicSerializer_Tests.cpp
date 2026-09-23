@@ -1,7 +1,7 @@
 #include "data/util/AchievementLogicSerializer.hh"
 
-#include "context\mocks/MockConsoleContext.hh"
-#include "context\mocks/MockEmulatorMemoryContext.hh"
+#include "context/mocks/MockConsoleContext.hh"
+#include "context/mocks/MockEmulatorMemoryContext.hh"
 
 #include "testutil/CppUnitTest.hh"
 

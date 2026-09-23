@@ -16,7 +16,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::Requirement::Type>(const ra::data::Requirement::Type& nConditionType)
+inline std::wstring ToString<ra::data::Requirement::Type>(const ra::data::Requirement::Type& nConditionType)
 {
     switch (nConditionType)
     {
@@ -56,7 +56,7 @@ std::wstring ToString<ra::data::Requirement::Type>(const ra::data::Requirement::
 }
 
 template<>
-std::wstring ToString<ra::data::Requirement::OperandType>(const ra::data::Requirement::OperandType& nOperandType)
+inline std::wstring ToString<ra::data::Requirement::OperandType>(const ra::data::Requirement::OperandType& nOperandType)
 {
     switch (nOperandType)
     {
@@ -82,7 +82,7 @@ std::wstring ToString<ra::data::Requirement::OperandType>(const ra::data::Requir
 }
 
 template<>
-std::wstring ToString<ra::data::Requirement::OperatorType>(const ra::data::Requirement::OperatorType& nConditionType)
+inline std::wstring ToString<ra::data::Requirement::OperatorType>(const ra::data::Requirement::OperatorType& nConditionType)
 {
     switch (nConditionType)
     {

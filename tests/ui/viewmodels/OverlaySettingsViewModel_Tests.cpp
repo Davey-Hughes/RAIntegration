@@ -1,13 +1,13 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\OverlaySettingsViewModel.hh"
+#include "ui/viewmodels/OverlaySettingsViewModel.hh"
 
-#include "ui\viewmodels\FileDialogViewModel.hh"
+#include "ui/viewmodels/FileDialogViewModel.hh"
 
-#include "tests\RA_UnitTestHelpers.h"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockWindowConfiguration.hh"
+#include "tests/RA_UnitTestHelpers.h"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockWindowConfiguration.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -16,7 +16,7 @@ namespace VisualStudio {
 namespace CppUnitTestFramework {
 
 template<>
-std::wstring ToString<ra::ui::viewmodels::PopupLocation>(
+inline std::wstring ToString<ra::ui::viewmodels::PopupLocation>(
     const ra::ui::viewmodels::PopupLocation& nPopupLocation)
 {
     switch (nPopupLocation)

@@ -1,25 +1,25 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\OverlayManager.hh"
+#include "ui/viewmodels/OverlayManager.hh"
 
-#include "ui\OverlayTheme.hh"
+#include "ui/OverlayTheme.hh"
 
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\devkit\ui\mocks\MockImageRepository.hh"
-#include "tests\mocks\MockAchievementRuntime.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockOverlayTheme.hh"
-#include "tests\mocks\MockSurface.hh"
-#include "tests\mocks\MockWindowConfiguration.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/devkit/ui/mocks/MockImageRepository.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockOverlayTheme.hh"
+#include "tests/mocks/MockSurface.hh"
+#include "tests/mocks/MockWindowConfiguration.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
-#include "tests\ui\UIAsserts.hh"
+#include "tests/ui/UIAsserts.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

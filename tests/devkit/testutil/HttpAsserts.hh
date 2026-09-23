@@ -17,7 +17,7 @@ namespace CppUnitTestFramework {
 #pragma warning(push)
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 template<>
-std::wstring ToString<ra::services::Http::StatusCode>(const ra::services::Http::StatusCode& t)
+inline std::wstring ToString<ra::services::Http::StatusCode>(const ra::services::Http::StatusCode& t)
 {
     return std::to_wstring(ra::etoi(t));
 }

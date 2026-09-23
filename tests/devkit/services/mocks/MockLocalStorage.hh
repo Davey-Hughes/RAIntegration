@@ -2,10 +2,10 @@
 #define RA_SERVICES_MOCK_LOCALSTORAGE_HH
 #pragma once
 
-#include "services\ILocalStorage.hh"
-#include "services\ServiceLocator.hh"
-#include "services\impl\StringTextReader.hh"
-#include "services\impl\StringTextWriter.hh"
+#include "services/ILocalStorage.hh"
+#include "services/ServiceLocator.hh"
+#include "services/impl/StringTextReader.hh"
+#include "services/impl/StringTextWriter.hh"
 
 namespace ra {
 namespace services {

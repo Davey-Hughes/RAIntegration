@@ -18,7 +18,7 @@ namespace CppUnitTestFramework {
 #pragma warning(disable : 4505) // unreferenced inline functions, they are referenced. Must be a bug.
 
 template<>
-std::wstring ToString<ra::data::Memory::Size>(const ra::data::Memory::Size& t)
+inline std::wstring ToString<ra::data::Memory::Size>(const ra::data::Memory::Size& t)
 {
     switch (t)
     {
@@ -82,7 +82,7 @@ std::wstring ToString<ra::data::Memory::Size>(const ra::data::Memory::Size& t)
 }
 
 template<>
-std::wstring ToString<ra::data::Memory::Format>(const ra::data::Memory::Format& t)
+inline std::wstring ToString<ra::data::Memory::Format>(const ra::data::Memory::Format& t)
 {
     switch (t)
     {

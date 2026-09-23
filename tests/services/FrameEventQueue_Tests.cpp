@@ -1,9 +1,9 @@
-#include "services\FrameEventQueue.hh"
+#include "services/FrameEventQueue.hh"
 
-#include "tests\ui\UIAsserts.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockEmulatorContext.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/ui/UIAsserts.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

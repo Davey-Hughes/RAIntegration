@@ -1,13 +1,13 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\BrokenAchievementsViewModel.hh"
+#include "ui/viewmodels/BrokenAchievementsViewModel.hh"
 
-#include "tests\ui\UIAsserts.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockGameContext.hh"
-#include "tests\mocks\MockWindowManager.hh"
+#include "tests/ui/UIAsserts.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_FRAME_EVENT_QUEUE_HH
 #pragma once
 
-#include "services\FrameEventQueue.hh"
-#include "services\ServiceLocator.hh"
+#include "services/FrameEventQueue.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

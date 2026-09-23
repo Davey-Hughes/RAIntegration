@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_OVERLAYMANAGER_HH
 #pragma once
 
-#include "ui\viewmodels\OverlayManager.hh"
-#include "services\ServiceLocator.hh"
+#include "ui/viewmodels/OverlayManager.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

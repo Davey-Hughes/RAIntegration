@@ -2,9 +2,9 @@
 #define RA_SERVICES_MOCK_RCCLIENT_HH
 #pragma once
 
-#include "context\impl\RcClient.hh"
+#include "context/impl/RcClient.hh"
 
-#include "services\ServiceLocator.hh"
+#include "services/ServiceLocator.hh"
 
 typedef struct rc_client_achievement_info_t rc_client_achievement_info_t;
 typedef struct rc_client_leaderboard_info_t rc_client_leaderboard_info_t;

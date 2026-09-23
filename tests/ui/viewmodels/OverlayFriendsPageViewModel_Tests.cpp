@@ -1,15 +1,15 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\OverlayFriendsPageViewModel.hh"
+#include "ui/viewmodels/OverlayFriendsPageViewModel.hh"
 
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockClock.hh"
-#include "tests\devkit\services\mocks\MockThreadPool.hh"
-#include "tests\devkit\ui\mocks\MockImageRepository.hh"
-#include "tests\mocks\MockOverlayManager.hh"
-#include "tests\mocks\MockServer.hh"
-#include "tests\RA_UnitTestHelpers.h"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/devkit/ui/mocks/MockImageRepository.hh"
+#include "tests/mocks/MockOverlayManager.hh"
+#include "tests/mocks/MockServer.hh"
+#include "tests/RA_UnitTestHelpers.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 

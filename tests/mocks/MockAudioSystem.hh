@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_AUDIO_SYSTEM_HH
 #pragma once
 
-#include "services\IAudioSystem.hh"
-#include "services\ServiceLocator.hh"
+#include "services/IAudioSystem.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace services {

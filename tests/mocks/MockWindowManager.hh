@@ -2,8 +2,8 @@
 #define RA_SERVICES_MOCK_WINDOW_MANAGER_HH
 #pragma once
 
-#include "ui\viewmodels\WindowManager.hh"
-#include "services\ServiceLocator.hh"
+#include "ui/viewmodels/WindowManager.hh"
+#include "services/ServiceLocator.hh"
 
 namespace ra {
 namespace ui {

@@ -1,13 +1,13 @@
 #include "CppUnitTest.h"
 
-#include "ui\viewmodels\LoginViewModel.hh"
+#include "ui/viewmodels/LoginViewModel.hh"
 
-#include "tests\ui\UIAsserts.hh"
-#include "tests\devkit\context\mocks\MockRcClient.hh"
-#include "tests\devkit\context\mocks\MockUserContext.hh"
-#include "tests\devkit\services\mocks\MockConfiguration.hh"
-#include "tests\mocks\MockDesktop.hh"
-#include "tests\mocks\MockLoginService.hh"
+#include "tests/ui/UIAsserts.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/mocks/MockDesktop.hh"
+#include "tests/mocks/MockLoginService.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
