@@ -35,6 +35,15 @@ list(APPEND PORTABLE_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/RA_md5factory.cpp
 )
 
+# rc_snprintf is a product need, not a test-only one: every C++ translation
+# unit that includes rcheevos/src/rc_compat.h takes its clang-only C89 branch
+# (see the comment in rc_compat_shim.cpp) and calls the renamed symbol, so
+# ra_portable's own objects (e.g. AchievementRuntime.cpp) are left with an
+# undefined reference unless this compiles into ra_portable itself.
+list(APPEND PORTABLE_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/compat/rc_compat_shim.cpp
+)
+
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/ui/win32/")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/ui/drawing/gdi/")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/services/impl/Windows")
@@ -168,7 +177,6 @@ add_executable(ra_tests
   # tests/RA_Integration.Tests.vcxproj lists it for the same reason.
   src/Exports.cpp
   tests/compat/Runner.cpp
-  tests/compat/Stubs.cpp
 )
 
 target_include_directories(ra_tests PRIVATE
