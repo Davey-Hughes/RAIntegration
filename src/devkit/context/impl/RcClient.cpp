@@ -4,6 +4,7 @@
 
 #include "services/IHttpRequester.hh"
 #include "services/ILocalStorage.hh"
+#include "services/ILogger.hh"
 #include "services/ServiceLocator.hh"
 
 #include "util/Strings.hh"
@@ -60,11 +61,28 @@ void RcClient::Shutdown() noexcept
     }
 }
 
-void RcClient::LogMessage(const char* sMessage, const rc_client_t*)
+// RA_LOG_INFO (util/Log.hh) is a no-op under RA_UTEST: most unit tests never
+// register an ILogger, and code that logs unconditionally must not throw
+// (ServiceLocator::Get<ILogger>() throws when nothing was provided). The
+// callers below guard on ServiceLocator::Exists<ILogger>() themselves - they
+// need to actually reach the logger when a test *does* register one, to
+// prove credentials are redacted before they're logged (see RcClient_Tests).
+// So log directly here instead of through the macro; this is exactly what
+// RA_LOG_INFO expands to outside of RA_UTEST, which is how this file is
+// always built on Windows, so behavior there is unchanged.
+static void LogInfo(const std::string& sMessage)
 {
     const auto& pLogger = ra::services::ServiceLocator::Get<ra::services::ILogger>();
     if (pLogger.IsEnabled(ra::services::LogLevel::Info))
         pLogger.LogMessage(ra::services::LogLevel::Info, sMessage);
+}
+
+void RcClient::LogMessage(const char* sMessage, const rc_client_t*)
+{
+    // rc_client's C-style logging callback requires this exact signature; the actual
+    // logging logic is shared with LogInfo, above, which the free functions
+    // LogRequest/LogResponse (further down) call directly.
+    LogInfo(sMessage);
 }
 
 void RcClient::AddAuthentication(const char** pUsername, const char** pApiToken) const
@@ -94,22 +112,6 @@ static void ConvertHttpResponseToApiServerResponse(rc_api_server_response_t& pRe
         pResponse.http_status_code = pHttpRequestService.IsRetryable(pResponse.http_status_code) ?
             RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR : RC_API_SERVER_RESPONSE_CLIENT_ERROR;
     }
-}
-
-// RA_LOG_INFO (util/Log.hh) is a no-op under RA_UTEST: most unit tests never
-// register an ILogger, and code that logs unconditionally must not throw
-// (ServiceLocator::Get<ILogger>() throws when nothing was provided). The
-// callers below guard on ServiceLocator::Exists<ILogger>() themselves - they
-// need to actually reach the logger when a test *does* register one, to
-// prove credentials are redacted before they're logged (see RcClient_Tests).
-// So log directly here instead of through the macro; this is exactly what
-// RA_LOG_INFO expands to outside of RA_UTEST, which is how this file is
-// always built on Windows, so behavior there is unchanged.
-static void LogInfo(const std::string& sMessage)
-{
-    const auto& pLogger = ra::services::ServiceLocator::Get<ra::services::ILogger>();
-    if (pLogger.IsEnabled(ra::services::LogLevel::Info))
-        pLogger.LogMessage(ra::services::LogLevel::Info, sMessage);
 }
 
 static std::string_view FindParameter(const std::string& sInput, const std::string& sParameter)

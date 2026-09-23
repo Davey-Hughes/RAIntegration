@@ -1,14 +1,6 @@
 #include "FileLocalStorage.hh"
 
-// Only RA_DIR_SEP_L is wanted here; RA_Defs.h also defines RA_DIR_BASE et al as
-// macros of the same name as the file-scope constants declared below, so they
-// have to be undone immediately or the declarations below expand into garbage.
-#include "RA_Defs.h"
-#undef RA_DIR_BASE
-#undef RA_DIR_BADGE
-#undef RA_DIR_DATA
-#undef RA_DIR_USERPIC
-#undef RA_DIR_BOOKMARKS
+#include "RA_DirSep.h"
 
 #include "util/Log.hh"
 #include "util/Strings.hh"

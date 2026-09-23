@@ -1,6 +1,6 @@
 #include "services/AchievementRuntime.hh"
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/data/DataAsserts.hh"

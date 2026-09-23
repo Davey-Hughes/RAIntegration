@@ -1,6 +1,6 @@
 #include "OverlayViewModel.hh"
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "util/Strings.hh"
 

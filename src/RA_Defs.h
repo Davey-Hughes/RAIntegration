@@ -35,16 +35,7 @@ using namespace std::string_literals;
 #include "data/Types.hh"
 #include "data/Memory.hh"
 
-/* Path separator. MSVC accepts '/' in most API calls but the tree's cached
- * paths are compared as strings, so they have to agree with what the platform's
- * IFileSystem produces. RALibretro carries the same pair (commit 15aa33b). */
-#ifdef _WIN32
- #define RA_DIR_SEP    "\\"
- #define RA_DIR_SEP_L L"\\"
-#else
- #define RA_DIR_SEP    "/"
- #define RA_DIR_SEP_L L"/"
-#endif
+#include "RA_DirSep.h"
 
 #define RA_DIR_OVERLAY                  L"Overlay" RA_DIR_SEP_L
 #define RA_DIR_BASE                     L"RACache" RA_DIR_SEP_L

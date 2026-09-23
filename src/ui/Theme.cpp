@@ -1,7 +1,7 @@
 #include "EditorTheme.hh"
 #include "OverlayTheme.hh"
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "util/Json.hh"
 #include "util/Log.hh"

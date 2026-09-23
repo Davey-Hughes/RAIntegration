@@ -2,7 +2,7 @@
 #define RA_SERVICES_FILELOGGER_HH
 #pragma once
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "services/IClock.hh"
 #include "services/IFileSystem.hh"

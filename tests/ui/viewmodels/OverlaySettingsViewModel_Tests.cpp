@@ -1,6 +1,6 @@
 #include "CppUnitTest.h"
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "ui/viewmodels/OverlaySettingsViewModel.hh"
 

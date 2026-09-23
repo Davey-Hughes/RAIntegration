@@ -1,6 +1,6 @@
 #include "OverlaySettingsViewModel.hh"
 
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 
 #include "services/IConfiguration.hh"
 #include "services/IWindowConfiguration.hh"

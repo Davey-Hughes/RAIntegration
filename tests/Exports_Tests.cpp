@@ -3,7 +3,7 @@
 #include "Exports.hh"
 
 #include "RA_BuildVer.h"
-#include "RA_Defs.h"
+#include "RA_DirSep.h"
 #include "RAInterface/RA_Emulators.h"
 #include "RA_Resource.h"
 
