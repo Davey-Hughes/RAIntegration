@@ -5,6 +5,8 @@
 #include "services/impl/LinuxDebuggerDetector.hh"
 #include "services/impl/LinuxFileSystem.hh"
 #include "services/impl/LinuxHttpRequester.hh"
+#include "services/impl/QtAudioSystem.hh"
+#include "services/impl/QtClipboard.hh"
 #include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
@@ -32,12 +34,12 @@ std::unique_ptr<ra::services::IHttpRequester> CreatePlatformHttpRequester()
 
 std::unique_ptr<ra::services::IClipboard> CreatePlatformClipboard()
 {
-    return nullptr; // QtClipboard in Task 8
+    return std::make_unique<QtClipboard>();
 }
 
 std::unique_ptr<ra::services::IAudioSystem> CreatePlatformAudioSystem()
 {
-    return nullptr; // QtAudioSystem in Task 8
+    return std::make_unique<QtAudioSystem>();
 }
 
 std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector()

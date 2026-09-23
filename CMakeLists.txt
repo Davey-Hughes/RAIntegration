@@ -53,6 +53,7 @@ list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/services/impl/Windows")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "PlatformServices_Win32")
 
 find_package(CURL REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Gui Multimedia)
 
 add_library(ra_portable OBJECT ${PORTABLE_SOURCES})
 
@@ -74,6 +75,7 @@ target_include_directories(ra_portable PRIVATE
 # carries the include directories in both modes. Linking a library into an
 # OBJECT library for its usage requirements is legal from CMake 3.12.
 target_link_libraries(ra_portable PRIVATE CURL::libcurl)
+target_link_libraries(ra_portable PUBLIC Qt6::Gui Qt6::Multimedia)
 
 # RA_EXPORTS is what the DLL build defines; in RA_Defs.h it also selects the
 # branch that does not pull in <Windows.h>.
@@ -200,6 +202,7 @@ target_include_directories(ra_tests PRIVATE
 target_compile_definitions(ra_tests PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH RA_UTEST)
 
 target_link_libraries(ra_tests PRIVATE rcheevos CURL::libcurl)
+target_link_libraries(ra_tests PRIVATE Qt6::Gui Qt6::Multimedia)
 
 # src/pch.h is force-included by the MSVC test project and, under RA_UTEST,
 # force-includes CppUnitTest.h with it. Several test sources rely on that and
