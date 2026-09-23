@@ -157,8 +157,19 @@ unsigned int LinuxHttpRequester::Request(const Http::Request& pRequest, TextWrit
     else
     {
         nStatusCode = detail::MapCurlError(nResult);
+
+        // Deliberately GetUrl() and not sUrl: Http::Request splits the query
+        // string off at construction, so this is the scheme, host and path
+        // without it. A query string can carry a credential - RcClient redacts
+        // p= and t= out of a request's parameters before it logs them - and
+        // this is a transport: it cannot know which parameter of some future
+        // caller's request is the secret one, so a denylist here would leak
+        // everything not on the list. Dropping the query string is the
+        // fail-closed choice, and costs nothing diagnostically: what curl
+        // failed at (resolve, connect, TLS, stalled transfer) is decided by
+        // the scheme, host and port rather than by the parameters.
         RA_LOG_WARN("curl error %d (%s) requesting %s", static_cast<int>(nResult),
-                    curl_easy_strerror(nResult), sUrl.c_str());
+                    curl_easy_strerror(nResult), pRequest.GetUrl().c_str());
     }
 
     if (pHeaders != nullptr)

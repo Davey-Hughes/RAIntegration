@@ -12,8 +12,14 @@
 //
 // Credentials are optional. Set RA_USERNAME and RA_PASSWORD to include the
 // login check; without them that one step reports skip and the rest still run.
-// Neither value is ever printed - RcClient's own [redacted] handling is not
-// touched, and nothing here echoes the environment.
+// Neither value is ever printed, and neither reaches RACache/RALog.txt: the
+// login goes out as POST data the way RcClient sends it, so the password is
+// not part of any URL that a transport-level failure could log.
+//
+// Do not run this under QT_QPA_PLATFORM=offscreen. Qt's offscreen platform
+// answers clipboard reads out of an in-process buffer, so the desktop-facing
+// clipboard checks would report success without a desktop being involved;
+// they report [skip] on that platform instead of a result they cannot back up.
 //
 // Result markers:
 //   [ok]   asserted, and true
@@ -24,10 +30,15 @@
 //          audible, whether the compositor accepted a clipboard offer. A
 //          check that always passes would be worse than no check, so these
 //          deliberately do not count towards the result.
+//   [note] something the run is about to do to the machine it is running on.
+//          Not a result at all, and counted as nothing.
+
+#include "Exports.hh" // _RA_InitClientOffline, _RA_DoAchievementsFrame
 
 #include "services/Initialization.hh"
 #include "services/ServiceLocator.hh"
 
+#include "services/FrameEventQueue.hh"
 #include "services/IAudioSystem.hh"
 #include "services/IClipboard.hh"
 #include "services/IDebuggerDetector.hh"
@@ -43,8 +54,6 @@
 
 #include "RA_Defs.h" // RA_DIR_SEP_L, RA_DIR_BASE, RA_DIR_OVERLAY
 
-#include "RAInterface/RA_Emulators.h"
-
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QTimer>
@@ -59,6 +68,7 @@
 #include <cstdint>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <string>
 #include <thread>
 
@@ -98,6 +108,14 @@ static void Observe(const char* sLabel, const std::string& sDetail)
     std::fflush(stdout);
 }
 
+// Not a result - a warning about what the run is about to do to this machine.
+// Counted as nothing, so it cannot dilute the tally either way.
+static void Note(const char* sLabel, const std::string& sDetail)
+{
+    std::printf("  [note] %-34s %s\n", sLabel, sDetail.c_str());
+    std::fflush(stdout);
+}
+
 static void Section(const char* sName) { std::printf("\n%s\n", sName); }
 
 // Every network step is already bounded by libcurl (30s to connect, 30s of
@@ -120,16 +138,25 @@ static void StartWatchdog(unsigned int nSeconds)
 //
 // QtAudioSystem keeps its QSoundEffects in a private pool, so nothing out here
 // can count them directly. What is countable is the cost the audio backend
-// pays for each effect that is actually playing: on Qt 6.11 over PipeWire, one
-// sound in flight costs 24 open descriptors and N simultaneous sounds cost
-// 23 + N, i.e. exactly one descriptor per concurrent stream on top of a fixed
-// per-burst backend cost. Measuring one sound first and subtracting turns that
-// into a count of how many of a burst were really playing at once, which is
-// the only external evidence for the overlap guarantee.
+// pays while sounds are actually playing: a burst of N simultaneous sounds
+// holds some fixed number of descriptors plus some number more per concurrent
+// stream. Recovering N from that total is the only external evidence for the
+// overlap guarantee.
 //
-// The fixed cost is a Qt implementation detail and may differ elsewhere, so
-// this is calibrated at runtime rather than hard-coded, and reports [obs]
-// instead of a verdict if the calibration finds no signal to measure.
+// Both halves of the cost are backend implementation details, so neither is
+// hard-coded and neither is assumed. They are separated by calibrating at two
+// points - one sound, then two - because a single point cannot tell them
+// apart. It yields only a total, and turning a total into a count means
+// assuming a marginal cost; assume one descriptor per stream, as this did
+// before, and a backend that shares descriptors between streams produces a
+// confident wrong answer instead of a failure. The marginal cost is the
+// difference between the two calibration points, and the fixed cost is what
+// is left of the one-sound measurement once the marginal is taken out.
+//
+// Where the measured marginal cost is not at least one descriptor - a backend
+// that pools them, or a machine too noisy to measure on - there is no
+// per-stream signal to count with, and the overlap step reports [obs] rather
+// than a verdict it cannot support.
 
 static int OpenFileDescriptors() noexcept
 {
@@ -155,6 +182,36 @@ static void Pump(int nMilliseconds)
     oLoop.exec();
 }
 
+// Pumps until the descriptor count stops moving, and returns it. Sounds from
+// an earlier step can still be draining when the next one starts; counting
+// those into its baseline puts the baseline above the real idle level, and
+// everything measured against it then comes out low - which is how a residue
+// of -23 descriptors, a number that cannot describe anything the step under
+// test did, passed a `<= 0` assertion while tracking something else entirely.
+static int QuiesceFileDescriptors(int nMaxMs = 4000)
+{
+    int nLast = OpenFileDescriptors();
+    int nStable = 0;
+
+    for (int nElapsed = 0; nElapsed < nMaxMs; nElapsed += 100)
+    {
+        Pump(100);
+
+        const int nNow = OpenFileDescriptors();
+        if (nNow != nLast)
+        {
+            nLast = nNow;
+            nStable = 0;
+        }
+        else if (++nStable == 3)
+        {
+            break;
+        }
+    }
+
+    return nLast;
+}
+
 struct AudioMeasurement
 {
     int nBase = 0;
@@ -169,7 +226,7 @@ static AudioMeasurement MeasureAudio(const std::function<void()>& fFire, int nPl
                                      int nSettleMs = 1000)
 {
     AudioMeasurement oMeasurement;
-    oMeasurement.nBase = OpenFileDescriptors();
+    oMeasurement.nBase = QuiesceFileDescriptors();
 
     fFire();
 
@@ -235,7 +292,26 @@ static void RunChecks()
 {
     using namespace ra::services;
 
-    Initialization::RegisterServices(RA_Libretro, "RASmoke");
+    Section("entry point");
+
+    // Deliberately the emulator-facing export rather than
+    // Initialization::RegisterServices: on a non-test build the registration
+    // sits behind Exports.cpp's `#ifndef RA_UTEST`, and that guard is a
+    // judgement call this port had to make eleven times over. Calling
+    // RegisterServices directly routes around all of them, so the whole
+    // harness can stay green with service registration and the per-frame UI
+    // updates compiled out. Offline, because a harness should not need an
+    // account to start; every network step below still goes to the real
+    // server through IHttpRequester.
+    //
+    // If the guard were mis-set this would not reach the Check - InitCommon
+    // touches the EmulatorContext immediately after registering it, and
+    // ServiceLocator::GetMutable on a service that was never provided ends the
+    // process. Either way the run does not come back green.
+    const int nInitialised = _RA_InitClientOffline(nullptr, "RASmoke", "0.0.0.0");
+    Check(nInitialised == 1 && Initialization::IsInitialized() &&
+              ServiceLocator::Exists<IHttpRequester>(),
+          "_RA_InitClientOffline", "returned " + std::to_string(nInitialised) + ", services registered");
 
     // --- filesystem -------------------------------------------------------
     Section("filesystem, logger, debugger detector");
@@ -244,13 +320,54 @@ static void RunChecks()
     Check(!sBase.empty() && sBase.back() == L'/', "BaseDirectory", ra::util::String::Narrow(sBase));
 
     // --- logger -----------------------------------------------------------
-    ServiceLocator::Get<ILogger>().LogMessage(LogLevel::Info, "smoke test");
+    // The logger appends, and initialization has already written a dozen lines
+    // by now, so "the file is not empty" says nothing about this call - it
+    // would hold just as well against an ILogger::LogMessage that did nothing
+    // at all. Note where the file ends first, then look for the marker past
+    // that point.
     const std::wstring sLogPath = sBase + RA_DIR_BASE L"RALog.txt";
-    Check(pFileSystem.GetFileSize(sLogPath) > 0, "log written", ra::util::String::Narrow(sLogPath));
+    const int64_t nLogSizeBefore = std::max<int64_t>(pFileSystem.GetFileSize(sLogPath), 0);
+    constexpr const char* sLogMarker = "smoke test log marker";
+    ServiceLocator::Get<ILogger>().LogMessage(LogLevel::Info, sLogMarker);
+
+    std::string sLogTail;
+    {
+        std::ifstream oLog(ra::util::String::Narrow(sLogPath), std::ios::binary);
+        if (oLog)
+        {
+            oLog.seekg(static_cast<std::streamoff>(nLogSizeBefore));
+            sLogTail.assign(std::istreambuf_iterator<char>(oLog), std::istreambuf_iterator<char>());
+        }
+    }
+
+    Check(sLogTail.find(sLogMarker) != std::string::npos, "log written",
+          ra::util::String::Narrow(sLogPath) + ", +" + std::to_string(sLogTail.length()) +
+              " bytes past " + std::to_string(nLogSizeBefore));
 
     // --- debugger detector ------------------------------------------------
+    // Worth being explicit about how little this proves: nothing here is being
+    // traced, so a hardcoded `return false` would pass it exactly as well as
+    // the real TracerPid parse. It is a no-crash check, not a behaviour check.
+    // There is no positive control and no cheap way to add one -
+    // LinuxDebuggerDetector reads /proc/self/status by a fixed path, so
+    // staging a traced process means forking a child to PTRACE_ATTACH back to
+    // this one, which Yama's default ptrace_scope refuses.
     Check(!ServiceLocator::Get<IDebuggerDetector>().IsDebuggerPresent(), "no debugger attached",
-          "TracerPid == 0");
+          "TracerPid == 0 (no positive control - a stubbed false passes this too)");
+
+    // --- the per-frame export ---------------------------------------------
+    // _RA_DoAchievementsFrame's call to UpdateUIForFrameChange is the other
+    // #ifndef RA_UTEST that this port had to re-judge, and losing it costs
+    // every per-frame view-model update silently. FrameEventQueue::DoFrame is
+    // the last thing UpdateUIForFrameChange does, and a queued function is the
+    // one part of it observable without a game or a window.
+    bool bFrameEventRan = false;
+    ServiceLocator::GetMutable<FrameEventQueue>().QueueFunction(
+        [&bFrameEventRan]() { bFrameEventRan = true; });
+    _RA_DoAchievementsFrame();
+    Check(bFrameEventRan, "_RA_DoAchievementsFrame updates UI",
+          bFrameEventRan ? "the queued frame event ran, so UpdateUIForFrameChange was called"
+                         : "the queued frame event never ran - UpdateUIForFrameChange was not called");
 
     Section("http");
 
@@ -266,10 +383,13 @@ static void RunChecks()
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - tStart)
                 .count();
 
-        // any answer from the server proves TLS, DNS, redirects and the write
-        // callback; the endpoint rejects the unauthenticated call by design
-        Check(nStatus >= 200 && nStatus < 500, "https round trip",
+        // any answer from the server proves TLS, DNS and redirects; the
+        // endpoint rejects the unauthenticated call by design. The body has to
+        // be looked at for this to say anything about the write callback - a
+        // status code arrives whether or not a single byte reached the writer.
+        Check(nStatus >= 200 && nStatus < 500 && !oWriter.GetString().empty(), "https round trip",
               "status " + std::to_string(nStatus) + " " + pHttp.GetStatusCodeText(nStatus) + ", " +
+                  std::to_string(oWriter.GetString().length()) + " bytes written, " +
                   std::to_string(nElapsed) + "ms");
     }
 
@@ -288,7 +408,7 @@ static void RunChecks()
     {
         Http::Request oRequest("https://media.retroachievements.org/Badge/00000.png");
         const std::wstring sTarget = RA_DIR_BADGE L"smoke.png";
-        pFileSystem.CreateDirectory(L"RACache");
+        pFileSystem.CreateDirectory(RA_DIR_BASE);
         pFileSystem.CreateDirectory(RA_DIR_BASE L"Badge");
 
         pFileSystem.DeleteFile(sTarget);
@@ -310,10 +430,22 @@ static void RunChecks()
         }
         else
         {
+            // POST data, not query parameters. That is what production does -
+            // RcClient hands rc_api_request_t's post_data to SetPostData, and
+            // never builds a URL with a credential in it - and it is what
+            // keeps the password away from everything that handles a URL as a
+            // whole: LinuxHttpRequester logs one when curl fails (stripped of
+            // its query string now, for exactly this reason), curl prints one
+            // in a verbose trace, and a proxy or a crash dump records one.
+            // Putting it in the query string here made this the only place in
+            // the tree where a credential could reach any of those, and it
+            // duly did.
             Http::Request oRequest("https://retroachievements.org/dorequest.php");
-            oRequest.AddQueryParm("r", "login2");
-            oRequest.AddQueryParm("u", sUser);
-            oRequest.AddQueryParm("p", sPassword);
+            std::string sPostData = "r=login2&u=";
+            Http::UrlEncodeAppend(sPostData, sUser);
+            sPostData += "&p=";
+            Http::UrlEncodeAppend(sPostData, sPassword);
+            oRequest.SetPostData(sPostData);
             impl::StringTextWriter oWriter;
 
             const unsigned int nStatus = ServiceLocator::Get<IHttpRequester>().Request(oRequest, oWriter);
@@ -330,33 +462,66 @@ static void RunChecks()
     {
         const auto& pClipboard = ServiceLocator::Get<IClipboard>();
 
+        // Qt's offscreen platform implements QPlatformClipboard as a buffer
+        // inside this process. Both checks below would pass on it, and the
+        // second would report that the desktop holds the text on a machine
+        // with no desktop at all - a stronger result from the environment that
+        // proves less, which is exactly the shape a CI runner defaults to.
+        const std::string sPlatform = QGuiApplication::platformName().toStdString();
+        const bool bOffscreen = (sPlatform == "offscreen");
+
         // this is the live desktop clipboard, not a scratch buffer - put back
-        // whatever the user had in it
+        // whatever the user had in it. Only the text of it: IClipboard has no
+        // way to carry an image or a file list, so a non-text selection is
+        // lost either way, and this says so rather than losing it quietly.
         const std::wstring sOriginal = pClipboard.GetText();
+        if (!bOffscreen)
+        {
+            Note("clipboard will be overwritten",
+                 "the desktop selection is saved and restored as text; anything else in it "
+                 "(an image, a file list, rich text) does not survive this run");
+        }
 
         // --- round trip, including non-ASCII and astral-plane text ---------
         // also exercises Widen/Narrow, which is where the wchar_t bug lived
         const std::wstring sExpected = L"RA smoke café \U0001F30F";
-        pClipboard.SetText(sExpected);
-        const std::wstring sActual = pClipboard.GetText();
-        Check(sActual == sExpected, "clipboard round trip", ra::util::String::Narrow(sActual));
+        if (bOffscreen)
+        {
+            Skip("clipboard round trip", "platform offscreen answers from an in-process buffer, so "
+                                         "this would pass without a desktop clipboard");
+            Skip("clipboard offer accepted", "platform offscreen has no compositor to accept one");
+        }
+        else
+        {
+            pClipboard.SetText(sExpected);
+            const std::wstring sActual = pClipboard.GetText();
+            Check(sActual == sExpected, "clipboard round trip", ra::util::String::Narrow(sActual));
 
-        // --- does the desktop actually see it? ----------------------------
-        // Setting the selection and reading it straight back only proves Qt's
-        // own copy. Whether the compositor accepted the offer is not decidable
-        // from in here, so let the event loop turn and report what survives.
-        Pump(400);
-        const bool bSurvived = (pClipboard.GetText() == sExpected);
-        Observe("clipboard offer accepted",
+            // --- does the desktop actually see it? ------------------------
+            // Setting the selection and reading it straight back only proves
+            // Qt's own copy. Whether the compositor accepted the offer is not
+            // decidable from in here, so let the event loop turn and report
+            // what survives.
+            Pump(400);
+            const bool bSurvived = (pClipboard.GetText() == sExpected);
+            std::string sDetail =
                 std::string(bSurvived ? "yes, the desktop holds it" : "no, the offer was dropped") +
-                    " (platform " + QGuiApplication::platformName().toStdString() +
-                    "); a windowless application cannot own the Wayland selection, so this is "
-                    "expected to say no until there is a window to own it");
+                " (platform " + sPlatform + ")";
+            if (sPlatform == "wayland")
+            {
+                sDetail += "; a windowless application cannot own the Wayland selection, so this is "
+                           "expected to say no until there is a window to own it";
+            }
+
+            Observe("clipboard offer accepted", sDetail);
+        }
 
         // --- the wrong-thread branch --------------------------------------
         // No view model ever reaches the clipboard from a worker thread, but
         // nothing stops one, and QClipboard from off the GUI thread is either
         // a crash or a deadlock. QtClipboard is supposed to log and return.
+        // This one does run under offscreen: it is QtClipboard's own thread
+        // guard being checked, not the platform's clipboard.
         const std::wstring sGuard = L"RA smoke guard";
         pClipboard.SetText(sGuard);
 
@@ -412,8 +577,18 @@ static void RunChecks()
             MeasureAudio([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
 
             // --- calibration ----------------------------------------------
+            // Two points, because one cannot separate the backend's fixed
+            // per-burst cost from its per-stream cost. See the note above
+            // MeasureAudio.
             const auto oOne = MeasureAudio([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
             const int nOneSound = oOne.Delta();
+
+            const auto oTwo = MeasureAudio([&pAudio, &sWav]() {
+                pAudio.PlayAudioFile(sWav);
+                pAudio.PlayAudioFile(sWav);
+            });
+            const int nMarginal = oTwo.Delta() - nOneSound;
+            const int nFixed = nOneSound - nMarginal;
 
             // --- PlayAudioFile from a worker thread ------------------------
             // AchievementRuntime plays unlock sounds from the frame thread, so
@@ -446,25 +621,39 @@ static void RunChecks()
                     pAudio.PlayAudioFile(sWav);
             });
 
-            if (nOneSound <= 0)
+            const std::string sCalibration =
+                "1 sound = " + std::to_string(nOneSound) + " fds, 2 = " +
+                std::to_string(oTwo.Delta()) + ", so marginal = " + std::to_string(nMarginal) +
+                " and fixed = " + std::to_string(nFixed) + "; burst = " +
+                std::to_string(oBurst.Delta());
+
+            if (nMarginal < 1)
             {
+                // A backend that pools descriptors across streams lands here,
+                // and so does a machine too noisy to calibrate on. Counting
+                // anyway would have divided by an assumed marginal of one and
+                // reported a number; there is nothing to count with.
                 Observe("simultaneous unlocks all play",
-                        "not decidable: no per-stream descriptor signal on this backend");
+                        "not decidable: no per-stream descriptor signal on this backend (" +
+                            sCalibration + ")");
             }
             else
             {
-                const int nConcurrent = oBurst.Delta() - nOneSound + 1;
+                const int nConcurrent = (oBurst.Delta() - nFixed) / nMarginal;
                 Check(nConcurrent >= nBurst, "simultaneous unlocks all play",
                       std::to_string(nConcurrent) + " of " + std::to_string(nBurst) +
-                          " streams concurrent (one sound = " + std::to_string(nOneSound) +
-                          " fds, burst = " + std::to_string(oBurst.Delta()) + ")");
+                          " streams concurrent (" + sCalibration + ")");
             }
 
-            Check(oBurst.Residue() <= 0, "burst reaped after playing",
+            // Zero, not "not more than zero". A negative residue is not a
+            // tidier version of a clean one; it means the baseline included
+            // descriptors this step never owned, and a measurement that is not
+            // tracking its subject cannot report on it either way.
+            Check(oBurst.Residue() == 0, "burst reaped after playing",
                   std::to_string(oBurst.Residue()) + " descriptors left over");
 
             // --- a realistic sequence, for unbounded growth -----------------
-            const int nSequenceBase = OpenFileDescriptors();
+            const int nSequenceBase = QuiesceFileDescriptors();
             for (int nWave = 0; nWave < 4; ++nWave)
             {
                 for (int i = 0; i < 3; ++i)
@@ -472,8 +661,8 @@ static void RunChecks()
                 Pump(800);
             }
             Pump(1500);
-            const int nSequenceEnd = OpenFileDescriptors();
-            Check(nSequenceEnd <= nSequenceBase, "12 sounds leave nothing behind",
+            const int nSequenceEnd = QuiesceFileDescriptors();
+            Check(nSequenceEnd == nSequenceBase, "12 sounds leave nothing behind",
                   std::to_string(nSequenceBase) + " -> " + std::to_string(nSequenceEnd) + " descriptors");
 
             // --- a path that cannot load ------------------------------------
@@ -481,7 +670,7 @@ static void RunChecks()
             // for it; only the error handler can reap it.
             const auto oBad = MeasureAudio(
                 [&pAudio]() { pAudio.PlayAudioFile(RA_DIR_BASE L"no-such-sound.wav"); }, 600, 600);
-            Check(oBad.Residue() <= 0, "missing file reaped, no crash",
+            Check(oBad.Residue() == 0, "missing file reaped, no crash",
                   std::to_string(oBad.Residue()) + " descriptors left over");
 
             // --- teardown with sound in flight ------------------------------
@@ -495,9 +684,15 @@ static void RunChecks()
     }
 
     Section("shutdown");
+
+    // Shutdown() clears the flag unconditionally, so what is actually being
+    // asserted is that the call returned at all: no crash, no deadlock and no
+    // exception with a queued QSoundEffect create still on the application
+    // thread and a PlayAudioFile still on a worker. That is the property worth
+    // having here; the flag is only how the statement is spelled.
     Initialization::Shutdown();
     Check(!Initialization::IsInitialized(), "shutdown with audio in flight",
-          "teardown completed with queued sounds outstanding");
+          "Shutdown() returned with queued sounds outstanding - no crash, no hang");
 }
 
 int main(int argc, char* argv[])

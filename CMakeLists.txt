@@ -186,9 +186,19 @@ add_executable(ra_tests
   ${TEST_SOURCES}
   ${PORTABLE_TEST_SOURCES}
   # The _RA_* entry points and OnStateRestored(), which the suite calls
-  # directly and services/AchievementRuntimeExports.cpp references. Not in
-  # PORTABLE_SOURCES because its #ifndef RA_UTEST branches are Win32 code;
+  # directly and services/AchievementRuntimeExports.cpp references.
   # tests/RA_Integration.Tests.vcxproj lists it for the same reason.
+  #
+  # Left out of PORTABLE_SOURCES on purpose, so that count keeps meaning
+  # "translation units with no platform branch in them". Not because every
+  # branch in here is Win32: of the eleven RA_UTEST-bearing guards, seven say
+  # !defined(RA_UTEST) && defined(_WIN32) and are genuinely Win32 - the GDI
+  # surface, the win32 Desktop and OverlayWindow, ControlBinding's repaints -
+  # but four say plain #ifndef RA_UTEST and select portable code that a
+  # non-test Linux build compiles and runs: service registration in
+  # InitCommon, and UpdateUIForFrameChange with its two callers. The
+  # ra_linux_smoke target below is what compiles this file without RA_UTEST
+  # for Linux, and what exercises those four.
   src/Exports.cpp
   tests/compat/Runner.cpp
 )
