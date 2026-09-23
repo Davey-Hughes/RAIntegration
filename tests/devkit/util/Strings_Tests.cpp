@@ -32,11 +32,12 @@ public:
         Assert::AreEqual(std::string("Test"), String::Narrow(std::string("Test")));
         Assert::AreEqual(std::string("Test"), String::Narrow(std::wstring(L"Test")));
 
-        // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA
+        // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA. Written as a universal character
+        // name so the literal is the character, not one platform's encoding of it.
         Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow("\xF0\x9F\x8C\x8F"));
-        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow(L"\xD83C\xDF0F"));
+        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow(L"\U0001F30F"));
         Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow(std::string("\xF0\x9F\x8C\x8F")));
-        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow(std::wstring(L"\xD83C\xDF0F")));
+        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), String::Narrow(std::wstring(L"\U0001F30F")));
     }
 
     TEST_METHOD(TestWiden)
@@ -49,10 +50,10 @@ public:
         Assert::AreEqual(std::wstring(L"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+"), String::Widen(std::string("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+")));
 
         // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), String::Widen("\xF0\x9F\x8C\x8F"));
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), String::Widen(L"\xD83C\xDF0F"));
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), String::Widen(std::string("\xF0\x9F\x8C\x8F")));
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), String::Widen(std::wstring(L"\xD83C\xDF0F")));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), String::Widen("\xF0\x9F\x8C\x8F"));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), String::Widen(L"\U0001F30F"));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), String::Widen(std::string("\xF0\x9F\x8C\x8F")));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), String::Widen(std::wstring(L"\U0001F30F")));
 
         // invalid UTF-8 replaced with placeholder U+FFFD
         Assert::AreEqual(std::wstring(L"T\xFFFDst"), String::Widen("T\xA9st")); // should be \xC3\xA9
