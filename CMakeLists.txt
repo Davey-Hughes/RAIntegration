@@ -52,6 +52,8 @@ list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/services/impl/Windows")
 # filename does not start with "Windows", so the filter above does not reach it.
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "PlatformServices_Win32")
 
+find_package(CURL REQUIRED)
+
 add_library(ra_portable OBJECT ${PORTABLE_SOURCES})
 
 target_include_directories(ra_portable PRIVATE
@@ -64,6 +66,7 @@ target_include_directories(ra_portable PRIVATE
   GSL/include
   rcheevos/include
   rcheevos/src
+  ${CURL_INCLUDE_DIRS}
 )
 
 # RA_EXPORTS is what the DLL build defines; in RA_Defs.h it also selects the
@@ -190,7 +193,7 @@ target_include_directories(ra_tests PRIVATE
 
 target_compile_definitions(ra_tests PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH RA_UTEST)
 
-target_link_libraries(ra_tests PRIVATE rcheevos)
+target_link_libraries(ra_tests PRIVATE rcheevos CURL::libcurl)
 
 # src/pch.h is force-included by the MSVC test project and, under RA_UTEST,
 # force-includes CppUnitTest.h with it. Several test sources rely on that and

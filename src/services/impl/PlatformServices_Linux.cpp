@@ -4,6 +4,7 @@
 
 #include "services/impl/FileLogger.hh"
 #include "services/impl/LinuxFileSystem.hh"
+#include "services/impl/LinuxHttpRequester.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
 #include "ui/null/NullDesktop.hh"
@@ -25,7 +26,7 @@ std::unique_ptr<ra::services::ILogger> CreatePlatformLogger(const ra::services::
 
 std::unique_ptr<ra::services::IHttpRequester> CreatePlatformHttpRequester()
 {
-    return nullptr; // LinuxHttpRequester in Task 6
+    return std::make_unique<LinuxHttpRequester>();
 }
 
 std::unique_ptr<ra::services::IClipboard> CreatePlatformClipboard()

@@ -269,53 +269,29 @@ unsigned int WindowsHttpRequester::Request(const Http::Request& pRequest, TextWr
     return nStatusCode;
 }
 
-// these defines are in <wininet.h>, though <winhttp.h> does redefine *some* of them
-// cannot include <wininet.h> and <winhttp.h> in the same file
-#define INTERNET_ERROR_BASE                     12000
-#define ERROR_INTERNET_TIMEOUT                  (INTERNET_ERROR_BASE + 2)
-#define ERROR_INTERNET_NAME_NOT_RESOLVED        (INTERNET_ERROR_BASE + 7)
-#define ERROR_INTERNET_OPERATION_CANCELLED      (INTERNET_ERROR_BASE + 17)
-#define ERROR_INTERNET_INCORRECT_HANDLE_STATE   (INTERNET_ERROR_BASE + 19)
-#define ERROR_INTERNET_ITEM_NOT_FOUND           (INTERNET_ERROR_BASE + 28)
-#define ERROR_INTERNET_CANNOT_CONNECT           (INTERNET_ERROR_BASE + 29)
-#define ERROR_INTERNET_CONNECTION_ABORTED       (INTERNET_ERROR_BASE + 30)
-#define ERROR_INTERNET_CONNECTION_RESET         (INTERNET_ERROR_BASE + 31)
-#define ERROR_INTERNET_FORCE_RETRY              (INTERNET_ERROR_BASE + 32)
-#define ERROR_HTTP_INVALID_SERVER_RESPONSE      (INTERNET_ERROR_BASE + 152)
-#define ERROR_INTERNET_DISCONNECTED             (INTERNET_ERROR_BASE + 163)
+#include "services/HttpErrorCodes.hh"
+
+// The shared table is WinINet's numbering. Assert the agreement rather than
+// trusting it - these come from <wininet.h>, which cannot be included here
+// alongside <winhttp.h>.
+static_assert(ERROR_WINHTTP_TIMEOUT == ra::services::RA_HTTP_ERROR_TIMEOUT);
+static_assert(ERROR_WINHTTP_NAME_NOT_RESOLVED == ra::services::RA_HTTP_ERROR_NAME_NOT_RESOLVED);
+static_assert(ERROR_WINHTTP_CANNOT_CONNECT == ra::services::RA_HTTP_ERROR_CANNOT_CONNECT);
+static_assert(ERROR_WINHTTP_CONNECTION_ERROR == ra::services::RA_HTTP_ERROR_CONNECTION_RESET);
+static_assert(WSATRY_AGAIN == ra::services::RA_HTTP_ERROR_SOCKET_TRY_AGAIN);
+static_assert(WSAECONNRESET == ra::services::RA_HTTP_ERROR_SOCKET_CONN_RESET);
 
 bool WindowsHttpRequester::IsRetryable(unsigned int nStatusCode) const noexcept
 {
-    switch (nStatusCode)
-    {
-        case 0:                                      // Not attempted
-        case HTTP_STATUS_OK:                         // Success
-        case ERROR_INTERNET_TIMEOUT:                 // Timeout
-        case ERROR_INTERNET_NAME_NOT_RESOLVED:       // DNS lookup failed (HTTP level)
-        case WSATRY_AGAIN:                           // DNS lookup failed (socket level)
-        case ERROR_INTERNET_OPERATION_CANCELLED:     // Handle closed before request complete
-        case ERROR_INTERNET_INCORRECT_HANDLE_STATE:  // Handle not initialized
-        case ERROR_INTERNET_ITEM_NOT_FOUND:          // Data not available at this time
-        case ERROR_INTERNET_CANNOT_CONNECT:          // Handshake failed
-        case ERROR_INTERNET_CONNECTION_ABORTED:      // Connection aborted
-        case ERROR_INTERNET_CONNECTION_RESET:        // Connection reset (HTTP level)
-        case WSAECONNRESET:                          // Connection reset (socket level)
-        case ERROR_INTERNET_FORCE_RETRY:             // Explicit request to retry
-        case ERROR_HTTP_INVALID_SERVER_RESPONSE:     // Response could not be parsed, corrupt?
-        case ERROR_INTERNET_DISCONNECTED:            // Lost connection during request
-            return true;
-
-        default:
-            return false;
-    }
+    return ra::services::IsRetryableStatusCode(nStatusCode);
 }
 
 std::string WindowsHttpRequester::GetStatusCodeText(unsigned int nStatusCode) const
 {
     std::string message;
 
-    // winhttp.h only defines *some* of the wininet errors. do a simple sanity check to check that they're the same
-    static_assert(ERROR_WINHTTP_TIMEOUT == ERROR_INTERNET_TIMEOUT);
+    // winhttp.h only defines *some* of the wininet errors; the file-scope
+    // static_asserts above already confirm the two numberings agree.
 
     if (nStatusCode >= WINHTTP_ERROR_BASE && nStatusCode <= WINHTTP_ERROR_LAST)
     {
