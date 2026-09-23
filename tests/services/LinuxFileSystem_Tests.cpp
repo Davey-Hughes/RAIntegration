@@ -7,9 +7,10 @@
 #include <climits>
 #include <cstdlib>
 #include <chrono>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
-#include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -76,6 +77,25 @@ private:
 
     private:
         char m_sOriginalCwd[PATH_MAX]{};
+    };
+
+    // Deletes a file via LinuxFileSystem on scope exit - including when an
+    // Assert::* throws - so a test that writes into the live BaseDirectory()
+    // (not a ScopedTempDirectory) can't leak a stray file there if a later
+    // assertion fails.
+    class ScopedFile
+    {
+    public:
+        ScopedFile(const LinuxFileSystem& oFileSystem, std::wstring sPath) noexcept :
+            m_oFileSystem(oFileSystem), m_sPath(std::move(sPath))
+        {
+        }
+
+        ~ScopedFile() { m_oFileSystem.DeleteFile(m_sPath); }
+
+    private:
+        const LinuxFileSystem& m_oFileSystem;
+        std::wstring m_sPath;
     };
 
 public:
@@ -333,6 +353,7 @@ public:
         // A same-named file placed under the real BaseDirectory() must be
         // the one a relative path finds.
         const std::wstring sRealPath = oFileSystem.BaseDirectory() + L"leaf.txt";
+        const ScopedFile oRealPathGuard(oFileSystem, sRealPath);
         {
             auto pWriter = oFileSystem.CreateTextFile(sRealPath);
             Assert::IsNotNull(pWriter.get(), L"CreateTextFile returned nullptr");
@@ -341,8 +362,6 @@ public:
 
         Assert::AreEqual(static_cast<int64_t>(4), oFileSystem.GetFileSize(L"leaf.txt"),
                          L"a relative path must resolve against BaseDirectory()");
-
-        oFileSystem.DeleteFile(sRealPath);
     }
 
     TEST_METHOD(TestOpenTextFile)
@@ -421,29 +440,48 @@ public:
                             std::chrono::system_clock::time_point(),
                         L"a missing file must return the default sentinel");
 
-        // 2. Existing file -> a real, epoch-based time. The +/-2s window
-        // absorbs st_mtime's one-second truncation. The lower bound catches
-        // a regression that returns the sentinel for a file that exists; the
-        // upper bound catches a wrong epoch base - an unconverted
-        // std::filesystem::file_time_type, or a raw FILETIME as on the
-        // Windows side, lands roughly 50 years off. (See the comment on
-        // LinuxFileSystem::GetLastModified for why stat()/from_time_t is
-        // used instead of std::filesystem::last_write_time - this test is
-        // what makes that warning enforceable.)
-        const auto tBefore = std::chrono::system_clock::now();
+        // 2. Existing file -> back-date st_mtime independently of the wall
+        // clock, then assert GetLastModified reports approximately that
+        // value. A window anchored to now() (e.g. +/-2s of now()) cannot
+        // discriminate a correct implementation from two wrong ones: reading
+        // st_atime or st_ctime instead of st_mtime - a plausible slip, since
+        // all three adjoin in struct stat - passes such a window, because
+        // for a file created and rewritten inside this test all three
+        // timestamps coincide at every observation point; so does an
+        // implementation that simply returns system_clock::now() for any
+        // file it can stat, since "now" trivially sits inside its own
+        // +/-2s-of-now window. Back-dating st_mtime to 10 days ago, while
+        // deliberately leaving st_atime alone, gives the assertion an
+        // anchor the clock cannot supply and makes it discriminate all
+        // three fields. (st_ctime can't be back-dated directly - any
+        // metadata change, including the utimensat() call below, updates it
+        // to now - which is exactly what makes it a useful discriminator
+        // here: a correct implementation must read st_mtime, not st_ctime.)
         {
             auto pWriter = oFileSystem.CreateTextFile(sPath);
             Assert::IsNotNull(pWriter.get(), L"CreateTextFile returned nullptr");
             pWriter->Write(std::string("x"));
         }
-        const auto tAfter = std::chrono::system_clock::now();
+
+        const auto tBackdated = std::chrono::system_clock::now() - std::chrono::hours(24 * 10);
+        const struct timespec oTimes[2] = {
+            {0, UTIME_OMIT}, // leave st_atime untouched
+            {std::chrono::system_clock::to_time_t(tBackdated), 0}, // st_mtime
+        };
+        Assert::AreEqual(0,
+                          utimensat(AT_FDCWD, ra::util::String::Narrow(sPath).c_str(), oTimes, 0),
+                          L"utimensat failed to back-date st_mtime");
 
         const auto tModified = oFileSystem.GetLastModified(sPath);
-        Assert::IsTrue(tModified >= tBefore - 2s, L"last-modified time is too far in the past");
-        Assert::IsTrue(tModified <= tAfter + 2s, L"last-modified time is too far in the future");
+        Assert::IsTrue(tModified >= tBackdated - 2s,
+                       L"last-modified time does not match the back-dated st_mtime (too far in the past)");
+        Assert::IsTrue(tModified <= tBackdated + 2s,
+                       L"last-modified time does not match the back-dated st_mtime (too far in the future) "
+                       L"- check for st_atime/st_ctime/now() instead of st_mtime");
 
-        // 3. Monotonicity across a rewrite.
-        std::this_thread::sleep_for(1100ms);
+        // 3. Monotonicity across a rewrite: rewriting the file bumps
+        // st_mtime back to the real "now", which must compare >= the
+        // artificially back-dated reading above.
         {
             auto pWriter = oFileSystem.CreateTextFile(sPath);
             Assert::IsNotNull(pWriter.get(), L"CreateTextFile returned nullptr");

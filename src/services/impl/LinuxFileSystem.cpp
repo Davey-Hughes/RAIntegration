@@ -264,7 +264,10 @@ std::unique_ptr<TextReader> LinuxFileSystem::OpenTextFile(const std::wstring& sP
     auto pReader = std::make_unique<FileTextReader>(sAbsolutePath);
     if (!pReader->GetFStream().is_open())
     {
-        RA_LOG_INFO("Failed to open \"%s\": %d", ra::util::String::Narrow(sPath).c_str(), errno);
+        // See GetFileSize for why this is captured immediately into a named
+        // local rather than read from a later, separate errno access.
+        const int nError = errno;
+        RA_LOG_INFO("Failed to open \"%s\": %d", ra::util::String::Narrow(sPath).c_str(), nError);
         return std::unique_ptr<TextReader>();
     }
 
@@ -278,7 +281,10 @@ std::unique_ptr<TextWriter> LinuxFileSystem::CreateTextFile(const std::wstring& 
     auto pWriter = std::make_unique<FileTextWriter>(sAbsolutePath);
     if (!pWriter->GetFStream().is_open())
     {
-        RA_LOG_WARN("Failed to create \"%s\": %d", ra::util::String::Narrow(sPath).c_str(), errno);
+        // See GetFileSize for why this is captured immediately into a named
+        // local rather than read from a later, separate errno access.
+        const int nError = errno;
+        RA_LOG_WARN("Failed to create \"%s\": %d", ra::util::String::Narrow(sPath).c_str(), nError);
         return std::unique_ptr<TextWriter>();
     }
 
@@ -299,10 +305,14 @@ std::unique_ptr<TextWriter> LinuxFileSystem::AppendTextFile(const std::wstring& 
         std::ofstream oFile(MakeAbsolute(sPath), std::ios::out);
         if (!oFile.is_open())
         {
+            // See GetFileSize for why this is captured immediately into a
+            // named local rather than read from a later, separate errno
+            // access.
+            const int nError = errno;
             if (ra::services::ServiceLocator::Exists<ra::services::ILogger>())
             {
                 RA_LOG_WARN("Failed to open \"%s\" for append: %d",
-                            ra::util::String::Narrow(sPath).c_str(), errno);
+                            ra::util::String::Narrow(sPath).c_str(), nError);
             }
 
             return std::unique_ptr<TextWriter>();
