@@ -87,6 +87,9 @@
     <ClInclude Include="services\Http.hh">
       <Filter>services</Filter>
     </ClInclude>
+    <ClInclude Include="services\HttpErrorCodes.hh">
+      <Filter>services</Filter>
+    </ClInclude>
     <ClInclude Include="services\IFileSystem.hh">
       <Filter>services</Filter>
     </ClInclude>

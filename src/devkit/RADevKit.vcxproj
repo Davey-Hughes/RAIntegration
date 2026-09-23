@@ -127,6 +127,7 @@
     <ClInclude Include="data\util\TriggerValidation.hh" />
     <ClInclude Include="data\Value.hh" />
     <ClInclude Include="services\Http.hh" />
+    <ClInclude Include="services\HttpErrorCodes.hh" />
     <ClInclude Include="services\IClock.hh" />
     <ClInclude Include="services\IConfiguration.hh" />
     <ClInclude Include="services\IDebuggerDetector.hh" />

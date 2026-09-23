@@ -5,11 +5,40 @@
 #include "util/Log.hh"
 #include "util/Strings.hh"
 
+#include "services/HttpErrorCodes.hh"
 #include "services/impl/StringTextWriter.hh"
 
 #include <winhttp.h>
 
 //#define ALLOW_INVALID_SSL_CERTIFICATES
+
+// The shared table is WinINet's numbering. Assert the agreement rather than
+// trusting it - the ERROR_INTERNET_* names come from <wininet.h>, which cannot
+// be included here alongside <winhttp.h>, so the WinHTTP aliases stand in.
+//
+// These have to stay at file scope: inside namespace ra::services::impl the
+// qualified names would resolve to a nested ra::services::impl::ra, which both
+// declares a second set of constants and hides the global ::ra.
+//
+// Four of the fifteen shared codes have no WinHTTP name to assert against -
+// RA_HTTP_NOT_ATTEMPTED (0, not an error code at all),
+// RA_HTTP_ERROR_ITEM_NOT_FOUND (12028), RA_HTTP_ERROR_CONNECTION_RESET (12031)
+// and RA_HTTP_ERROR_DISCONNECTED (12163). <winhttp.h> skips 12028, 12031 and
+// 12163; the remaining eleven are checked below.
+static_assert(ERROR_WINHTTP_TIMEOUT == ra::services::RA_HTTP_ERROR_TIMEOUT);
+static_assert(ERROR_WINHTTP_INTERNAL_ERROR == ra::services::RA_HTTP_ERROR_INTERNAL);
+static_assert(ERROR_WINHTTP_NAME_NOT_RESOLVED == ra::services::RA_HTTP_ERROR_NAME_NOT_RESOLVED);
+static_assert(ERROR_WINHTTP_OPERATION_CANCELLED == ra::services::RA_HTTP_ERROR_OPERATION_CANCELLED);
+static_assert(ERROR_WINHTTP_INCORRECT_HANDLE_STATE == ra::services::RA_HTTP_ERROR_HANDLE_STATE);
+static_assert(ERROR_WINHTTP_CANNOT_CONNECT == ra::services::RA_HTTP_ERROR_CANNOT_CONNECT);
+static_assert(ERROR_WINHTTP_CONNECTION_ERROR == ra::services::RA_HTTP_ERROR_CONNECTION_ABORTED);
+static_assert(ERROR_WINHTTP_RESEND_REQUEST == ra::services::RA_HTTP_ERROR_FORCE_RETRY);
+static_assert(ERROR_WINHTTP_INVALID_SERVER_RESPONSE == ra::services::RA_HTTP_ERROR_INVALID_RESPONSE);
+static_assert(WSATRY_AGAIN == ra::services::RA_HTTP_ERROR_SOCKET_TRY_AGAIN);
+static_assert(WSAECONNRESET == ra::services::RA_HTTP_ERROR_SOCKET_CONN_RESET);
+
+// the shared table hardcodes 200 where this file used the constant
+static_assert(HTTP_STATUS_OK == 200);
 
 namespace ra {
 namespace services {
@@ -268,18 +297,6 @@ unsigned int WindowsHttpRequester::Request(const Http::Request& pRequest, TextWr
 
     return nStatusCode;
 }
-
-#include "services/HttpErrorCodes.hh"
-
-// The shared table is WinINet's numbering. Assert the agreement rather than
-// trusting it - these come from <wininet.h>, which cannot be included here
-// alongside <winhttp.h>.
-static_assert(ERROR_WINHTTP_TIMEOUT == ra::services::RA_HTTP_ERROR_TIMEOUT);
-static_assert(ERROR_WINHTTP_NAME_NOT_RESOLVED == ra::services::RA_HTTP_ERROR_NAME_NOT_RESOLVED);
-static_assert(ERROR_WINHTTP_CANNOT_CONNECT == ra::services::RA_HTTP_ERROR_CANNOT_CONNECT);
-static_assert(ERROR_WINHTTP_CONNECTION_ERROR == ra::services::RA_HTTP_ERROR_CONNECTION_RESET);
-static_assert(WSATRY_AGAIN == ra::services::RA_HTTP_ERROR_SOCKET_TRY_AGAIN);
-static_assert(WSAECONNRESET == ra::services::RA_HTTP_ERROR_SOCKET_CONN_RESET);
 
 bool WindowsHttpRequester::IsRetryable(unsigned int nStatusCode) const noexcept
 {

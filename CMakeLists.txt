@@ -66,8 +66,14 @@ target_include_directories(ra_portable PRIVATE
   GSL/include
   rcheevos/include
   rcheevos/src
-  ${CURL_INCLUDE_DIRS}
 )
+
+# Not ${CURL_INCLUDE_DIRS}: FindCURL tries config mode first, and where a
+# CURLConfig.cmake exists (Debian, Ubuntu, Fedora, vcpkg) it returns having set
+# only CURL_VERSION_STRING, leaving CURL_INCLUDE_DIRS empty. The imported target
+# carries the include directories in both modes. Linking a library into an
+# OBJECT library for its usage requirements is legal from CMake 3.12.
+target_link_libraries(ra_portable PRIVATE CURL::libcurl)
 
 # RA_EXPORTS is what the DLL build defines; in RA_Defs.h it also selects the
 # branch that does not pull in <Windows.h>.
