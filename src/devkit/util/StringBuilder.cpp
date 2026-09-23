@@ -3,7 +3,7 @@
 namespace ra {
 namespace util {
 
-static std::pair<size_t, bool> CalculateUtf8Length(std::wstring_view str) noexcept
+static std::pair<size_t, bool> CalculateUtf8LengthFromUtf16(std::wstring_view str) noexcept
 {
     if (str.empty())
         return std::make_pair(0, false);
@@ -46,13 +46,9 @@ static std::pair<size_t, bool> CalculateUtf8Length(std::wstring_view str) noexce
     return std::make_pair(nUtf8Length, bAsciiOnly);
 }
 
-_Use_decl_annotations_
-std::string StringBuilder::Narrow(std::wstring_view str)
+static std::string NarrowUtf16(std::wstring_view str)
 {
-    if (str.empty())
-        return {};
-
-    const auto [nUtf8Length, bAsciiOnly] = CalculateUtf8Length(str);
+    const auto [nUtf8Length, bAsciiOnly] = CalculateUtf8LengthFromUtf16(str);
 
     std::string sResult;
     sResult.resize(nUtf8Length);
@@ -141,7 +137,7 @@ static const uint8_t UTF_NUM_TRAIL_BYTES[128] =
     3,3,3,3,3,3,3,3,4,4,4,4,5,5,0,0  // 0xf0-0xff
 };
 
-static std::pair<size_t, bool> CalculateUnicodeLength(std::string_view str) noexcept
+static std::pair<size_t, bool> CalculateUnicodeLengthFromUtf8Utf16(std::string_view str) noexcept
 {
     if (str.empty())
         return std::make_pair(0, false);
@@ -209,13 +205,9 @@ static std::pair<size_t, bool> CalculateUnicodeLength(std::string_view str) noex
     return std::make_pair(nUnicodeLength, bAsciiOnly);
 }
 
-_Use_decl_annotations_
-std::wstring StringBuilder::Widen(std::string_view str)
+static std::wstring WidenUtf16(std::string_view str)
 {
-    if (str.empty())
-        return {};
-
-    const auto [nUnicodeLength, bAsciiOnly] = CalculateUnicodeLength(str);
+    const auto [nUnicodeLength, bAsciiOnly] = CalculateUnicodeLengthFromUtf8Utf16(str);
 
     std::wstring sResult;
     sResult.resize(nUnicodeLength);
@@ -300,6 +292,131 @@ std::wstring StringBuilder::Widen(std::string_view str)
     GSL_SUPPRESS_TYPE1 const auto nActualSize = pOut - reinterpret_cast<uint16_t*>(sResult.data());
     sResult.resize(nActualSize);
     return sResult;
+}
+
+// The 32-bit path builds its result incrementally rather than pre-computing a
+// length. The pre-pass exists on the UTF-16 side to avoid a reallocation in the
+// hot Windows path; correctness is the only goal here.
+static std::string NarrowUtf32(std::wstring_view str)
+{
+    std::string sResult;
+    sResult.reserve(str.length());
+
+    for (const wchar_t wc : str)
+    {
+        uint32_t c = gsl::narrow_cast<uint32_t>(wc);
+
+        // a lone surrogate cannot be represented in UTF-8, and nothing above
+        // U+10FFFF is a character
+        if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF))
+            c = 0xFFFD;
+
+        if (c < 0x80)
+        {
+            sResult.push_back(gsl::narrow_cast<char>(c));
+        }
+        else if (c < 0x800)
+        {
+            sResult.push_back(gsl::narrow_cast<char>(0xC0 | (c >> 6)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | (c & 0x3F)));
+        }
+        else if (c < 0x10000)
+        {
+            sResult.push_back(gsl::narrow_cast<char>(0xE0 | (c >> 12)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | (c & 0x3F)));
+        }
+        else
+        {
+            sResult.push_back(gsl::narrow_cast<char>(0xF0 | (c >> 18)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | ((c >> 12) & 0x3F)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+            sResult.push_back(gsl::narrow_cast<char>(0x80 | (c & 0x3F)));
+        }
+    }
+
+    return sResult;
+}
+
+static std::wstring WidenUtf32(std::string_view str)
+{
+    std::wstring sResult;
+    sResult.reserve(str.length());
+
+    GSL_SUPPRESS_TYPE1 const uint8_t* pSrc = reinterpret_cast<const uint8_t*>(str.data());
+    const uint8_t* pStop = pSrc + str.length();
+
+    while (pSrc < pStop)
+    {
+        const uint8_t c = *pSrc++;
+
+        if ((c & 0x80) == 0)
+        {
+            sResult.push_back(gsl::narrow_cast<wchar_t>(c));
+            continue;
+        }
+
+        if ((c & 0xC0) == 0x80)
+        {
+            // trail byte with no lead byte
+            sResult.push_back(gsl::narrow_cast<wchar_t>(0xFFFD));
+            continue;
+        }
+
+        GSL_SUPPRESS_BOUNDS4 auto nAdditional = UTF_NUM_TRAIL_BYTES[c & 0x7F];
+        if (pSrc + nAdditional > pStop)
+        {
+            // not enough data
+            sResult.push_back(gsl::narrow_cast<wchar_t>(0xFFFD));
+            break;
+        }
+
+        // 1 additional -> 0x1F, 2 -> 0x0F, 3 -> 0x07, 4 -> 0x03, 5 -> 0x01
+        uint32_t nAccumulator = gsl::narrow_cast<uint32_t>(c) & ((1u << (6 - nAdditional)) - 1u);
+
+        bool bInvalid = false;
+        while (nAdditional)
+        {
+            const uint8_t c2 = *pSrc++;
+            bInvalid |= ((c2 & 0xC0) != 0x80);
+            nAccumulator = (nAccumulator << 6) | (c2 & 0x3F);
+            --nAdditional;
+        }
+
+        if (bInvalid || nAccumulator > 0x10FFFF)
+            sResult.push_back(gsl::narrow_cast<wchar_t>(0xFFFD));
+        else
+            sResult.push_back(gsl::narrow_cast<wchar_t>(nAccumulator));
+    }
+
+    return sResult;
+}
+
+// wchar_t is 16 bits on Windows and 32 on Linux. Both branches are compiled on
+// both platforms - the UTF-16 casts are legal with a 32-bit wchar_t, merely
+// wrong - so neither path can rot unnoticed.
+_Use_decl_annotations_
+std::string StringBuilder::Narrow(std::wstring_view str)
+{
+    if (str.empty())
+        return {};
+
+    if constexpr (sizeof(wchar_t) == 2)
+        return NarrowUtf16(str);
+    else
+        return NarrowUtf32(str);
+}
+
+_Use_decl_annotations_
+std::wstring StringBuilder::Widen(std::string_view str)
+{
+    if (str.empty())
+        return {};
+
+    if constexpr (sizeof(wchar_t) == 2)
+        return WidenUtf16(str);
+    else
+        return WidenUtf32(str);
 }
 
 void StringBuilder::AppendToString(_Inout_ std::string& sResult) const

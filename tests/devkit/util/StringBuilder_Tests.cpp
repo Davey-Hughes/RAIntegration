@@ -15,9 +15,10 @@ public:
         Assert::AreEqual(std::string("Test"), StringBuilder::Narrow(L"Test"));
         Assert::AreEqual(std::string("Test"), StringBuilder::Narrow(std::wstring(L"Test")));
 
-        // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA
-        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), StringBuilder::Narrow(L"\xD83C\xDF0F"));
-        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), StringBuilder::Narrow(std::wstring(L"\xD83C\xDF0F")));
+        // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA. Written as a universal character
+        // name so the literal is the character, not one platform's encoding of it.
+        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), StringBuilder::Narrow(L"\U0001F30F"));
+        Assert::AreEqual(std::string("\xF0\x9F\x8C\x8F"), StringBuilder::Narrow(std::wstring(L"\U0001F30F")));
     }
 
     TEST_METHOD(TestWiden)
@@ -28,11 +29,21 @@ public:
         Assert::AreEqual(std::wstring(L"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+"), StringBuilder::Widen(std::string("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-=_+")));
 
         // U+1F30F - EARTH GLOBE ASIA-AUSTRALIA
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), StringBuilder::Widen("\xF0\x9F\x8C\x8F"));
-        Assert::AreEqual(std::wstring(L"\xD83C\xDF0F"), StringBuilder::Widen(std::string("\xF0\x9F\x8C\x8F")));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), StringBuilder::Widen("\xF0\x9F\x8C\x8F"));
+        Assert::AreEqual(std::wstring(L"\U0001F30F"), StringBuilder::Widen(std::string("\xF0\x9F\x8C\x8F")));
 
         // invalid UTF-8 replaced with placeholder U+FFFD
         Assert::AreEqual(std::wstring(L"T\xFFFDst"), StringBuilder::Widen("T\xA9st")); // should be \xC3\xA9
+    }
+
+    TEST_METHOD(TestNarrowWidenRoundTrip)
+    {
+        // one code point from each UTF-8 length class: 1, 2, 3 and 4 bytes
+        const std::string sUtf8 = "A/caf\xC3\xA9/\xE6\x97\xA5\xE6\x9C\xAC/\xF0\x9F\x8C\x8F";
+        const std::wstring sWide = StringBuilder::Widen(sUtf8);
+
+        Assert::AreEqual(std::wstring(L"A/café/日本/\U0001F30F"), sWide);
+        Assert::AreEqual(sUtf8, StringBuilder::Narrow(sWide));
     }
 
     TEST_METHOD(TestAppend)
