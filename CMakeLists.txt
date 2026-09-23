@@ -221,3 +221,35 @@ foreach(TEST_FILE ${TEST_SOURCES})
     add_test(NAME ${TEST_CLASS_NAME} COMMAND ra_tests --filter=${TEST_CLASS_NAME})
   endforeach()
 endforeach()
+
+# The end-to-end harness. Unlike ra_tests it registers the real services and
+# needs a live QGuiApplication, so it is a separate executable rather than
+# another test class.
+#
+# It links ra_portable's objects, which is not enough on its own:
+#
+#  * src/Exports.cpp defines the _RA_* entry points and OnStateRestored(),
+#    which AchievementRuntime.cpp, AchievementRuntimeExports.cpp and
+#    EmulatorContext.cpp all reference. It is not in PORTABLE_SOURCES because
+#    it could not be compiled without RA_UTEST until its Win32 blocks named
+#    _WIN32; it still is not, so that the measured ratio keeps meaning the
+#    same thing, and it is listed here instead. Compiling it WITH RA_UTEST is
+#    not an option - that flag adds a data member to ModelCollectionBase, so
+#    linking it against objects built without it is a layout mismatch.
+#
+#  * rcheevos. ra_portable is an OBJECT library and never linked it; every
+#    rc_client_* call in those objects is unresolved until this pulls it in.
+#
+# services/Initialization.cpp (ServiceLocator::IsInitialized /
+# IsShuttingDown, and RegisterServices itself) is already in PORTABLE_SOURCES
+# and comes in with the objects.
+add_executable(ra_linux_smoke tools/ra_linux_smoke.cpp src/Exports.cpp $<TARGET_OBJECTS:ra_portable>)
+
+target_include_directories(ra_linux_smoke PRIVATE
+  . compat src src/devkit RAInterface
+  rapidjson/include GSL/include rcheevos/include rcheevos/src)
+
+target_compile_definitions(ra_linux_smoke PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH)
+target_compile_options(ra_linux_smoke PRIVATE -include msvc_compat.h -fdeclspec
+  -Wno-unknown-pragmas -Wno-pragma-pack)
+target_link_libraries(ra_linux_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
