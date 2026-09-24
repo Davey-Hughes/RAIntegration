@@ -568,10 +568,10 @@ public:
 
     static void reset() noexcept
     {
-        // _RA_OnReset lives in RA_Core.cpp, which is still Win32-only - it
-        // carries DllMain and the HMODULE/HWND globals - so a non-test Linux
-        // build has no definition to call. The emulator-interface phase ports
-        // it; on MSVC this is the same code it always was.
+        // RA_Core.cpp defines _RA_OnReset off Windows too, but nothing checks
+        // yet what calling it does there (it resets the runtime and clears
+        // popups), so the call stays Windows-only until something does. On
+        // MSVC this is the same code it always was.
 #if !defined(RA_UTEST) && defined(_WIN32)
         _RA_OnReset();
 #endif

@@ -5,10 +5,10 @@
 //
 //   ./build-tests/ra_linux_smoke
 //
-// Everything it writes goes under RACache/ next to the binary (IFileSystem
-// resolves relative paths against the executable's directory, as it does on
-// Windows), so copy the binary somewhere scratch if you would rather it did
-// not write into the build tree.
+// Everything it writes goes next to the binary - RAPrefs_RASmoke.cfg beside
+// it, the rest under RACache/ (IFileSystem resolves relative paths against the
+// executable's directory, as it does on Windows) - so copy the binary
+// somewhere scratch if you would rather it did not write into the build tree.
 //
 // Credentials are optional. Set RA_USERNAME and RA_PASSWORD to include the
 // login check; without them that one step reports skip and the rest still run.
@@ -33,7 +33,7 @@
 //   [note] something the run is about to do to the machine it is running on.
 //          Not a result at all, and counted as nothing.
 
-#include "Exports.hh" // _RA_InitClientOffline, _RA_DoAchievementsFrame
+#include "Exports.hh" // _RA_InitClientOffline, _RA_DoAchievementsFrame, _RA_Shutdown
 
 #include "services/Initialization.hh"
 #include "services/ServiceLocator.hh"
@@ -41,6 +41,7 @@
 #include "services/FrameEventQueue.hh"
 #include "services/IAudioSystem.hh"
 #include "services/IClipboard.hh"
+#include "services/IConfiguration.hh"
 #include "services/IDebuggerDetector.hh"
 #include "services/IFileSystem.hh"
 #include "services/IHttpRequester.hh"
@@ -341,9 +342,28 @@ static bool WriteTestWav(const std::string& sPath, double fSeconds)
     return oFile.good();
 }
 
+// Everything in the file past nOffset. The logger appends, so a check on its
+// output has to look only at what arrived after that check's own "before".
+static std::string ReadFileFrom(const std::wstring& sPath, int64_t nOffset)
+{
+    std::string sContents;
+    std::ifstream oFile(ra::util::String::Narrow(sPath), std::ios::binary);
+    if (oFile)
+    {
+        oFile.seekg(static_cast<std::streamoff>(nOffset));
+        sContents.assign(std::istreambuf_iterator<char>(oFile), std::istreambuf_iterator<char>());
+    }
+
+    return sContents;
+}
+
 static void RunChecks()
 {
     using namespace ra::services;
+
+    // RAPrefs_<name>.cfg is named after this, so the shutdown section needs it
+    // as well as the entry point.
+    constexpr const char* sClientName = "RASmoke";
 
     Section("entry point");
 
@@ -361,7 +381,7 @@ static void RunChecks()
     // touches the EmulatorContext immediately after registering it, and
     // ServiceLocator::GetMutable on a service that was never provided ends the
     // process. Either way the run does not come back green.
-    const int nInitialised = _RA_InitClientOffline(nullptr, "RASmoke", "0.0.0.0");
+    const int nInitialised = _RA_InitClientOffline(nullptr, sClientName, "0.0.0.0");
     Check(nInitialised == 1 && Initialization::IsInitialized() &&
               ServiceLocator::Exists<IHttpRequester>(),
           "_RA_InitClientOffline", "returned " + std::to_string(nInitialised) + ", services registered");
@@ -383,15 +403,7 @@ static void RunChecks()
     constexpr const char* sLogMarker = "smoke test log marker";
     ServiceLocator::Get<ILogger>().LogMessage(LogLevel::Info, sLogMarker);
 
-    std::string sLogTail;
-    {
-        std::ifstream oLog(ra::util::String::Narrow(sLogPath), std::ios::binary);
-        if (oLog)
-        {
-            oLog.seekg(static_cast<std::streamoff>(nLogSizeBefore));
-            sLogTail.assign(std::istreambuf_iterator<char>(oLog), std::istreambuf_iterator<char>());
-        }
-    }
+    const std::string sLogTail = ReadFileFrom(sLogPath, nLogSizeBefore);
 
     Check(sLogTail.find(sLogMarker) != std::string::npos, "log written",
           ra::util::String::Narrow(sLogPath) + ", +" + std::to_string(sLogTail.length()) +
@@ -731,8 +743,11 @@ static void RunChecks()
                   std::to_string(oBad.Residue()) + " descriptors left over");
 
             // --- teardown with sound in flight ------------------------------
-            // A queued create on the application thread and a call still inside
-            // PlayAudioFile on a worker, both racing Shutdown().
+            // Leaves sound work queued on the application thread - one call from
+            // a worker (joined below), two from here. Queued work cannot run
+            // until RunChecks() returns to the event loop, so it runs after the
+            // shutdown section has torn the services down, during main()'s exit
+            // timer.
             std::thread oLate([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
             pAudio.PlayAudioFile(sWav);
             pAudio.PlayAudioFile(sWav);
@@ -742,14 +757,80 @@ static void RunChecks()
 
     Section("shutdown");
 
-    // Shutdown() clears the flag unconditionally, so what is actually being
-    // asserted is that the call returned at all: no crash, no deadlock and no
-    // exception with a queued QSoundEffect create still on the application
-    // thread and a PlayAudioFile still on a worker. That is the property worth
-    // having here; the flag is only how the statement is spelled.
-    Initialization::Shutdown();
-    Check(!Initialization::IsInitialized(), "shutdown with audio in flight",
-          "Shutdown() returned with queued sounds outstanding - no crash, no hang");
+    // Through the emulator-facing export, not Initialization::Shutdown(): no
+    // real consumer can reach the latter, and only _RA_Shutdown() also saves
+    // the preferences, ends the session and marks the process as shutting
+    // down. Every check below takes its "before" first, so none of them can
+    // pass on a _RA_Shutdown() that returned without doing anything.
+    //
+    // The preferences file is deleted rather than inspected: nothing earlier
+    // in the run is required to have written it, so "it exists afterwards"
+    // only says something about this call if it provably did not before.
+    const std::wstring sPrefsPath = sBase + L"RAPrefs_" + ra::util::String::Widen(sClientName) + L".cfg";
+    const std::string sPrefsPathNarrow = ra::util::String::Narrow(sPrefsPath);
+    std::remove(sPrefsPathNarrow.c_str());
+    const bool bPrefsAbsentBefore = !std::ifstream(sPrefsPathNarrow).good();
+    const int64_t nLogSizeBeforeShutdown = std::max<int64_t>(pFileSystem.GetFileSize(sLogPath), 0);
+    const bool bInitialisedBefore = Initialization::IsInitialized();
+    const bool bShuttingDownBefore = ServiceLocator::IsShuttingDown();
+    const bool bConfigurationRegisteredBefore = ServiceLocator::Exists<IConfiguration>();
+
+    // Nothing runs concurrently with this call: the audio section joined its
+    // worker, and the sound work it queued on this thread cannot run until
+    // RunChecks() returns. That work runs after teardown instead, during
+    // main()'s exit timer. _RA_Shutdown() returns 0 on every path, so its
+    // return value only shows that it came back; the flag is what shows it did
+    // the work.
+    const int nShutdown = _RA_Shutdown();
+    const bool bInitialisedAfter = Initialization::IsInitialized();
+    Check(bInitialisedBefore && nShutdown == 0 && !bInitialisedAfter, "_RA_Shutdown() deinitialises",
+          "returned " + std::to_string(nShutdown) + ", IsInitialized " +
+              (bInitialisedBefore ? "true" : "false") + " -> " + (bInitialisedAfter ? "true" : "false"));
+
+    int64_t nPrefsSize = -1;
+    {
+        std::ifstream oPrefs(sPrefsPathNarrow, std::ios::binary | std::ios::ate);
+        if (oPrefs)
+            nPrefsSize = static_cast<int64_t>(oPrefs.tellg());
+    }
+    Check(bPrefsAbsentBefore && nPrefsSize > 0, "preferences saved",
+          sPrefsPathNarrow + (bPrefsAbsentBefore ? ", " : " (still present before the call), ") +
+              std::to_string(nPrefsSize) + " bytes");
+
+    const bool bShuttingDown = ServiceLocator::IsShuttingDown();
+    const bool bConfigurationRegistered = ServiceLocator::Exists<IConfiguration>();
+    Check(!bShuttingDownBefore && bShuttingDown && bConfigurationRegisteredBefore && !bConfigurationRegistered,
+          "services torn down",
+          std::string("IsShuttingDown ") + (bShuttingDownBefore ? "true" : "false") + " -> " +
+              (bShuttingDown ? "true" : "false") + ", IConfiguration " +
+              (bConfigurationRegisteredBefore ? "registered" : "absent") + " -> " +
+              (bConfigurationRegistered ? "registered" : "gone"));
+
+    const std::string sShutdownTail = ReadFileFrom(sLogPath, nLogSizeBeforeShutdown);
+    Check(sShutdownTail.find("Shutdown complete") != std::string::npos, "shutdown logged",
+          "+" + std::to_string(sShutdownTail.length()) + " bytes past " +
+              std::to_string(nLogSizeBeforeShutdown));
+
+    Skip("known hashes, session, game unload",
+         "offline, no game loaded: SaveKnownHashes is skipped offline; EndSession, UnloadGame and "
+         "OnActiveGameChanged have nothing to act on");
+
+    // Windows really does this: the emulator's RA_Shutdown(), then DllMain's
+    // detach-time call. The second call has to be a no-op, and nothing else
+    // can write to the log at this point - the thread pool is joined and the
+    // queued sound work waits for the event loop - so any byte it adds is a
+    // failure. A second pass through the sequence would log, and so would one
+    // that hit a missing service, which a release build's catch in
+    // _RA_Shutdown() would otherwise hide. A crash takes the whole process
+    // down. The offset comes from the bytes already read rather than from
+    // IFileSystem, which this check should not lean on after teardown.
+    const int64_t nLogSizeBeforeSecond =
+        nLogSizeBeforeShutdown + static_cast<int64_t>(sShutdownTail.length());
+    const int nSecondShutdown = _RA_Shutdown();
+    const std::string sSecondTail = ReadFileFrom(sLogPath, nLogSizeBeforeSecond);
+    Check(nSecondShutdown == 0 && sSecondTail.empty(), "second _RA_Shutdown() is a no-op",
+          "returned " + std::to_string(nSecondShutdown) + ", +" + std::to_string(sSecondTail.length()) +
+              " log bytes" + (sSecondTail.empty() ? "" : ", first: " + sSecondTail.substr(0, sSecondTail.find('\n'))));
 }
 
 int main(int argc, char* argv[])

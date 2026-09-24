@@ -1,5 +1,3 @@
-#include "RA_Core.h"
-
 #include "Exports.hh"
 
 #include "context/IRcClient.hh"
@@ -19,6 +17,25 @@
 #include "ui/viewmodels/MessageBoxViewModel.hh"
 #include "ui/viewmodels/OverlayManager.hh"
 #include "ui/viewmodels/WindowManager.hh"
+
+// Everything from here to the matching #endif is Win32: the module and window
+// handles the win32 views share, DllMain, and the GSL contract handler that
+// src/pch.h routes Expects() to. Only the MSVC projects force-include pch.h, so
+// off Windows GSL's own default applies and nothing calls the handler. The
+// shutdown, reset and load-confirmation exports after the #endif are portable.
+//
+// DllMain's DLL_PROCESS_DETACH calls _RA_Shutdown() as a safety net for an
+// emulator that never called RA_Shutdown(). There is deliberately no Linux
+// counterpart such as __attribute__((destructor)). Loaded the way RA_Interface
+// loads it - dlopen() - and never dlclose()d, which is exactly the case of an
+// emulator that skipped RA_Shutdown(), such a function runs after this
+// library's static destructors, with every ServiceLocator slot already gone,
+// so it would have nothing left to shut down. That emulator gets the
+// static-destruction teardown instead, and that can abort: ~ThreadPool logs
+// through an ILogger slot that may already have been destroyed. Emulators
+// must call RA_Shutdown() themselves.
+#ifdef _WIN32
+#include "RA_Core.h"
 
 HMODULE g_hThisDLLInst = nullptr;
 HWND g_RAMainWnd = nullptr;
@@ -96,6 +113,8 @@ void __gsl_contract_handler(const char* const file, unsigned int line, const cha
     _wassert(ra::util::String::Widen(error).c_str(), ra::util::String::Widen(filename).c_str(), line);
 }
 #endif
+
+#endif /* _WIN32 */
 
 static int DoShutdown()
 {

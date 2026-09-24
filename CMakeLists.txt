@@ -247,13 +247,21 @@ endforeach()
 #    not an option - that flag adds a data member to ModelCollectionBase, so
 #    linking it against objects built without it is a layout mismatch.
 #
+#  * src/RA_Core.cpp defines _RA_Shutdown, _RA_ConfirmLoadNewRom and
+#    _RA_OnReset. Its DllMain, HMODULE/HWND globals and GSL contract handler
+#    sit behind #ifdef _WIN32 and the rest is portable. Like Exports.cpp it is
+#    listed here rather than in PORTABLE_SOURCES so that the measured count
+#    stays comparable with earlier runs, and it is not in ra_tests because no
+#    MSVC test project compiles it either.
+#
 #  * rcheevos. ra_portable is an OBJECT library and never linked it; every
 #    rc_client_* call in those objects is unresolved until this pulls it in.
 #
 # services/Initialization.cpp (ServiceLocator::IsInitialized /
 # IsShuttingDown, and RegisterServices itself) is already in PORTABLE_SOURCES
 # and comes in with the objects.
-add_executable(ra_linux_smoke tools/ra_linux_smoke.cpp src/Exports.cpp $<TARGET_OBJECTS:ra_portable>)
+add_executable(ra_linux_smoke tools/ra_linux_smoke.cpp src/Exports.cpp src/RA_Core.cpp
+  $<TARGET_OBJECTS:ra_portable>)
 
 target_include_directories(ra_linux_smoke PRIVATE
   . compat src src/devkit RAInterface
