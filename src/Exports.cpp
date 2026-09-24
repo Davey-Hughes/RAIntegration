@@ -44,9 +44,11 @@
  * RA_UTEST alone was enough to guard them while MSVC was the only compiler,
  * since a non-test build always had Windows.h; naming _WIN32 as well is what
  * lets the file compile for a non-test Linux build. On MSVC the two spellings
- * select exactly the same code. The blocks that are only non-test - the
- * per-frame view-model updates - still say #ifndef RA_UTEST, because they are
- * as portable as the view models they drive. */
+ * select exactly the same code. The blocks that are only non-test still say
+ * #ifndef RA_UTEST: the per-frame view-model updates, because they are as
+ * portable as the view models they drive, and _RA_UpdateHWnd, because
+ * RA_Interface.h declares it for every platform - only its body is Win32, and
+ * that has an #ifdef _WIN32 of its own. */
 #if !defined(RA_UTEST) && defined(_WIN32)
 #include "ui/drawing/gdi/GDISurface.hh"
 #include "ui/win32/Desktop.hh"
@@ -90,9 +92,10 @@ API int CCONV _RA_WarnDisableHardcore(const char* sActivity)
     return pEmulatorContext.WarnDisableHardcoreMode(sActivityString) ? 1 : 0;
 }
 
-#if !defined(RA_UTEST) && defined(_WIN32)
-API void CCONV _RA_UpdateHWnd(RA_WindowHandle hMainHWND)
+#ifndef RA_UTEST
+API void CCONV _RA_UpdateHWnd([[maybe_unused]] RA_WindowHandle hMainHWND)
 {
+#ifdef _WIN32
     auto& pDesktop = dynamic_cast<ra::ui::win32::Desktop&>(ra::services::ServiceLocator::GetMutable<ra::ui::IDesktop>());
     if (hMainHWND != pDesktop.GetMainHWnd())
     {
@@ -104,6 +107,10 @@ API void CCONV _RA_UpdateHWnd(RA_WindowHandle hMainHWND)
             pOverlayWindow.CreateOverlayWindow(hMainHWND);
         }
     }
+#else
+    // The handle is reserved off Windows and ignored: the integration does not
+    // parent its windows to the client's, and nothing else reads it.
+#endif
 }
 #endif
 

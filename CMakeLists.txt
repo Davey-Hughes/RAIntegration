@@ -191,14 +191,16 @@ add_executable(ra_tests
   #
   # Left out of PORTABLE_SOURCES on purpose, so that count keeps meaning
   # "translation units with no platform branch in them". Not because every
-  # branch in here is Win32: of the eleven RA_UTEST-bearing guards, seven say
+  # branch in here is Win32: of the eleven RA_UTEST-bearing guards, six say
   # !defined(RA_UTEST) && defined(_WIN32) and are genuinely Win32 - the GDI
   # surface, the win32 Desktop and OverlayWindow, ControlBinding's repaints -
-  # but four say plain #ifndef RA_UTEST and select portable code that a
+  # but five say plain #ifndef RA_UTEST and select portable code that a
   # non-test Linux build compiles and runs: service registration in
-  # InitCommon, and UpdateUIForFrameChange with its two callers. The
-  # ra_linux_smoke target below is what compiles this file without RA_UTEST
-  # for Linux, and what exercises those four.
+  # InitCommon, UpdateUIForFrameChange with its two callers, and
+  # _RA_UpdateHWnd, whose Win32 body has a nested #ifdef _WIN32 and which
+  # ignores its handle elsewhere. The ra_linux_smoke target below is what
+  # compiles this file without RA_UTEST for Linux, and what exercises those
+  # five.
   src/Exports.cpp
   tests/compat/Runner.cpp
 )

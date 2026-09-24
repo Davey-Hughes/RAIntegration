@@ -495,6 +495,20 @@ static void RunChecks()
               ServiceLocator::Exists<IHttpRequester>(),
           "_RA_InitClientOffline", "returned " + std::to_string(nInitialised) + ", services registered");
 
+    // RA_Interface.h declares _RA_UpdateHWnd for every platform, but only its
+    // Windows body does anything: off Windows the handle is reserved and
+    // ignored. What protects it is the call, not the Check. Calling it here
+    // turns a missing definition into a link error in this target, instead of
+    // a NULL that a dlsym loader skips without a word - which is how the
+    // function went missing on Linux the first time. The Check is no-crash
+    // only: it can fail only by the process dying, i.e. by something
+    // dereferencing the handle, and the bogus non-null handle is there so that
+    // doing so crashes rather than reads.
+    _RA_UpdateHWnd(nullptr);
+    _RA_UpdateHWnd(reinterpret_cast<RA_WindowHandle>(uintptr_t{1}));
+    Check(true, "_RA_UpdateHWnd ignores the handle",
+          "returned for NULL and a bogus handle (no-crash only; the call is the link check)");
+
     // --- filesystem -------------------------------------------------------
     Section("filesystem, logger, debugger detector");
     const auto& pFileSystem = ServiceLocator::Get<IFileSystem>();
