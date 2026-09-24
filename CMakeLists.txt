@@ -350,3 +350,17 @@ target_link_libraries(ra_dlopen_smoke PRIVATE ${CMAKE_DL_LIBS})
 # The library is loaded at run time, not linked, so the build order has to be
 # stated.
 add_dependencies(ra_dlopen_smoke RA_Integration)
+
+# A consumer that goes through RAInterface's POSIX loader - the very file a
+# Linux emulator builds - and nothing else of RA's: it reaches
+# libRA_Integration.so only through the public RA_* API, as RALibretro does.
+# No msvc_compat.h: the loader and RA_Interface.h must build with no Win32
+# shim at all, because a fake Win32 type is what once hid a signature
+# mismatch in RALibretro's stub. checks/loader-smoke.sh runs it.
+add_executable(ra_loader_smoke tools/ra_loader_smoke.cpp RAInterface/RA_Interface_posix.cpp)
+target_include_directories(ra_loader_smoke PRIVATE RAInterface)
+target_compile_options(ra_loader_smoke PRIVATE -Wall -Wextra)
+target_link_libraries(ra_loader_smoke PRIVATE ${CMAKE_DL_LIBS})
+# The library is loaded at run time, not linked, so the build order has to be
+# stated.
+add_dependencies(ra_loader_smoke RA_Integration)
