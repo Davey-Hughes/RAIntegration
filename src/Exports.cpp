@@ -66,12 +66,24 @@ API const char* CCONV _RA_IntegrationVersion() { return RA_INTEGRATION_VERSION; 
 
 API const char* CCONV _RA_HostName()
 {
+#if !defined(RA_UTEST) && !defined(_WIN32)
+    // A loader calls this, or _RA_HostUrl, before any init: RA_Interface's
+    // RA_InitCommon reads the host to choose between the online and offline
+    // entry points. On Windows DllMain has registered the core services at
+    // DLL_PROCESS_ATTACH by then. Nothing does that on Linux, so register
+    // them here; it returns at once if they already are.
+    ra::services::Initialization::RegisterCoreServices();
+#endif
     const auto& pConfiguration = ra::services::ServiceLocator::Get<ra::services::IConfiguration>();
     return pConfiguration.GetHostName().c_str();
 }
 
 API const char* CCONV _RA_HostUrl()
 {
+#if !defined(RA_UTEST) && !defined(_WIN32)
+    // see _RA_HostName
+    ra::services::Initialization::RegisterCoreServices();
+#endif
     const auto& pConfiguration = ra::services::ServiceLocator::Get<ra::services::IConfiguration>();
     return pConfiguration.GetHostUrl().c_str();
 }
