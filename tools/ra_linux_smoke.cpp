@@ -65,6 +65,8 @@
 
 #include "RA_Defs.h" // RA_DIR_SEP_L, RA_DIR_BASE, RA_DIR_OVERLAY
 
+#include "SmokeReport.hh" // Check, Observe and their counters, shared with ra_dlopen_smoke
+
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QSoundEffect>
@@ -87,39 +89,14 @@
 #include <thread>
 #include <vector>
 
-static int g_nFailures = 0;
-static int g_nPassed = 0;
+// Check, Observe and the ok/failed/observed counters are in SmokeReport.hh.
+// Skip and Note are this harness's own.
 static int g_nSkipped = 0;
-static int g_nObserved = 0;
-
-static void Check(bool bCondition, const char* sLabel, const std::string& sDetail)
-{
-    if (bCondition)
-    {
-        ++g_nPassed;
-        std::printf("  [ok]   %-34s %s\n", sLabel, sDetail.c_str());
-    }
-    else
-    {
-        ++g_nFailures;
-        std::printf("  [FAIL] %-34s %s\n", sLabel, sDetail.c_str());
-    }
-
-    std::fflush(stdout);
-}
 
 static void Skip(const char* sLabel, const std::string& sReason)
 {
     ++g_nSkipped;
     std::printf("  [skip] %-34s %s\n", sLabel, sReason.c_str());
-    std::fflush(stdout);
-}
-
-// Reported, never asserted - see the header comment.
-static void Observe(const char* sLabel, const std::string& sDetail)
-{
-    ++g_nObserved;
-    std::printf("  [obs]  %-34s %s\n", sLabel, sDetail.c_str());
     std::fflush(stdout);
 }
 

@@ -198,9 +198,9 @@ add_executable(ra_tests
   # non-test Linux build compiles and runs: service registration in
   # InitCommon, UpdateUIForFrameChange with its two callers, and
   # _RA_UpdateHWnd, whose Win32 body has a nested #ifdef _WIN32 and which
-  # ignores its handle elsewhere. The ra_linux_smoke target below is what
-  # compiles this file without RA_UTEST for Linux, and what exercises those
-  # five.
+  # ignores its handle elsewhere. The ra_entry library below is what compiles
+  # this file without RA_UTEST for Linux, for the harness and for
+  # libRA_Integration.so, and the harness is what exercises those five.
   src/Exports.cpp
   tests/compat/Runner.cpp
 )
@@ -329,3 +329,16 @@ add_library(RA_Integration SHARED
 set_target_properties(RA_Integration PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(RA_Integration PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
 target_link_options(RA_Integration PRIVATE -Wl,-z,defs -Wl,--exclude-libs,ALL)
+
+# A consumer that links no RA code: it reaches libRA_Integration.so only
+# through dlopen/dlsym, the way a Linux RA_Interface loader will. Exports.hh
+# supplies the function types for decltype and nothing else - nothing here
+# defines an _RA_* symbol, so a direct call would fail to link - and it needs
+# msvc_compat.h for the header's _In_ annotation. checks/so-smoke.sh runs it.
+add_executable(ra_dlopen_smoke tools/ra_dlopen_smoke.cpp)
+target_include_directories(ra_dlopen_smoke PRIVATE . compat src GSL/include)
+target_compile_options(ra_dlopen_smoke PRIVATE -include msvc_compat.h -fdeclspec)
+target_link_libraries(ra_dlopen_smoke PRIVATE ${CMAKE_DL_LIBS})
+# The library is loaded at run time, not linked, so the build order has to be
+# stated.
+add_dependencies(ra_dlopen_smoke RA_Integration)
