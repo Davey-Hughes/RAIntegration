@@ -234,36 +234,66 @@ foreach(TEST_FILE ${TEST_SOURCES})
   endforeach()
 endforeach()
 
-# The end-to-end harness. Unlike ra_tests it registers the real services and
-# needs a live QGuiApplication, so it is a separate executable rather than
-# another test class.
-#
-# It links ra_portable's objects, which is not enough on its own:
+# The entry points, src/Exports.cpp and src/RA_Core.cpp, compiled once for
+# everything that needs the real (non-RA_UTEST) _RA_* exports - the harness and
+# libRA_Integration.so below - so that the two cannot drift apart in how those
+# files are built.
 #
 #  * src/Exports.cpp defines the _RA_* entry points and OnStateRestored(),
 #    which AchievementRuntime.cpp, AchievementRuntimeExports.cpp and
 #    EmulatorContext.cpp all reference. It is not in PORTABLE_SOURCES because
 #    it could not be compiled without RA_UTEST until its Win32 blocks named
 #    _WIN32; it still is not, so that the measured ratio keeps meaning the
-#    same thing, and it is listed here instead. Compiling it WITH RA_UTEST is
-#    not an option - that flag adds a data member to ModelCollectionBase, so
-#    linking it against objects built without it is a layout mismatch.
+#    same thing. Compiling it WITH RA_UTEST is not an option - that flag adds
+#    a data member to ModelCollectionBase, so linking it against objects built
+#    without it is a layout mismatch.
 #
 #  * src/RA_Core.cpp defines _RA_Shutdown, _RA_ConfirmLoadNewRom and
 #    _RA_OnReset. Its DllMain, HMODULE/HWND globals and GSL contract handler
 #    sit behind #ifdef _WIN32 and the rest is portable. Like Exports.cpp it is
-#    listed here rather than in PORTABLE_SOURCES so that the measured count
-#    stays comparable with earlier runs, and it is not in ra_tests because no
-#    MSVC test project compiles it either.
+#    kept out of PORTABLE_SOURCES so that the measured count stays comparable
+#    with earlier runs, and it is not in ra_tests because no MSVC test project
+#    compiles it either.
+add_library(ra_entry OBJECT src/Exports.cpp src/RA_Core.cpp)
+
+target_include_directories(ra_entry PRIVATE
+  . compat src src/devkit RAInterface
+  rapidjson/include GSL/include rcheevos/include rcheevos/src)
+
+target_compile_definitions(ra_entry PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH)
+target_compile_options(ra_entry PRIVATE -include msvc_compat.h -fdeclspec
+  -Wno-unknown-pragmas -Wno-pragma-pack)
+# For their usage requirements only - include directories, and rcheevos'
+# RC_CLIENT_SUPPORTS_HASH. An OBJECT library links nothing itself.
+target_link_libraries(ra_entry PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+
+# Everything that goes into libRA_Integration.so is position-independent and
+# hidden by default, so that for RAIntegration's own code the API macro in
+# Exports.hh - visibility("default") off Windows - picks the exports, as
+# __declspec(dllexport) does for RA_Integration.dll. rcheevos needs more than
+# this: see --exclude-libs on RA_Integration below.
 #
-#  * rcheevos. ra_portable is an OBJECT library and never linked it; every
-#    rc_client_* call in those objects is unresolved until this pulls it in.
+# The harness links all three into an executable and ra_tests links rcheevos;
+# in an executable neither property changes anything that matters.
+set_target_properties(ra_portable ra_entry rcheevos PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  C_VISIBILITY_PRESET hidden
+  CXX_VISIBILITY_PRESET hidden
+  VISIBILITY_INLINES_HIDDEN ON)
+
+# The end-to-end harness. Unlike ra_tests it registers the real services and
+# needs a live QGuiApplication, so it is a separate executable rather than
+# another test class. It links the objects rather than loading
+# libRA_Integration.so because it inspects internals the library does not
+# export.
 #
-# services/Initialization.cpp (ServiceLocator::IsInitialized /
+# rcheevos is linked here because ra_portable is an OBJECT library and never
+# linked it; every rc_client_* call in those objects is unresolved until this
+# pulls it in. services/Initialization.cpp (ServiceLocator::IsInitialized /
 # IsShuttingDown, and RegisterServices itself) is already in PORTABLE_SOURCES
 # and comes in with the objects.
-add_executable(ra_linux_smoke tools/ra_linux_smoke.cpp src/Exports.cpp src/RA_Core.cpp
-  $<TARGET_OBJECTS:ra_portable>)
+add_executable(ra_linux_smoke tools/ra_linux_smoke.cpp
+  $<TARGET_OBJECTS:ra_entry> $<TARGET_OBJECTS:ra_portable>)
 
 target_include_directories(ra_linux_smoke PRIVATE
   . compat src src/devkit RAInterface
@@ -273,3 +303,29 @@ target_compile_definitions(ra_linux_smoke PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORT
 target_compile_options(ra_linux_smoke PRIVATE -include msvc_compat.h -fdeclspec
   -Wno-unknown-pragmas -Wno-pragma-pack)
 target_link_libraries(ra_linux_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+
+# The library a Linux RA_Interface loader dlopens: the counterpart of
+# RA_Integration.dll, built from the same objects as the harness.
+#
+# -z defs makes an undefined symbol a link error. A shared library otherwise
+# links with any number of them, and the first sign is dlopen(RTLD_NOW)
+# failing - or, under RTLD_LAZY, the call itself.
+#
+# --exclude-libs,ALL keeps everything that comes from a static archive - here
+# librcheevos.a - out of the dynamic symbol table. Hidden visibility cannot do
+# that on its own: in its default RC_STATIC mode rcheevos' rc_export.h defines
+# RC_EXPORT as visibility("default") for GCC and clang, and an explicit
+# attribute beats -fvisibility=hidden, so without the flag the library
+# exported 253 rc_* functions. MSVC leaves RC_EXPORT empty, so
+# RA_Integration.dll never exported them. Exported, they would be
+# preemptible: the library's own calls to them bind at run time to whichever
+# definition comes first in the global scope, and hosts often carry a
+# differently pinned rcheevos of their own (RALibretro compiles one into its
+# executable), so which copy a call reached would depend on how the host was
+# linked, with nothing in the build to say so.
+add_library(RA_Integration SHARED
+  $<TARGET_OBJECTS:ra_entry> $<TARGET_OBJECTS:ra_portable>)
+# It has no source file of its own to infer the link language from.
+set_target_properties(RA_Integration PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(RA_Integration PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+target_link_options(RA_Integration PRIVATE -Wl,-z,defs -Wl,--exclude-libs,ALL)
