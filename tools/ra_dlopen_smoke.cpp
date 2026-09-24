@@ -25,7 +25,7 @@
 // an _RA_* symbol, so calling one directly would fail to link.
 #include "Exports.hh"
 
-#include "SmokeReport.hh" // Check, Observe and their counters, shared with ra_linux_smoke
+#include "SmokeReport.hh" // Check, Observe, Finish, CountThreads - shared with the other smoke programs
 
 #include <dlfcn.h>
 
@@ -34,34 +34,12 @@
 #include <string>
 #include <system_error>
 
-static int Finish()
-{
-    std::printf("\nra_dlopen_smoke: %d ok, %d failed, %d observed\n", g_nPassed, g_nFailures, g_nObserved);
-    std::printf("%s\n", g_nFailures == 0 ? "all checks passed" : "FAILURES");
-    std::fflush(stdout);
-    return g_nFailures == 0 ? 0 : 1;
-}
-
 // dlerror() returns NULL when there is nothing to report, and a std::string
 // cannot be built from NULL.
 static std::string LastDlError()
 {
     const char* sError = dlerror();
     return sError ? sError : "(no dlerror)";
-}
-
-// One entry per thread of this process, the library's included.
-static size_t CountThreads()
-{
-    std::error_code oError;
-    size_t nThreads = 0;
-    for (std::filesystem::directory_iterator it("/proc/self/task", oError), end; !oError && it != end;
-         it.increment(oError))
-    {
-        ++nThreads;
-    }
-
-    return nThreads;
 }
 
 template<typename TFunction>
@@ -104,7 +82,7 @@ int main(int argc, char* argv[])
     void* hLibrary = dlopen(sPath.c_str(), RTLD_NOW | RTLD_LOCAL);
     Check(hLibrary != nullptr, "dlopen(RTLD_NOW | RTLD_LOCAL)", hLibrary ? "loaded" : LastDlError());
     if (!hLibrary)
-        return Finish();
+        return Finish("ra_dlopen_smoke");
 
     // Resolve everything before calling anything, so a missing export stops
     // the run before the library has started a single thread.
@@ -114,7 +92,7 @@ int main(int argc, char* argv[])
     if (!pIntegrationVersion || !pInitClientOffline || !pShutdown)
     {
         dlclose(hLibrary);
-        return Finish();
+        return Finish("ra_dlopen_smoke");
     }
 
     const char* sVersion = pIntegrationVersion();
@@ -166,5 +144,5 @@ int main(int argc, char* argv[])
         Observe("library unmapped by dlclose", "yes");
     }
 
-    return Finish();
+    return Finish("ra_dlopen_smoke");
 }
