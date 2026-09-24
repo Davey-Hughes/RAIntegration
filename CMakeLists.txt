@@ -328,7 +328,15 @@ add_library(RA_Integration SHARED
 # It has no source file of its own to infer the link language from.
 set_target_properties(RA_Integration PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(RA_Integration PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
-target_link_options(RA_Integration PRIVATE -Wl,-z,defs -Wl,--exclude-libs,ALL)
+#
+# -Bsymbolic-functions binds the library's calls to its own functions at link
+# time, as they always are inside a Windows DLL. Without it, 8 _RA_* exports
+# that the library calls itself went through the PLT, where any earlier
+# definition of the same name in the process would have received them. It
+# binds functions only: data - static locals of inline functions, typeinfo -
+# still resolves process-wide, which keeps ODR-unique objects unique.
+target_link_options(RA_Integration PRIVATE -Wl,-z,defs -Wl,--exclude-libs,ALL
+  -Wl,-Bsymbolic-functions)
 
 # A consumer that links no RA code: it reaches libRA_Integration.so only
 # through dlopen/dlsym, the way a Linux RA_Interface loader will. Exports.hh
