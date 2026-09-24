@@ -568,11 +568,7 @@ public:
 
     static void reset() noexcept
     {
-        // RA_Core.cpp defines _RA_OnReset off Windows too, but nothing checks
-        // yet what calling it does there (it resets the runtime and clears
-        // popups), so the call stays Windows-only until something does. On
-        // MSVC this is the same code it always was.
-#if !defined(RA_UTEST) && defined(_WIN32)
+#ifndef RA_UTEST
         _RA_OnReset();
 #endif
     }

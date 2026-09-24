@@ -47,6 +47,16 @@
 #include "services/IHttpRequester.hh"
 #include "services/ILogger.hh"
 
+#include "context/IRcClient.hh"
+#include "data/context/GameContext.hh"
+#include "data/context/EmulatorContext.hh"
+
+// The reset check reads the trigger rcheevos keeps for an achievement, which
+// only the internal structures expose. OfflineRcClient.cpp includes the same
+// header.
+#include <rcheevos/src/rc_client_external.h>
+#include <rcheevos/src/rc_client_internal.h>
+
 #include "services/Http.hh"
 #include "services/HttpErrorCodes.hh"
 #include "services/impl/StringTextWriter.hh"
@@ -357,6 +367,105 @@ static std::string ReadFileFrom(const std::wstring& sPath, int64_t nOffset)
     return sContents;
 }
 
+// Replaces the file's contents. The offline game fixture is written fresh on
+// every run and removed afterwards.
+static bool WriteTextFile(const std::wstring& sPath, const std::string& sContents)
+{
+    std::ofstream oFile(ra::util::String::Narrow(sPath), std::ios::binary | std::ios::trunc);
+    oFile << sContents;
+    return oFile.good();
+}
+
+// No header declares this. rcheevos' rc_client_raintegration.c looks it up by
+// name in the loaded library, so it is declared here the way
+// AchievementRuntimeExports.cpp defines it.
+extern "C" int _Rcheevos_GetExternalClient(rc_client_external_t* pClientExternal, int nVersion);
+
+// The offline game the reset section loads. The id is under
+// IGameContext::IsVirtualGameId's threshold, so it loads like a real game.
+static constexpr unsigned int nResetGameId = 999001;
+static constexpr uint32_t nResetAchievementId = 999002;
+static constexpr const char* sResetGameHash = "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2";
+
+// An achievementsets response, shaped after rcheevos' own fixture
+// (test_rc_client.c, patchdata_2ach_0lbd). The one achievement needs byte 0 to
+// be 1 for 100 frames, so the 3 frames the section runs build hits without
+// ever unlocking it. ConsoleId 7 (NES) matches the section's _RA_SetConsoleID.
+static constexpr const char* sResetGameJson =
+    "{\"Success\":true,\"GameId\":999001,\"Title\":\"RASmoke reset fixture\",\"ConsoleId\":7,"
+    "\"ImageIconUrl\":\"http://server/Images/112233.png\","
+    "\"RichPresenceGameId\":999001,\"RichPresencePatch\":\"\",\"Sets\":[{"
+    "\"AchievementSetId\":999003,\"GameId\":999001,\"Title\":null,\"Type\":\"core\","
+    "\"ImageIconUrl\":\"http://server/Images/112233.png\","
+    "\"Achievements\":[{\"ID\":999002,\"Title\":\"Reset fixture\","
+    "\"Description\":\"Byte 0 is 1 for 100 frames\",\"Flags\":3,\"Points\":5,"
+    "\"MemAddr\":\"0xH0000=1.100.\",\"Author\":\"RASmoke\",\"BadgeName\":\"00234\","
+    "\"Created\":1367266583,\"Modified\":1376929305}],"
+    "\"Leaderboards\":[]}]}";
+
+// The emulator memory that achievement reads. Only byte 0 matters.
+static uint8_t g_pResetMemory[16] = {};
+
+static uint8_t ReadResetMemory(uint32_t nAddress)
+{
+    return nAddress < sizeof(g_pResetMemory) ? g_pResetMemory[nAddress] : 0;
+}
+
+static void WriteResetMemory(uint32_t nAddress, uint8_t nValue)
+{
+    if (nAddress < sizeof(g_pResetMemory))
+        g_pResetMemory[nAddress] = nValue;
+}
+
+// What a reset changes: the trigger's state and its hit count. nState is -1
+// when the achievement, its trigger or its first condition does not exist.
+struct TriggerSnapshot
+{
+    int nState = -1;
+    uint32_t nHits = 0;
+
+    std::string Describe() const
+    {
+        if (nState < 0)
+            return "not found";
+
+        const char* sState = (nState == RC_TRIGGER_STATE_WAITING) ? "WAITING"
+                           : (nState == RC_TRIGGER_STATE_ACTIVE)  ? "ACTIVE"
+                                                                  : nullptr;
+        return (sState ? std::string(sState) : "state " + std::to_string(nState)) + " with " +
+               std::to_string(nHits) + " hits";
+    }
+};
+
+static TriggerSnapshot SnapshotTrigger(uint32_t nAchievementId)
+{
+    TriggerSnapshot oSnapshot;
+
+    const auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+    if (!pClient || !pClient->game)
+        return oSnapshot;
+
+    for (const auto* pSubset = pClient->game->subsets; pSubset; pSubset = pSubset->next)
+    {
+        for (uint32_t i = 0; i < pSubset->public_.num_achievements; ++i)
+        {
+            const auto& pInfo = pSubset->achievements[i];
+            if (pInfo.public_.id != nAchievementId)
+                continue;
+
+            const auto* pTrigger = pInfo.trigger;
+            if (pTrigger && pTrigger->requirement && pTrigger->requirement->conditions)
+            {
+                oSnapshot.nState = pTrigger->state;
+                oSnapshot.nHits = pTrigger->requirement->conditions->current_hits;
+            }
+            return oSnapshot;
+        }
+    }
+
+    return oSnapshot;
+}
+
 static void RunChecks()
 {
     using namespace ra::services;
@@ -605,6 +714,164 @@ static void RunChecks()
               "clipboard still holds the guard value");
 
         pClipboard.SetText(sOriginal);
+    }
+
+    Section("reset and confirm-load, offline game");
+    {
+        // _RA_OnReset returns at once when no game is loaded, so without one a
+        // working reset and a no-op look the same. Offline mode serves a game
+        // from two files, with no network and no account: Hashes.txt maps the
+        // hash to an id (GameIdentifier::IdentifyHash), and <id>.json answers
+        // the achievementsets request (OfflineRcClient).
+        //
+        // This section must stay before the audio section. That section ends
+        // by leaving sound work queued so that shutdown runs with sound in
+        // flight, and the Pump() calls here would run that work early.
+        const std::wstring sHashesPath = sBase + RA_DIR_DATA L"Hashes.txt";
+        const std::wstring sGamePath = sBase + RA_DIR_DATA + std::to_wstring(nResetGameId) + L".json";
+        const bool bStaged =
+            WriteTextFile(sHashesPath, std::string(sResetGameHash) + "=" + std::to_string(nResetGameId) + "\n") &&
+            WriteTextFile(sGamePath, sResetGameJson);
+
+        _RA_SetConsoleID(7); // NES, matching the fixture's ConsoleId
+        g_pResetMemory[0] = 0;
+        _RA_InstallMemoryBank(0, reinterpret_cast<void*>(&ReadResetMemory),
+                              reinterpret_cast<void*>(&WriteResetMemory), sizeof(g_pResetMemory));
+
+        // rcheevos builds no request without an API token, offline ones
+        // included (rc_api_url_build_dorequest), and offline mode gives
+        // rc_client whatever token the prefs hold (InitializeOfflineMode). A
+        // real offline user has one from an earlier online login. This harness
+        // never logs in, so it lends rc_client a placeholder for the length of
+        // this section. OfflineRcClient answers every request itself, so the
+        // value never leaves the process.
+        auto* pRcClient = ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+        const char* sSavedToken = pRcClient->user.token;
+        pRcClient->user.token = "ra-smoke-offline-token";
+
+        const unsigned int nIdentified = _RA_IdentifyHash(sResetGameHash);
+        _RA_ActivateGame(nIdentified);
+
+        // The load finishes on the thread pool. GameId() is set before the
+        // load starts, so on its own it proves nothing. The achievement only
+        // appears in rc_client once the load has completed.
+        auto& pGameContext = ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        int nWaitedMs = 0;
+        for (; pGameContext.IsGameLoading() && nWaitedMs < 5000; nWaitedMs += 20)
+            Pump(20);
+
+        const auto oLoaded = SnapshotTrigger(nResetAchievementId);
+        const bool bLoaded = bStaged && nIdentified == nResetGameId && !pGameContext.IsGameLoading() &&
+                             pGameContext.GameId() == nResetGameId && oLoaded.nState >= 0;
+        Check(bLoaded, "offline game loaded",
+              std::string(bStaged ? "" : "fixture NOT staged, ") + "identified as " +
+                  std::to_string(nIdentified) + ", GameId " + std::to_string(pGameContext.GameId()) + ", " +
+                  (pGameContext.IsGameLoading() ? "still loading after " : "settled after ") +
+                  std::to_string(nWaitedMs) + " ms, achievement " + oLoaded.Describe());
+
+        if (!bLoaded)
+        {
+            Skip("reset resets the runtime", "the offline game did not load");
+            Skip("confirm-load with no edits", "the offline game did not load");
+            Skip("confirm-load with unsaved edits", "the offline game did not load");
+        }
+        else
+        {
+            // Any frame on which the trigger does not fire moves it from
+            // WAITING to ACTIVE (rcheevos trigger.c). The first frame runs
+            // with the condition false so that it adds no hit, and the three
+            // after it, with the condition true, leave exactly 3 of its 100
+            // hits.
+            _RA_DoAchievementsFrame();
+            g_pResetMemory[0] = 1;
+            for (int i = 0; i < 3; ++i)
+                _RA_DoAchievementsFrame();
+            const auto oBefore = SnapshotTrigger(nResetAchievementId);
+
+            // Through the callback that rc_client_reset() forwards to, not
+            // _RA_OnReset() directly, because AchievementRuntimeExports::reset()
+            // is where the guard lives. 7 is the highest version that
+            // _Rcheevos_GetExternalClient implements.
+            rc_client_external_t oExternal{};
+            _Rcheevos_GetExternalClient(&oExternal, 7);
+
+            const int64_t nLogSizeBeforeReset = std::max<int64_t>(pFileSystem.GetFileSize(sLogPath), 0);
+            if (oExternal.reset)
+                oExternal.reset();
+            const auto oAfter = SnapshotTrigger(nResetAchievementId);
+            const bool bResetLogged =
+                ReadFileFrom(sLogPath, nLogSizeBeforeReset).find("Resetting runtime") != std::string::npos;
+
+            Check(oBefore.nState == RC_TRIGGER_STATE_ACTIVE && oBefore.nHits == 3 &&
+                      oAfter.nState == RC_TRIGGER_STATE_WAITING && oAfter.nHits == 0 && bResetLogged,
+                  "reset resets the runtime",
+                  oBefore.Describe() + " -> " + oAfter.Describe() + (bResetLogged ? ", logged" : ", NOT logged") +
+                      (oExternal.reset ? "" : ", no reset callback"));
+
+            // Nothing on Linux can edit an asset yet, so this is the answer a
+            // real Linux user gets.
+            const int nConfirmClean = _RA_ConfirmLoadNewRom(1);
+            Check(nConfirmClean == 1, "confirm-load with no edits", "returned " + std::to_string(nConfirmClean));
+
+            // An unsaved edit makes it ask, and NullDesktop answers No. No
+            // keeps the edit, which is what Windows does when the user clicks
+            // No. Undoing the edit has to bring the answer back to 1, which
+            // shows the 0 came from the edit and from nothing else.
+            auto* pAchievement = pGameContext.Assets().FindAchievement(nResetAchievementId);
+            if (!pAchievement)
+            {
+                Check(false, "confirm-load with unsaved edits", "no achievement model for the fixture");
+            }
+            else
+            {
+                const std::wstring sName = pAchievement->GetName();
+                pAchievement->SetName(sName + L" (edited)");
+                const bool bModified = pAchievement->IsModified();
+
+                const int64_t nLogSizeBeforeConfirm = std::max<int64_t>(pFileSystem.GetFileSize(sLogPath), 0);
+                const int nConfirmEdited = _RA_ConfirmLoadNewRom(1);
+                const bool bPromptLogged = ReadFileFrom(sLogPath, nLogSizeBeforeConfirm)
+                                               .find("No view layer to show dialog") != std::string::npos;
+
+                pAchievement->SetName(sName);
+                const int nConfirmUndone = _RA_ConfirmLoadNewRom(1);
+
+                Check(bModified && nConfirmEdited == 0 && bPromptLogged && nConfirmUndone == 1,
+                      "confirm-load with unsaved edits",
+                      std::string(bModified ? "edited" : "edit NOT registered") + ", returned " +
+                          std::to_string(nConfirmEdited) + (bPromptLogged ? ", prompt logged" : ", prompt NOT logged") +
+                          ", " + std::to_string(nConfirmUndone) + " after the edit was undone");
+            }
+
+            // What a real consumer's teardown does: clear the external-client
+            // flag that _Rcheevos_GetExternalClient set. destroy() leaves the
+            // pause and reset hooks that the same call installed on
+            // EmulatorContext (HookupCallbackEvents), so they are emptied here,
+            // back to how this harness runs everywhere else - it never
+            // installs any.
+            if (oExternal.destroy)
+                oExternal.destroy();
+
+            auto& pEmulatorContext = ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
+            pEmulatorContext.SetPauseFunction(nullptr);
+            pEmulatorContext.SetResetFunction(nullptr);
+        }
+
+        // Leave nothing behind for the sections after this one: no game, no
+        // memory banks, the console a fresh init starts with, rc_client's own
+        // token, and none of the files this section caused to be written.
+        // Shutdown then still runs offline with no game, and the load's
+        // info.wav has finished before the audio section takes its baselines.
+        _RA_ActivateGame(0);
+        _RA_ClearMemoryBanks();
+        _RA_SetConsoleID(0); // ConsoleID::UnknownConsoleID, as Initialization registers it
+        pRcClient->user.token = sSavedToken;
+        std::remove(ra::util::String::Narrow(sHashesPath).c_str());
+        std::remove(ra::util::String::Narrow(sGamePath).c_str());
+        // Unloading the game ends its session, and SessionTracker writes the
+        // stats under the username - empty here, hence the bare name.
+        std::remove(ra::util::String::Narrow(sBase + RA_DIR_BASE L"-history.txt").c_str());
+        QuiesceFileDescriptors();
     }
 
     Section("audio");
