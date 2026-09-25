@@ -6,8 +6,14 @@
 //
 //   ra_loader_smoke <mode> [<inflight-delay-ms>]
 //
-//   missing   no libRA_Integration.so: every RA_* call does nothing, safely
-//   offline   host.txt says OFFLINE: init, shut down, nothing left running
+//   missing          no libRA_Integration.so: every RA_* call does nothing, safely
+//   offline          host.txt says OFFLINE: init, shut down, nothing left running
+//   online-loaded    log in with a staged token, load a real game, shut down
+//                    with it still loaded
+//   online-inflight  as online-loaded, but shut down while the load is in flight
+//
+// <inflight-delay-ms> exists only for the negative control of
+// online-inflight's precondition.
 //
 // One mode per process. The loader dlcloses the library in RA_Shutdown, and a
 // second init in the same process would only start clean if dlclose had
@@ -33,6 +39,7 @@
 
 #include "SmokeReport.hh" // Check, Observe, Finish, CountThreads - shared with the other smoke programs
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -40,6 +47,7 @@
 #include <iterator>
 #include <string>
 #include <system_error>
+#include <thread>
 
 namespace {
 
@@ -139,6 +147,149 @@ int RunOffline()
     return Finish("ra_loader_smoke");
 }
 
+// Super Mario Bros. (NES): game 1446 on retroachievements.org, with 77
+// published achievements. Checked 2026-09-24 with r=gameid and r=patch.
+constexpr const char* KNOWN_HASH = "8e3630186e35d477231bf8fd50e54cdd";
+constexpr unsigned int KNOWN_GAME_ID = 1446;
+constexpr unsigned int CONSOLE_NES = 7;
+
+// A 2 KiB bank, the size of NES work RAM, that reads as zeros and ignores
+// writes.
+unsigned char ReadZero(unsigned int) { return 0; }
+void IgnoreWrite(unsigned int, unsigned char) {}
+
+bool WaitForLog(const std::string& sText, int nTimeoutSeconds)
+{
+    const auto tDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(nTimeoutSeconds);
+    while (!LogContains(sText))
+    {
+        if (std::chrono::steady_clock::now() >= tDeadline)
+            return false;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    return true;
+}
+
+// online-loaded shuts down with a game loaded: the path that runs
+// SaveKnownHashes, EndSession and the session history, which no other test
+// reaches. online-inflight calls RA_Shutdown straight after RA_ActivateGame,
+// so rc_client is destroyed while the load's requests are still in flight.
+//
+// Neither calls RA_DoAchievementsFrame. The account is real, and zeroed
+// memory could satisfy a real achievement's trigger.
+int RunOnline(bool bInFlight, int nDelayMs)
+{
+    const size_t nThreadsBefore = CountThreads();
+    Check(nThreadsBefore >= 1, "/proc/self/task readable", std::to_string(nThreadsBefore) + " thread(s) before init");
+
+    RA_InitClient(nullptr, CLIENT_NAME, CLIENT_VERSION);
+
+    const size_t nThreadsAfterInit = CountThreads();
+    Check(nThreadsAfterInit > nThreadsBefore, "init started threads",
+          std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfterInit) + " after");
+
+    // Blocking: it returns once the server has answered. RA_UserName() is the
+    // account's DISPLAY name (Exports.cpp), which need not match the username
+    // the prefs were staged with, so only "someone is logged in" is asserted.
+    RA_AttemptLogin(1);
+    const std::string sLoggedIn = RA_UserName();
+    Check(!sLoggedIn.empty(), "logged in with the staged token", "RA_UserName() is \"" + sLoggedIn + "\"");
+
+    // The login handler plays login.wav. With no QGuiApplication the Qt audio
+    // service must refuse, say so, and leave the process running.
+    Check(LogContains("PlayAudioFile ignored: no QGuiApplication"), "Qt service without QGuiApplication",
+          InLog("PlayAudioFile ignored: no QGuiApplication"));
+
+    RA_SetConsoleID(CONSOLE_NES);
+    RA_InstallMemoryBank(0, ReadZero, IgnoreWrite, 0x800);
+
+    const unsigned int nGameId = RA_IdentifyHash(KNOWN_HASH);
+    Check(nGameId == KNOWN_GAME_ID, "RA_IdentifyHash()",
+          "returned " + std::to_string(nGameId) + ", expected " + std::to_string(KNOWN_GAME_ID));
+    if (nGameId != KNOWN_GAME_ID)
+    {
+        RA_Shutdown();
+        return Finish("ra_loader_smoke");
+    }
+
+    const auto tActivated = std::chrono::steady_clock::now();
+    RA_ActivateGame(nGameId);
+
+    // rc_client's own completion line, "Game %u loaded, hardcore %s%s".
+    // "Starting new session" cannot serve: it is logged as the load begins.
+    const std::string sLoaded = "Game " + std::to_string(KNOWN_GAME_ID) + " loaded";
+    if (!bInFlight)
+    {
+        // "disabled" is also the proof that the session is softcore.
+        const bool bLoaded = WaitForLog(sLoaded + ", hardcore disabled", 30);
+        const auto nMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - tActivated).count();
+        Check(bLoaded, "game loaded online, softcore",
+              bLoaded ? ("after " + std::to_string(nMs) + " ms")
+                      : (LogContains(sLoaded) ? "loaded, but NOT with \"hardcore disabled\""
+                                              : "no \"" + sLoaded + "\" within 30 s"));
+    }
+    else
+    {
+        // Only the negative control passes a delay. It lets the load finish,
+        // so the check below must then fail.
+        if (nDelayMs > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(nDelayMs));
+
+        // Without this, the mode would prove nothing about in-flight teardown.
+        // "Loading game" is logged synchronously inside RA_ActivateGame, just
+        // before the load is handed to rc_client, in the same call; its
+        // absence would mean the load never began, which "not finished"
+        // alone cannot tell apart.
+        const bool bBegun = LogContains("Loading game " + std::to_string(KNOWN_GAME_ID));
+        const bool bLoaded = LogContains(sLoaded);
+        Check(bBegun && !bLoaded, "shutdown raced the load",
+              !bBegun   ? "no \"Loading game " + std::to_string(KNOWN_GAME_ID) + "\" - the load never began"
+              : bLoaded ? "the load had already finished - nothing was in flight"
+                        : "load began and was still in flight at RA_Shutdown()");
+    }
+
+    RA_Shutdown();
+
+    const size_t nThreadsAfter = CountThreads();
+    Check(nThreadsAfter == nThreadsBefore, "no thread outlives RA_Shutdown()",
+          std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfter) + " after shutdown");
+
+    Check(LogContains("Shutdown complete"), "library shut down", InLog("Shutdown complete"));
+
+    if (!bInFlight)
+    {
+        const std::string sEnded = "Ending session for game " + std::to_string(KNOWN_GAME_ID);
+        Check(LogContains(sEnded), "session ended at shutdown", InLog(sEnded));
+
+        // Named after the username as the server spells it
+        // (AchievementRuntime.cpp), which may differ in case from the staged
+        // one. RACache/ was empty before this run, so any history file counts.
+        std::string sHistory;
+        std::error_code oError;
+        for (std::filesystem::directory_iterator it(g_oBaseDirectory / "RACache", oError), end; !oError && it != end;
+             it.increment(oError))
+        {
+            const std::string sName = it->path().filename().string();
+            if (sName.size() > 12 && sName.compare(sName.size() - 12, 12, "-history.txt") == 0)
+                sHistory = sName;
+        }
+        Check(!sHistory.empty(), "session history written",
+              sHistory.empty() ? "no RACache/*-history.txt" : "RACache/" + sHistory);
+
+        std::ifstream oFile(g_oBaseDirectory / "RACache" / "Data" / "Hashes.txt", std::ios::binary);
+        const std::string sHashes((std::istreambuf_iterator<char>(oFile)), std::istreambuf_iterator<char>());
+        const std::string sEntry = std::string(KNOWN_HASH) + "=" + std::to_string(KNOWN_GAME_ID);
+        const bool bSaved = sHashes.find(sEntry) != std::string::npos;
+        Check(bSaved, "known hash saved at shutdown",
+              "RACache/Data/Hashes.txt " + std::string(bSaved ? "has " : "lacks ") + sEntry);
+    }
+
+    return Finish("ra_loader_smoke");
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -160,6 +311,12 @@ int main(int argc, char* argv[])
     if (sMode == "offline")
         return RunOffline();
 
-    std::printf("usage: ra_loader_smoke missing|offline\n");
+    const int nDelayMs = (argc > 2) ? std::atoi(argv[2]) : 0;
+    if (sMode == "online-loaded")
+        return RunOnline(false, 0);
+    if (sMode == "online-inflight")
+        return RunOnline(true, nDelayMs);
+
+    std::printf("usage: ra_loader_smoke missing|offline|online-loaded|online-inflight [<inflight-delay-ms>]\n");
     return 2;
 }
