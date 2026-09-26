@@ -1,3 +1,5 @@
+#ifndef _WIN32
+
 #include "LinuxDebuggerDetector.hh"
 
 #include "util/Log.hh"
@@ -94,3 +96,5 @@ bool LinuxDebuggerDetector::IsDebuggerPresent() const
 } // namespace impl
 } // namespace services
 } // namespace ra
+
+#endif // !_WIN32

@@ -2,6 +2,8 @@
 #define RA_SERVICES_LINUX_DEBUGGERDETECTOR_HH
 #pragma once
 
+#ifndef _WIN32
+
 #include "services/IDebuggerDetector.hh"
 
 namespace ra {
@@ -33,5 +35,7 @@ public:
 } // namespace impl
 } // namespace services
 } // namespace ra
+
+#endif // !_WIN32
 
 #endif // !RA_SERVICES_LINUX_DEBUGGERDETECTOR_HH
