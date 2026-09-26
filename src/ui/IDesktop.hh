@@ -79,6 +79,17 @@ public:
     /// </summary>
     virtual void InvokeOnUIThread(std::function<void()> fAction) const = 0;
 
+    /// <summary>
+    /// Executes a function on the emulator's own thread - the one that initialized the toolkit. Used for the
+    /// callbacks the emulator installed (pause, unpause, reset, rebuild menu).
+    /// </summary>
+    /// <remarks>
+    /// Where the UI thread IS the emulator's thread, as with the Windows desktop, this is
+    /// <see cref="InvokeOnUIThread" />, which is what the default does. A desktop whose UI runs on a thread of its
+    /// own overrides it.
+    /// </remarks>
+    virtual void InvokeOnHostThread(std::function<void()> fAction) const { InvokeOnUIThread(std::move(fAction)); }
+
     virtual void Shutdown() = 0;
 
 protected:

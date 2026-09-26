@@ -74,6 +74,40 @@ private:
         ra::services::ServiceLocator::ServiceOverride<EmulatorContext> m_Override;
     };
 
+    // Records which of the two dispatch methods a call went through, then runs
+    // it. Declared after the harness, so its ServiceOverride<IDesktop> wins.
+    class RoutingDesktop : public ra::ui::mocks::MockDesktop
+    {
+    public:
+        void InvokeOnUIThread(std::function<void()> fAction) const override
+        {
+            ++m_nUIThread;
+            fAction();
+        }
+
+        void InvokeOnHostThread(std::function<void()> fAction) const override
+        {
+            ++m_nHostThread;
+            fAction();
+        }
+
+        mutable int m_nUIThread = 0;
+        mutable int m_nHostThread = 0;
+    };
+
+    // What the Windows desktop is: it overrides InvokeOnUIThread only.
+    class UIThreadOnlyDesktop : public ra::ui::mocks::MockDesktop
+    {
+    public:
+        void InvokeOnUIThread(std::function<void()> fAction) const override
+        {
+            ++m_nUIThread;
+            fAction();
+        }
+
+        mutable int m_nUIThread = 0;
+    };
+
 public:
     TEST_METHOD(TestClientName)
     {
@@ -1229,6 +1263,42 @@ public:
         Assert::AreEqual(ra::data::models::AssetState::Inactive, vmAchievement45->GetState());
         Assert::AreEqual(ra::data::models::AssetState::Inactive, vmAchievement46->GetState());
         Assert::AreEqual(ra::data::models::AssetState::Inactive, vmAchievement47->GetState());
+    }
+
+    TEST_METHOD(TestEmulatorCallbacksGoToTheHostThread)
+    {
+        EmulatorContextHarness emulator;
+        RoutingDesktop desktop;
+        int nReset = 0, nPause = 0, nUnpause = 0, nRebuild = 0;
+        emulator.SetResetFunction([&nReset]() { ++nReset; });
+        emulator.SetPauseFunction([&nPause]() { ++nPause; });
+        emulator.SetUnpauseFunction([&nUnpause]() { ++nUnpause; });
+        emulator.SetRebuildMenuFunction([&nRebuild]() { ++nRebuild; });
+
+        emulator.Reset();
+        emulator.Pause();
+        emulator.Unpause();
+        emulator.RebuildMenu();
+
+        Assert::AreEqual(4, desktop.m_nHostThread);
+        Assert::AreEqual(0, desktop.m_nUIThread);
+        Assert::AreEqual(1, nReset);
+        Assert::AreEqual(1, nPause);
+        Assert::AreEqual(1, nUnpause);
+        Assert::AreEqual(1, nRebuild);
+    }
+
+    TEST_METHOD(TestHostThreadDefaultsToTheUIThread)
+    {
+        EmulatorContextHarness emulator;
+        UIThreadOnlyDesktop desktop;
+        int nPause = 0;
+        emulator.SetPauseFunction([&nPause]() { ++nPause; });
+
+        emulator.Pause();
+
+        Assert::AreEqual(1, desktop.m_nUIThread, L"the default InvokeOnHostThread did not reach InvokeOnUIThread");
+        Assert::AreEqual(1, nPause);
     }
 };
 

@@ -648,7 +648,7 @@ void EmulatorContext::UpdateMenuState(int nMenuItemId) const
 void EmulatorContext::RebuildMenu() const
 {
     if (m_fRebuildMenu)
-        ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnUIThread(m_fRebuildMenu);
+        ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnHostThread(m_fRebuildMenu);
 }
 
 void EmulatorContext::Reset() const
@@ -658,7 +658,7 @@ void EmulatorContext::Reset() const
         if (IsExternalRcheevosClient()) // AchievementRuntimeExports will determine which thread to notify
             m_fResetEmulator();
         else
-            ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnUIThread(m_fResetEmulator);
+            ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnHostThread(m_fResetEmulator);
     }
 }
 
@@ -669,14 +669,14 @@ void EmulatorContext::Pause() const
         if (IsExternalRcheevosClient()) // AchievementRuntimeExports will determine which thread to notify
             m_fPauseEmulator();
         else
-            ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnUIThread(m_fPauseEmulator);
+            ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnHostThread(m_fPauseEmulator);
     }
 }
 
 void EmulatorContext::Unpause() const
 {
     if (m_fUnpauseEmulator)
-        ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnUIThread(m_fUnpauseEmulator);
+        ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnHostThread(m_fUnpauseEmulator);
 }
 
 void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction)
