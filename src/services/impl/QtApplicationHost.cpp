@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QGuiApplication>
 #include <QMetaObject>
 #include <QSessionManager>
@@ -40,7 +41,7 @@ struct QtApplicationHost::OwnedThreadState
     QObject* pApplication = nullptr; // set once exec() is running
     QObject* pContext = nullptr;     // set with pApplication
     std::string sPlatform;
-    bool bQuitRequested = false; // set by Stop() as it asks the loop to end: no other quit ends it
+    bool bQuitRequested = false; // set by Stop() as it asks the loop to end: no other exit ends it
     bool bExited = false;        // set as the thread function returns
 };
 
@@ -149,6 +150,64 @@ void LogInfoFromQtThread(const char* sMessage)
         RA_LOG_INFO("%s", sMessage);
     }
 }
+
+// The owned application. It swallows every QEvent::Quit, which is how a quit
+// the library did not ask for arrives: an X11 session manager's "die" at
+// logout, a quit() or a posted QEvent::Quit from the host's code. Passed on,
+// one reaches QApplication::event, which closes every top-level window
+// (closeAllWindows) before it ends the loop - so the loop coming back (see
+// RunOwnedThread) would not bring the views back. Stop() ends the loop with
+// exit(0), which sends no event (see Stop()). No Q_OBJECT: it adds no signals,
+// slots or properties, so it needs no moc.
+//
+// This is an event() override, not an event filter, and must stay one: a
+// filter on this application is never called. Measured 2026-09-26 on Qt 6.11.2:
+// - QCoreApplicationPrivate::sendThroughObjectEventFilters returns at once when
+//   the receiver is qApp, so a filter installed on the application only runs as
+//   an application-wide filter; and QApplicationPrivate::notify_helper runs
+//   those only when the receiver's thread is Qt's "main thread".
+// - Qt's main thread is the first thread to create Qt thread data (the
+//   QAdoptedThread constructor), and QtMultimedia, which this library links,
+//   creates some in a static initializer (a QLibrary in SymbolsResolver). A gdb
+//   watchpoint on QCoreApplicationPrivate::theMainThreadId caught the write
+//   inside dlopen(), on the loading thread, in ra_dlopen_smoke - and before
+//   main() in ra_tests. So RA-Qt is never the main thread - Qt says as much, as
+//   "QApplication was not created in the main() thread" in RALog.txt - and a
+//   probe filter on this application counted 0 calls in each of 4 start/stop
+//   cycles.
+// - Nor is the status handed on without QtMultimedia: in a scratch program Qt
+//   still named the first application's thread the main thread after it was
+//   joined, and every later application's filter counted 0 calls.
+// Delivery always ends in the receiver's own event(), whichever thread Qt
+// calls main; the same scratch program saw this override swallow the Quit in
+// every application.
+class OwnedApplication : public QApplication
+{
+public:
+    using QApplication::QApplication;
+
+protected:
+    bool event(QEvent* pEvent) override
+    {
+        if (pEvent->type() != QEvent::Quit)
+            return QApplication::event(pEvent);
+
+        if (!m_bReportedQuit)
+        {
+            m_bReportedQuit = true;
+            LogInfoFromQtThread("The Qt application was told to quit by something other than the library; "
+                                "ignoring it");
+        }
+
+        // refused: a caller that asked synchronously (QWindowSystemInterface's
+        // handleApplicationTermination) is told the quit did not happen
+        pEvent->ignore();
+        return true;
+    }
+
+private:
+    bool m_bReportedQuit = false;
+};
 
 } // namespace
 
@@ -322,14 +381,15 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
     pthread_setname_np(pthread_self(), "RA-Qt");
 
     {
-        QApplication oApplication(pState->nArgc, pState->vArgv.data());
+        OwnedApplication oApplication(pState->nArgc, pState->vArgv.data());
 
-        // Only Stop() may end the library's event loop; the loop below
-        // re-enters it after any other quit. These two keep Qt from asking in
-        // the first place: closing the last view window, and the last
-        // QEventLoopLocker going. Both are process-global and never restored,
-        // so an application the emulator creates after RA_Shutdown inherits
-        // them (a disclosed divergence).
+        // Only Stop() may end the library's event loop: OwnedApplication
+        // swallows every quit, and the loop below re-enters exec() after any
+        // other exit(). These two keep Qt from asking in the first place:
+        // closing the last view window, and the last QEventLoopLocker going.
+        // Both are process-global and never restored, so an application the
+        // emulator creates after RA_Shutdown inherits them (a disclosed
+        // divergence).
         QGuiApplication::setQuitOnLastWindowClosed(false);
         QCoreApplication::setQuitLockEnabled(false);
 
@@ -367,11 +427,12 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
         // application's destructor does not deliver a DeferredDelete still
         // pending, and neither does this thread's exit.
         //
-        // A quit Stop() did not ask for - the X11 session manager's "die" at
-        // logout, or a quit() or QEvent::Quit from anywhere in the process -
-        // enters the loop again. Leaving it would destroy the application and
-        // the context under a host that still holds both: the next Post,
-        // IsOnQtThread or Stop() would use freed objects.
+        // A quit() or QEvent::Quit never gets this far: OwnedApplication
+        // swallows it. An exit() cannot be swallowed - it ends the loop without
+        // an event, and any code on this thread may call it - so one Stop() did
+        // not ask for enters the loop again. Leaving it would destroy the
+        // application and the context under a host that still holds both: the
+        // next Post, IsOnQtThread or Stop() would use freed objects.
         bool bReportedUnrequestedQuit = false;
         for (;;)
         {
@@ -615,16 +676,28 @@ void QtApplicationHost::Stop()
     {
         auto pState = std::move(m_pOwnedState);
 
-        // Only a quit with bQuitRequested set ends the loop (see
-        // RunOwnedThread). The quit is queued under the lock the thread takes
-        // to read the flag: otherwise a quit nobody asked for, ending exec()
-        // between the two, would let the thread see the flag and destroy the
-        // application before invokeMethod reached it. Queued first, the event
-        // is at worst discarded with the application.
+        // Only an exit with bQuitRequested set ends the loop (see
+        // RunOwnedThread). exit(0), not quit(): in a QGuiApplication, quit()
+        // does nothing but send a QEvent::Quit (QGuiApplicationPrivate::quit ->
+        // QPlatformIntegration::quit, which the xcb, wayland and offscreen
+        // plugins do not override -> processApplicationTermination, Qt
+        // 6.11.2), which OwnedApplication swallows like any other - every
+        // Stop() would wait out tStopTimeout, pin the library and detach the
+        // thread. QCoreApplication::exit (qcoreapplication.cpp) emits
+        // aboutToQuit and calls QEventLoop::exit on each of the thread's loops:
+        // no event, and no window is asked, so a view that refuses to close
+        // cannot veto it the way it vetoes a quit(). It is not thread-safe,
+        // hence queued to run on the Qt thread.
+        //
+        // It is queued under the lock the thread takes to read the flag:
+        // otherwise an exit nobody asked for, ending exec() between the two,
+        // would let the thread see the flag and destroy the application before
+        // invokeMethod reached it. Queued first, the call is at worst discarded
+        // with the application.
         {
             std::lock_guard<std::mutex> oLock(pState->oMutex);
             pState->bQuitRequested = true;
-            QMetaObject::invokeMethod(pApplication, []() { QCoreApplication::quit(); }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(pApplication, []() { QCoreApplication::exit(0); }, Qt::QueuedConnection);
         }
 
         bool bExited = false;

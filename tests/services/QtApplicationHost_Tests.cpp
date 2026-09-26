@@ -5,11 +5,14 @@
 #include "tests/RA_UnitTestHelpers.h"
 
 #include <QApplication>
+#include <QCloseEvent>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QEventLoop>
 #include <QGuiApplication>
 #include <QObject>
 #include <QTimer>
+#include <QWidget>
 
 #include <glib.h>
 #include <pthread.h>
@@ -121,6 +124,13 @@ private:
     }
 
     static void SentinelHandler(QtMsgType, const QMessageLogContext&, const QString&) {}
+
+    // A view with unsaved work that says no when asked to close.
+    class RefusingWindow : public QWidget
+    {
+    protected:
+        void closeEvent(QCloseEvent* pEvent) override { pEvent->ignore(); }
+    };
 
 public:
     TEST_METHOD(TestUnavailableWithoutADisplay)
@@ -491,6 +501,144 @@ public:
 
         Assert::IsTrue(fWhileOwned != &SentinelHandler, L"no handler of the library's was installed while owned");
         Assert::IsTrue(fAfter == &SentinelHandler, L"Stop() did not restore the previous handler");
+    }
+
+    // The four tests below come last, and in this order, on purpose: a Stop()
+    // that times out detaches a thread that still holds a live application,
+    // and every test after it in this process would borrow that application
+    // instead of creating one. The refusing window is last because, without
+    // the fix, it is the one that makes Stop() time out.
+
+    TEST_METHOD(TestQuitNotAskedForByStopLeavesTheOwnedWindowsOpen)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+        Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Owned);
+
+        QWidget* pWindow = nullptr;
+        bool bShown = false;
+        Assert::IsTrue(oHost.InvokeAndWait(
+            [&pWindow, &bShown]() {
+                pWindow = new QWidget();
+                pWindow->show();
+                bShown = pWindow->isVisible();
+            },
+            5s));
+        // on the Qt thread, while the application exists - even if an assertion below throws
+        oHost.AddStopHook([pWindow]() { delete pWindow; });
+        Assert::IsTrue(bShown, L"the rig could not show a window");
+
+        // Two ways a quit the library did not ask for arrives. Each is checked
+        // on its own: the window is shown again between them, so the second
+        // result does not depend on the first.
+        //
+        // 1. quit() on the Qt thread: QPlatformIntegration::quit sends a
+        //    QEvent::Quit, the path an X11 session manager's "die" takes.
+        bool bOpenAfterSentQuit = false;
+        Assert::IsTrue(oHost.InvokeAndWait([]() { QCoreApplication::quit(); }, 5s));
+        Assert::IsTrue(oHost.InvokeAndWait(
+            [pWindow, &bOpenAfterSentQuit]() {
+                bOpenAfterSentQuit = pWindow->isVisible();
+                pWindow->show();
+            },
+            5s));
+
+        // 2. a QEvent::Quit posted from another thread, as the host's code or
+        //    QCoreApplicationPrivate::quitAutomatically posts one. The check is
+        //    queued after it on the same thread, so it runs once the Quit has
+        //    been delivered.
+        bool bOpenAfterPostedQuit = false;
+        QCoreApplication::postEvent(QCoreApplication::instance(), new QEvent(QEvent::Quit));
+        Assert::IsTrue(oHost.InvokeAndWait(
+            [pWindow, &bOpenAfterPostedQuit]() { bOpenAfterPostedQuit = pWindow->isVisible(); }, 5s));
+
+        const auto Describe = [](bool bOpen) { return bOpen ? "open" : "closed"; };
+        Assert::AreEqual(std::string("sent quit: open, posted quit: open"),
+                         std::string("sent quit: ") + Describe(bOpenAfterSentQuit) + ", posted quit: " +
+                             Describe(bOpenAfterPostedQuit),
+                         L"a quit Stop() did not ask for closed the owned application's window");
+
+        Assert::IsTrue(oHost.IsAvailable());
+        bool bRan = false;
+        Assert::IsTrue(oHost.InvokeAndWait([&bRan]() { bRan = true; }, 5s) && bRan,
+                       L"the owned application ran no work after a quit Stop() did not ask for");
+
+        oHost.Stop();
+        Assert::IsNull(QCoreApplication::instance(), L"the owned application outlived Stop()");
+    }
+
+    TEST_METHOD(TestExitNotAskedForByStopDoesNotEndTheOwnedApplication)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+
+        // exit() ends the loop without an event, so nothing can swallow it:
+        // the owned thread's re-entry loop is what keeps the application
+        Assert::IsTrue(oHost.InvokeAndWait([]() { QCoreApplication::exit(0); }, 5s));
+
+        bool bRan = false;
+        const bool bResult = oHost.InvokeAndWait([&bRan]() { bRan = true; }, 5s);
+        Assert::IsTrue(bResult && bRan, L"the owned application ran no work after an exit() Stop() did not ask for");
+
+        oHost.Stop();
+        Assert::IsNull(QCoreApplication::instance(), L"the owned application outlived Stop()");
+    }
+
+    TEST_METHOD(TestStopEndsTheOwnedLoopThatSwallowsQuit)
+    {
+        // A Stop() whose loop never ends waits out tStopTimeout and then
+        // detaches the thread, which still holds the application. So an
+        // elapsed time under tStopTimeout, or no application afterwards, each
+        // rule a timeout out on their own - neither depends on how fast the
+        // machine is.
+        auto oOptions = OffscreenOptions();
+        oOptions.tStopTimeout = 3s;
+        QtApplicationHost oHost(oOptions);
+        oHost.Start();
+        Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Owned);
+
+        const auto tStart = std::chrono::steady_clock::now();
+        oHost.Stop();
+        const auto tElapsed = std::chrono::steady_clock::now() - tStart;
+
+        Assert::IsTrue(tElapsed < oOptions.tStopTimeout,
+                       L"Stop() waited out its timeout: the owned loop swallowed Stop()'s own request to end");
+        Assert::IsNull(QCoreApplication::instance(), L"Stop() detached a thread that still holds the application");
+    }
+
+    TEST_METHOD(TestWindowThatRefusesToCloseDoesNotHoldUpStop)
+    {
+        auto oOptions = OffscreenOptions();
+        oOptions.tStopTimeout = 3s; // see TestStopEndsTheOwnedLoopThatSwallowsQuit
+        QtApplicationHost oHost(oOptions);
+        oHost.Start();
+        Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Owned);
+
+        bool bRefused = false;
+        Assert::IsTrue(oHost.InvokeAndWait(
+            [&bRefused]() {
+                auto* pWindow = new RefusingWindow();
+                pWindow->show();
+                bRefused = !pWindow->close() && pWindow->isVisible();
+
+                // Deleted as the loop ends, while the application still
+                // exists: exit() emits aboutToQuit before the loop returns,
+                // and exec() delivers the DeferredDelete on its way out. Not
+                // in a stop hook: the hooks run before Stop() ends the loop,
+                // and would take the window away before it could refuse.
+                QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, pWindow,
+                                 &QObject::deleteLater);
+            },
+            5s));
+        Assert::IsTrue(bRefused, L"the rig's window closed when asked: it cannot show a veto");
+
+        const auto tStart = std::chrono::steady_clock::now();
+        oHost.Stop();
+        const auto tElapsed = std::chrono::steady_clock::now() - tStart;
+
+        Assert::IsTrue(tElapsed < oOptions.tStopTimeout,
+                       L"Stop() waited out its timeout: a window that refused to close kept the owned loop running");
+        Assert::IsNull(QCoreApplication::instance(), L"Stop() detached a thread that still holds the application");
     }
 };
 
