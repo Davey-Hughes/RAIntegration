@@ -46,6 +46,8 @@
 #include "services/IFileSystem.hh"
 #include "services/IHttpRequester.hh"
 #include "services/ILogger.hh"
+#include "services/IQtApplicationHost.hh"
+#include "services/IThreadPool.hh"
 
 #include "context/IRcClient.hh"
 #include "data/context/GameContext.hh"
@@ -1151,12 +1153,61 @@ static void RunChecks()
     const bool bShuttingDownBefore = ServiceLocator::IsShuttingDown();
     const bool bConfigurationRegisteredBefore = ServiceLocator::Exists<IConfiguration>();
 
-    // Nothing runs concurrently with this call: the audio section joined its
-    // worker, and the one sound call it left queued on this thread cannot run
-    // until RunChecks() returns - by which time the Qt host has stopped and
-    // the call skips itself. _RA_Shutdown() returns 0 on every path, so its
-    // return value only shows that it came back; the flag is what shows it did
-    // the work.
+    // --- what the Qt host's stop hooks can still reach ----------------------
+    // A view's stop hook may save its geometry to the configuration, so
+    // Initialization::Shutdown has to run the hooks while IConfiguration is
+    // still registered - but not before the thread pool has drained, while a
+    // worker could still be handing work to the views the hooks are tearing
+    // down. The hook below records both. The pool task is running, not just
+    // queued, when the shutdown starts (a queued one never runs:
+    // ThreadPool::RunThread skips work once shutdown has begun), and it
+    // outlasts everything _RA_Shutdown() does before the drain, so a hook that
+    // ran before the drain finds it unfinished.
+    //
+    // An unavailable host's Stop() drops its hooks without running them, and
+    // a hook that never ran never sees a null slot either. So both checks
+    // assert that the hook ran, and report [skip] when it could not have. The
+    // state is shared rather than on this stack because a hook that is not
+    // run outlives this function, until some later Stop() or the host itself
+    // destroys it.
+    struct StopHookProbe
+    {
+        std::atomic<bool> bHookRan{false};
+        std::atomic<bool> bConfigurationSeen{false};
+        std::atomic<bool> bPoolDrainedSeen{false};
+        std::atomic<bool> bTaskStarted{false};
+        std::atomic<bool> bTaskFinished{false};
+    };
+    auto pStopHookProbe = std::make_shared<StopHookProbe>();
+    const bool bQtHostAvailable = ServiceLocator::Exists<IQtApplicationHost>() &&
+                                  ServiceLocator::Get<IQtApplicationHost>().IsAvailable();
+    if (bQtHostAvailable)
+    {
+        ServiceLocator::GetMutable<IQtApplicationHost>().AddStopHook([pStopHookProbe]() {
+            pStopHookProbe->bConfigurationSeen = ServiceLocator::Exists<IConfiguration>();
+            pStopHookProbe->bPoolDrainedSeen = pStopHookProbe->bTaskFinished.load();
+            pStopHookProbe->bHookRan = true;
+        });
+
+        ServiceLocator::GetMutable<IThreadPool>().RunAsync([pStopHookProbe]() {
+            pStopHookProbe->bTaskStarted = true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            pStopHookProbe->bTaskFinished = true;
+        });
+
+        // Slept on, not pumped: the audio section's queued sound must still
+        // be in flight at shutdown.
+        const auto tTaskDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!pStopHookProbe->bTaskStarted && std::chrono::steady_clock::now() < tTaskDeadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    // Nothing else runs concurrently with this call: the audio section joined
+    // its worker, and the one sound call it left queued on this thread cannot
+    // run until RunChecks() returns - by which time the Qt host has stopped
+    // and the call skips itself. _RA_Shutdown() returns 0 on every path, so
+    // its return value only shows that it came back; the flag is what shows
+    // it did the work.
     const int nShutdown = _RA_Shutdown();
     const bool bInitialisedAfter = Initialization::IsInitialized();
     Check(bInitialisedBefore && nShutdown == 0 && !bInitialisedAfter, "_RA_Shutdown() deinitialises",
@@ -1181,6 +1232,35 @@ static void RunChecks()
               (bShuttingDown ? "true" : "false") + ", IConfiguration " +
               (bConfigurationRegisteredBefore ? "registered" : "absent") + " -> " +
               (bConfigurationRegistered ? "registered" : "gone"));
+
+    if (!bQtHostAvailable)
+    {
+        const char* sWhy = "the Qt host is unavailable, and its Stop() drops stop hooks without running them";
+        Skip("stop hooks see IConfiguration", sWhy);
+        Skip("stop hooks run after pool drains", sWhy);
+    }
+    else
+    {
+        const bool bHookRan = pStopHookProbe->bHookRan;
+        const bool bConfigurationSeen = pStopHookProbe->bConfigurationSeen;
+        Check(bHookRan && bConfigurationSeen, "stop hooks see IConfiguration",
+              !bHookRan            ? "the stop hook never ran"
+              : bConfigurationSeen ? "the stop hook ran with IConfiguration still registered"
+                                   : "the stop hook ran after IConfiguration was deregistered");
+
+        if (!pStopHookProbe->bTaskStarted)
+        {
+            Skip("stop hooks run after pool drains", "no worker started the probe task within 5 s");
+        }
+        else
+        {
+            const bool bPoolDrainedSeen = pStopHookProbe->bPoolDrainedSeen;
+            Check(bHookRan && bPoolDrainedSeen, "stop hooks run after pool drains",
+                  !bHookRan          ? "the stop hook never ran"
+                  : bPoolDrainedSeen ? "the running pool task had finished when the stop hook ran"
+                                     : "the stop hook ran while a pool task was still running");
+        }
+    }
 
     const std::string sShutdownTail = ReadFileFrom(sLogPath, nLogSizeBeforeShutdown);
     Check(sShutdownTail.find("Shutdown complete") != std::string::npos, "shutdown logged",

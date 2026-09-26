@@ -33,9 +33,10 @@ std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
 std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository();
 
 // Called first in Initialization::RegisterServices, on the emulator's thread,
-// and last in Initialization::Shutdown, after the thread pool has drained.
-// Services the others are built on start and stop here - on Linux, the Qt
-// application host.
+// and in Initialization::Shutdown once the thread pool has drained, before any
+// service is deregistered. Services the others are built on start and stop
+// here - on Linux, the Qt application host, whose stop hooks therefore run
+// while every service is still registered.
 void StartPlatformServices();
 void StopPlatformServices();
 

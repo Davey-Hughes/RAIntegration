@@ -255,6 +255,11 @@ void Initialization::Shutdown()
 
     ra::services::ServiceLocator::GetMutable<ra::services::IThreadPool>().Shutdown(true);
 
+    // stop the platform services once the thread pool has drained, so no worker can still be handing them work,
+    // but before anything is deregistered: the Qt application's stop hooks run here, and may still need a
+    // registered service - a view saving its geometry to the IConfiguration, or the logger's clock
+    ra::services::impl::StopPlatformServices();
+
     // ImageReference destructors will try to use the IImageRepository if they think it still exists.
     // explicitly deregister it to prevent exceptions when closing down the application.
     ra::services::ServiceLocator::Provide<ra::ui::IImageRepository>(nullptr);
@@ -266,9 +271,6 @@ void Initialization::Shutdown()
     // clear out the IThreadPool and IConfiguration services to indicate things have been de-initialized
     ra::services::ServiceLocator::Provide<ra::services::IThreadPool>(nullptr);
     ra::services::ServiceLocator::Provide<ra::services::IConfiguration>(nullptr);
-
-    // the Qt application's stop hooks run while the logger still has a clock
-    ra::services::impl::StopPlatformServices();
 
     // prevent exception attempting to log during shutdown
     ra::services::ServiceLocator::Provide<ra::services::IClock>(nullptr);
