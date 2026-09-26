@@ -5,8 +5,6 @@
 
 #include "util/Log.hh"
 
-#include <QGuiApplication>
-#include <QMetaObject>
 #include <QSoundEffect>
 #include <QString>
 #include <QUrl>
@@ -54,15 +52,34 @@ void ReapEffect(std::mutex& oMutex, std::vector<std::unique_ptr<QSoundEffect>>& 
 
 } // namespace
 
-QtAudioSystem::QtAudioSystem() noexcept : m_pPool(std::make_shared<EffectPool>()) {}
+QtAudioSystem::QtAudioSystem(ra::services::IQtApplicationHost& pHost)
+    : m_pHost(pHost), m_pPool(std::make_shared<EffectPool>())
+{
+    // Every pooled effect is a QObject on the Qt thread, and must be gone before
+    // the application is. The hook holds the pool, not this object, for the
+    // reason m_pPool is a shared_ptr (see the header). It deletes the effects
+    // directly: it runs on the Qt thread, but outside any effect's own signal,
+    // which is the case ReapEffect has to avoid.
+    std::shared_ptr<EffectPool> pPool = m_pPool;
+    m_pHost.AddStopHook([pPool]() {
+        std::vector<std::unique_ptr<QSoundEffect>> vEffects;
+        {
+            std::scoped_lock<std::mutex> oLock(pPool->m_oMutex);
+            vEffects.swap(pPool->m_vEffects);
+        }
+
+        for (auto& pEffect : vEffects)
+            pEffect->stop();
+    });
+}
 QtAudioSystem::~QtAudioSystem() noexcept = default;
 
 void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
 {
-    auto* pApplication = QGuiApplication::instance();
-    if (pApplication == nullptr)
+    if (!m_pHost.IsAvailable())
     {
-        RA_LOG_WARN("PlayAudioFile ignored: no QGuiApplication");
+        if (!m_bReportedUnavailable.exchange(true))
+            RA_LOG_WARN("PlayAudioFile ignored: Qt services are unavailable");
         return;
     }
 
@@ -70,7 +87,8 @@ void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
     const std::wstring sFullPath = pFileSystem.BaseDirectory() + sPath;
 
     // AchievementRuntime plays unlock sounds from the frame/worker thread, but
-    // a QSoundEffect must be created on the thread owning the event loop.
+    // a QSoundEffect must be created on the Qt thread; m_pHost.Invoke runs it
+    // there - inline when already on it.
     const QString sQtPath = QString::fromStdWString(sFullPath);
 
     // Captured by value instead of `this`: the pool must be able to outlive
@@ -78,8 +96,7 @@ void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
     // call only ever reaches it through its own shared_ptr reference, never
     // back through the QtAudioSystem that started it.
     std::shared_ptr<EffectPool> pPool = m_pPool;
-    QMetaObject::invokeMethod(
-        pApplication,
+    m_pHost.Invoke(
         [pPool, sQtPath]() {
             auto pEffect = std::make_unique<QSoundEffect>();
             QSoundEffect* const pRawEffect = pEffect.get();
@@ -95,9 +112,11 @@ void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
             // that itself declares signals/slots does.
             auto pHasPlayed = std::make_shared<bool>(false);
             QObject::connect(pRawEffect, &QSoundEffect::playingChanged, pRawEffect,
-                              [pPool, pRawEffect, pHasPlayed]() {
+                              [pPool, pRawEffect, pHasPlayed, sQtPath]() {
                                   if (pRawEffect->isPlaying())
                                   {
+                                      if (!*pHasPlayed)
+                                          RA_LOG_INFO("Playing sound %s", sQtPath.toStdString().c_str());
                                       *pHasPlayed = true;
                                       return;
                                   }
@@ -133,8 +152,7 @@ void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
 
             std::scoped_lock<std::mutex> oLock(pPool->m_oMutex);
             pPool->m_vEffects.push_back(std::move(pEffect));
-        },
-        Qt::QueuedConnection);
+        });
 }
 
 void QtAudioSystem::Beep() const
@@ -143,6 +161,12 @@ void QtAudioSystem::Beep() const
     // link. Beep() has no callers in src/ outside this interface, so the
     // terminal bell is sufficient until the Qt views phase brings QtWidgets in.
     std::fputc('\a', stderr);
+}
+
+size_t QtAudioSystem::PooledEffectCount() const
+{
+    std::scoped_lock<std::mutex> oLock(m_pPool->m_oMutex);
+    return m_pPool->m_vEffects.size();
 }
 
 } // namespace impl

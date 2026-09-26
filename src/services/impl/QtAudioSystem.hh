@@ -3,7 +3,9 @@
 #pragma once
 
 #include "services/IAudioSystem.hh"
+#include "services/IQtApplicationHost.hh"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -17,11 +19,16 @@ namespace impl {
 class QtAudioSystem : public ra::services::IAudioSystem
 {
 public:
-    QtAudioSystem() noexcept;
+    explicit QtAudioSystem(ra::services::IQtApplicationHost& pHost);
     ~QtAudioSystem() noexcept;
 
     void PlayAudioFile(const std::wstring& sPath) const override;
     void Beep() const override;
+
+    /// <summary>
+    /// The number of effects currently held in the pool. Exposed for the tests only.
+    /// </summary>
+    size_t PooledEffectCount() const;
 
 private:
     // Holds the effects PlayAudioFile creates, and the mutex guarding them.
@@ -52,6 +59,8 @@ private:
     // whose source never reaches a terminal status at all - a hang or
     // backend bug rather than a clean finish or Error - is never reaped;
     // that residual leak cannot be detected from out here.
+    ra::services::IQtApplicationHost& m_pHost;
+    mutable std::atomic<bool> m_bReportedUnavailable{false};
     std::shared_ptr<EffectPool> m_pPool;
 };
 

@@ -1,5 +1,6 @@
 #ifndef _WIN32
 
+#include "services/impl/QtApplicationHost.hh"
 #include "services/impl/QtAudioSystem.hh"
 
 #include "tests/RA_UnitTestHelpers.h"
@@ -79,7 +80,9 @@ public:
             oApplication.installEventFilter(&oWatcher);
 
             {
-                QtAudioSystem oAudioSystem;
+                QtApplicationHost oHost;
+                oHost.Start(); // borrows oApplication
+                QtAudioSystem oAudioSystem(oHost);
                 oAudioSystem.PlayAudioFile(L"missing.wav");
 
                 const auto tDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -89,6 +92,8 @@ public:
                     QTimer::singleShot(20, &oLoop, [&oLoop]() { oLoop.quit(); });
                     oLoop.exec();
                 }
+
+                oHost.Stop();
             }
 
             oApplication.removeEventFilter(&oWatcher);
@@ -99,6 +104,44 @@ public:
 
         Assert::AreEqual(1, oWatcher.m_nDeferredDeletes,
                          L"the reaped effect never reached the event loop alive - destroyed inside its own signal?");
+    }
+
+    TEST_METHOD(TestStopHookDestroysEffectsStillInThePool)
+    {
+        ra::services::mocks::MockFileSystem mockFileSystem;
+        mockFileSystem.SetBaseDirectory(L"/nonexistent/");
+
+        int nArgc = 3;
+        char sArg0[] = "ra_tests";
+        char sArg1[] = "-platform";
+        char sArg2[] = "offscreen";
+        char* vArgv[] = {sArg0, sArg1, sArg2, nullptr};
+        QGuiApplication oApplication(nArgc, vArgv);
+
+        QtApplicationHost oHost;
+        oHost.Start();
+        QtAudioSystem oAudioSystem(oHost);
+
+        // On the Qt thread - this one - Invoke runs inline, so the effect is in
+        // the pool as soon as PlayAudioFile returns; its load failure arrives
+        // later, from the event loop, which this test never turns.
+        oAudioSystem.PlayAudioFile(L"missing.wav");
+        Assert::AreEqual(size_t(1), oAudioSystem.PooledEffectCount(), L"the effect was not pooled");
+
+        oHost.Stop();
+        Assert::AreEqual(size_t(0), oAudioSystem.PooledEffectCount(), L"Stop() left effects in the pool");
+    }
+
+    TEST_METHOD(TestUnavailableHostPlaysNothing)
+    {
+        QtApplicationHost::Options oOptions;
+        oOptions.fProbe = []() { return DisplayProbeResult{false, "test: no display"}; };
+        QtApplicationHost oHost(oOptions);
+        oHost.Start();
+
+        QtAudioSystem oAudioSystem(oHost);
+        oAudioSystem.PlayAudioFile(L"missing.wav");
+        Assert::AreEqual(size_t(0), oAudioSystem.PooledEffectCount());
     }
 };
 

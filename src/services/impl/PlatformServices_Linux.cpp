@@ -5,6 +5,7 @@
 #include "services/impl/LinuxDebuggerDetector.hh"
 #include "services/impl/LinuxFileSystem.hh"
 #include "services/impl/LinuxHttpRequester.hh"
+#include "services/impl/QtApplicationHost.hh"
 #include "services/impl/QtAudioSystem.hh"
 #include "services/impl/QtClipboard.hh"
 #include "services/impl/StderrFileLogger.hh"
@@ -32,14 +33,21 @@ std::unique_ptr<ra::services::IHttpRequester> CreatePlatformHttpRequester()
     return std::make_unique<LinuxHttpRequester>();
 }
 
+// Replaced in the next change, which registers a real, started host.
+static QtApplicationHost& UnstartedHost()
+{
+    static QtApplicationHost s_oHost;
+    return s_oHost;
+}
+
 std::unique_ptr<ra::services::IClipboard> CreatePlatformClipboard()
 {
-    return std::make_unique<QtClipboard>();
+    return std::make_unique<QtClipboard>(UnstartedHost());
 }
 
 std::unique_ptr<ra::services::IAudioSystem> CreatePlatformAudioSystem()
 {
-    return std::make_unique<QtAudioSystem>();
+    return std::make_unique<QtAudioSystem>(UnstartedHost());
 }
 
 std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector()
