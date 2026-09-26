@@ -67,9 +67,14 @@
 
 #include "SmokeReport.hh" // Check, Observe and their counters, shared with ra_dlopen_smoke
 
+#include <QAudioBuffer>
+#include <QAudioDecoder>
+#include <QAudioDevice>
+#include <QAudioSink>
+#include <QBuffer>
 #include <QEventLoop>
 #include <QGuiApplication>
-#include <QSoundEffect>
+#include <QMediaDevices>
 #include <QTimer>
 #include <QUrl>
 
@@ -129,8 +134,8 @@ static void StartWatchdog(unsigned int nSeconds)
 
 // --- audio instrumentation --------------------------------------------------
 //
-// QtAudioSystem keeps its QSoundEffects in a private pool, so nothing out here
-// can count them directly. What is countable is the cost the audio backend
+// QtAudioSystem keeps its sinks in a private pool, so nothing out here can
+// count them directly. What is countable is the cost the audio backend
 // pays while sounds are actually playing: a burst of N simultaneous sounds
 // holds some fixed number of descriptors plus some number more per concurrent
 // stream. Recovering N from that total is the only external evidence for the
@@ -143,11 +148,17 @@ static void StartWatchdog(unsigned int nSeconds)
 // is left of the one-stream measurement once the marginal is taken out is the
 // fixed cost.
 //
-// The two calibration points are QSoundEffect instances this harness creates
-// and holds itself, looped indefinitely, never handed to QtAudioSystem and
-// never reaped by anything - so "two held" really are two concurrent streams,
-// regardless of what the reap logic under test does with the burst it is
-// scored against. Calibrating through QtAudioSystem instead would make the
+// The two calibration points are QAudioSinks - the class QtAudioSystem plays
+// through - that this harness creates and holds itself, over PCM it decoded
+// itself the way QtAudioSystem does, played for longer than the measuring
+// window, never handed to QtAudioSystem and never reaped by anything - so "two
+// held" really are two concurrent streams, regardless of what the reap logic
+// under test does with the burst it is scored against. They were QSoundEffects
+// while the library played through those; calibrating on a class the library
+// no longer uses measures nothing it does (a QSoundEffect added 1 descriptor
+// per stream, a QAudioSink adds about 22), and a QSoundEffect's stream carries
+// media.role=Notification, which checks/chime-role.sh counts against this
+// process. Calibrating through QtAudioSystem instead would make the
 // measurement depend on the correctness of the thing it exists to check: a
 // reaper that cannot tell "finished" from "still loading" destroys each sound
 // as the next arrives, so a two-sound calibration run through it never has
@@ -244,28 +255,77 @@ static AudioMeasurement MeasureAudio(const std::function<void()>& fFire, int nPl
     return oMeasurement;
 }
 
-// Independent calibration point: nCount QSoundEffects this function creates,
-// starts and holds itself - not through IAudioSystem, so QtAudioSystem's pool
-// and reap logic never see them and cannot destroy one early. Looped
-// indefinitely so every one of them is still playing, not finished and freed,
-// at every sample point in the window; nCount held instances are therefore
-// really nCount concurrent streams, which is the property the burst check
-// needs a reference for.
-static AudioMeasurement MeasureConcurrentSoundEffects(const std::string& sWavPath, int nCount,
-                                                       int nPlayMs = 1400, int nSettleMs = 1000)
+// The calibration's PCM: sWavPath decoded as QtAudioSystem decodes a sound -
+// QAudioDecoder, straight to the default output's preferred format, or the
+// file's own format when there is no device - but by this harness, so that
+// nothing in QtAudioSystem is involved. oPcm is empty if the decode failed.
+struct CalibrationSound
 {
+    QAudioFormat oFormat;
+    QByteArray oPcm;
+};
+
+static CalibrationSound DecodeForCalibration(const std::string& sWavPath)
+{
+    CalibrationSound oSound;
+    bool bDone = false;
+    bool bFailed = false;
+
+    QAudioDecoder oDecoder;
+    QObject::connect(&oDecoder, &QAudioDecoder::bufferReady, &oDecoder, [&oDecoder, &oSound]() {
+        const QAudioBuffer oBuffer = oDecoder.read();
+        if (oBuffer.isValid())
+        {
+            oSound.oFormat = oBuffer.format();
+            oSound.oPcm.append(oBuffer.constData<char>(), oBuffer.byteCount());
+        }
+    });
+    QObject::connect(&oDecoder, &QAudioDecoder::finished, &oDecoder, [&bDone]() { bDone = true; });
+    QObject::connect(&oDecoder, qOverload<QAudioDecoder::Error>(&QAudioDecoder::error), &oDecoder,
+                     [&bDone, &bFailed]() { bDone = bFailed = true; });
+
+    oDecoder.setSource(QUrl::fromLocalFile(QString::fromStdString(sWavPath)));
+    const QAudioFormat oPreferred = QMediaDevices::defaultAudioOutput().preferredFormat();
+    if (oPreferred.isValid())
+        oDecoder.setAudioFormat(oPreferred);
+    oDecoder.start();
+
+    for (int nElapsed = 0; !bDone && nElapsed < 5000; nElapsed += 20)
+        Pump(20);
+
+    if (!bDone || bFailed || !oSound.oFormat.isValid())
+        oSound.oPcm.clear();
+
+    return oSound;
+}
+
+// Independent calibration point: nCount QAudioSinks this function creates,
+// starts and holds itself over oSound - not through IAudioSystem, so
+// QtAudioSystem's cache, pool and reap logic never see them and cannot end one
+// early. Each plays the sound repeated to last a second past the window, so
+// every one of them is still playing, not drained and freed, at every sample
+// point in it; nCount held sinks are therefore really nCount concurrent
+// streams, which is the property the burst check needs a reference for.
+static AudioMeasurement MeasureConcurrentSinks(const CalibrationSound& oSound, int nCount, int nPlayMs = 1400,
+                                               int nSettleMs = 1000)
+{
+    QByteArray oHeld;
+    const qint64 nHeldBytes = oSound.oFormat.bytesForDuration((nPlayMs + 1000) * qint64(1000));
+    while (!oSound.oPcm.isEmpty() && oHeld.size() < nHeldBytes)
+        oHeld.append(oSound.oPcm);
+
     AudioMeasurement oMeasurement;
     oMeasurement.nBase = QuiesceFileDescriptors();
 
-    const QUrl oSource = QUrl::fromLocalFile(QString::fromStdString(sWavPath));
-    std::vector<std::unique_ptr<QSoundEffect>> vEffects;
+    std::vector<std::unique_ptr<QAudioSink>> vSinks;
     for (int i = 0; i < nCount; ++i)
     {
-        auto pEffect = std::make_unique<QSoundEffect>();
-        pEffect->setSource(oSource);
-        pEffect->setLoopCount(QSoundEffect::Infinite);
-        pEffect->play();
-        vEffects.push_back(std::move(pEffect));
+        auto pSink = std::make_unique<QAudioSink>(QMediaDevices::defaultAudioOutput(), oSound.oFormat);
+        auto* pBuffer = new QBuffer(pSink.get());
+        pBuffer->setData(oHeld);
+        pBuffer->open(QIODevice::ReadOnly);
+        pSink->start(pBuffer);
+        vSinks.push_back(std::move(pSink));
     }
 
     oMeasurement.nPeak = oMeasurement.nBase;
@@ -277,7 +337,7 @@ static AudioMeasurement MeasureConcurrentSoundEffects(const std::string& sWavPat
 
     // Stop and destroy - this harness reaps its own reference instances
     // directly, deliberately not by the mechanism under test.
-    vEffects.clear();
+    vSinks.clear();
 
     Pump(nSettleMs);
     oMeasurement.nFinal = OpenFileDescriptors();
@@ -927,17 +987,19 @@ static void RunChecks()
             const int nOneSound = oOne.Delta();
 
             // Two more points, independent of PlayAudioFile entirely - see the
-            // note above MeasureConcurrentSoundEffects - for the burst check
-            // further down, which is the one a reap bug can corrupt.
-            const auto oRefOne = MeasureConcurrentSoundEffects(sWavPath, 1);
-            const auto oRefTwo = MeasureConcurrentSoundEffects(sWavPath, 2);
+            // note above MeasureConcurrentSinks - for the burst check further
+            // down, which is the one a reap bug can corrupt.
+            const auto oCalibrationSound = DecodeForCalibration(sWavPath);
+            const auto oRefOne = MeasureConcurrentSinks(oCalibrationSound, 1);
+            const auto oRefTwo = MeasureConcurrentSinks(oCalibrationSound, 2);
             const int nRefMarginal = oRefTwo.Delta() - oRefOne.Delta();
             const int nRefFixed = oRefOne.Delta() - nRefMarginal;
 
             // --- PlayAudioFile from a worker thread ------------------------
             // AchievementRuntime plays unlock sounds from the frame thread, so
-            // this is the real call path, not a contrived one. A QSoundEffect
-            // constructed off the application thread would not play at all.
+            // this is the real call path, not a contrived one. A decoder or
+            // sink constructed off the application thread would report to a
+            // thread with no event loop, and never finish or be reaped.
             const auto oWorker = MeasureAudio([&pAudio, &sWav]() {
                 std::thread oThread([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
                 oThread.join();
@@ -971,16 +1033,22 @@ static void RunChecks()
                 " and fixed = " + std::to_string(nRefFixed) + "; burst = " +
                 std::to_string(oBurst.Delta());
 
-            if (nRefMarginal < 1)
+            if (oCalibrationSound.oPcm.isEmpty())
+            {
+                Observe("simultaneous unlocks all play",
+                        "not decidable: the harness could not decode the tone to calibrate with (" +
+                            sCalibration + ")");
+            }
+            else if (nRefMarginal < 1)
             {
                 // A backend that pools descriptors across streams lands here,
                 // and so does a machine too noisy to calibrate on. Counting
                 // anyway would have divided by an assumed marginal of one and
                 // reported a number; there is nothing to count with. This is
-                // measured against the harness's own held QSoundEffects, never
-                // against PlayAudioFile, so a reap bug in QtAudioSystem cannot
+                // measured against the harness's own held sinks, never against
+                // PlayAudioFile, so a reap bug in QtAudioSystem cannot
                 // manufacture this outcome - see the note above
-                // MeasureConcurrentSoundEffects.
+                // MeasureConcurrentSinks.
                 Observe("simultaneous unlocks all play",
                         "not decidable: no per-stream descriptor signal on this backend (" +
                             sCalibration + ")");
@@ -1027,7 +1095,7 @@ static void RunChecks()
             // application's thread. The queued one would only run during
             // main()'s exit timer, after _RA_Shutdown() - where the host's
             // closed gate makes it skip itself (QtApplicationHost::Post)
-            // rather than create an effect after the stop hook emptied the pool.
+            // rather than create a sink after the stop hook emptied the pool.
             std::thread oLate([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
             pAudio.PlayAudioFile(sWav);
             pAudio.PlayAudioFile(sWav);
