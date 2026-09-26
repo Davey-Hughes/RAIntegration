@@ -140,9 +140,11 @@ int RunOffline()
 
     RA_Shutdown();
 
-    const size_t nThreadsAfter = CountThreads();
-    Check(nThreadsAfter == nThreadsBefore, "no thread outlives RA_Shutdown()",
-          std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfter) + " after shutdown");
+    const auto oAfter = CountThreadsBesideQtDBus();
+    Check(oAfter.nOther == nThreadsBefore, "no thread outlives RA_Shutdown()",
+          std::to_string(nThreadsBefore) + " before init, " + std::to_string(oAfter.nOther) +
+              " after shutdown, beside Qt's D-Bus thread");
+    Observe("Qt's D-Bus thread left running", std::to_string(oAfter.nQtDBus));
 
     Check(LogContains("Shutdown complete"), "library shut down", InLog("Shutdown complete"));
 
@@ -301,9 +303,11 @@ int RunOnline(bool bInFlight, int nDelayMs)
 
     RA_Shutdown();
 
-    const size_t nThreadsAfter = CountThreads();
-    Check(nThreadsAfter == nThreadsBefore, "no thread outlives RA_Shutdown()",
-          std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfter) + " after shutdown");
+    const auto oAfter = CountThreadsBesideQtDBus();
+    Check(oAfter.nOther == nThreadsBefore, "no thread outlives RA_Shutdown()",
+          std::to_string(nThreadsBefore) + " before init, " + std::to_string(oAfter.nOther) +
+              " after shutdown, beside Qt's D-Bus thread");
+    Observe("Qt's D-Bus thread left running", std::to_string(oAfter.nQtDBus));
 
     Check(LogContains("Shutdown complete"), "library shut down", InLog("Shutdown complete"));
 

@@ -111,6 +111,7 @@ void Initialization::RegisterCoreServices()
 void Initialization::RegisterServices(EmulatorID nEmulatorId, const char* sClientName)
 {
     RegisterCoreServices();
+    ra::services::impl::StartPlatformServices();
 
     // The IConfiguration service should be initialized as soon as possible. To do that, the client name must
     // be known, and it's provided by the EmulatorContext. IFileSystem and IDesktop are required for EmulatorContext
@@ -265,6 +266,9 @@ void Initialization::Shutdown()
     // clear out the IThreadPool and IConfiguration services to indicate things have been de-initialized
     ra::services::ServiceLocator::Provide<ra::services::IThreadPool>(nullptr);
     ra::services::ServiceLocator::Provide<ra::services::IConfiguration>(nullptr);
+
+    // the Qt application's stop hooks run while the logger still has a clock
+    ra::services::impl::StopPlatformServices();
 
     // prevent exception attempting to log during shutdown
     ra::services::ServiceLocator::Provide<ra::services::IClock>(nullptr);

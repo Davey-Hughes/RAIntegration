@@ -119,12 +119,14 @@ int main(int argc, char* argv[])
     // matters to dlclose is that no code of the library is still running.
     pShutdown();
 
-    const size_t nThreadsAfterShutdown = CountThreads();
+    const auto oAfterShutdown = CountThreadsBesideQtDBus();
     // Against the count before dlopen, not before init, so that a thread the
-    // library's static initialisers started counts as well.
-    Check(nThreadsAfterShutdown == nThreadsBeforeLoad, "no thread outlives _RA_Shutdown()",
-          std::to_string(nThreadsBeforeLoad) + " before dlopen, " + std::to_string(nThreadsAfterShutdown) +
+    // library's static initialisers started counts as well. Qt's D-Bus thread
+    // is the one exception (see CountThreadsBesideQtDBus).
+    Check(oAfterShutdown.nOther == nThreadsBeforeLoad, "no thread outlives _RA_Shutdown()",
+          std::to_string(nThreadsBeforeLoad) + " before dlopen, " + std::to_string(oAfterShutdown.nOther) +
               " after shutdown");
+    Observe("Qt's D-Bus thread left running", std::to_string(oAfterShutdown.nQtDBus));
 
     const int nClose = dlclose(hLibrary);
     Check(nClose == 0, "dlclose()", nClose == 0 ? "returned 0" : LastDlError());

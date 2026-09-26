@@ -64,6 +64,13 @@ std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository()
     return pImageRepository;
 }
 
+void StartPlatformServices()
+{
+    // the DLL runs on the emulator's own UI thread; there is nothing to start
+}
+
+void StopPlatformServices() {}
+
 } // namespace impl
 } // namespace services
 } // namespace ra

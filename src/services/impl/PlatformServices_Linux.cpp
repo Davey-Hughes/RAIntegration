@@ -2,6 +2,8 @@
 
 #include "services/impl/PlatformServices.hh"
 
+#include "services/IQtApplicationHost.hh"
+#include "services/ServiceLocator.hh"
 #include "services/impl/LinuxDebuggerDetector.hh"
 #include "services/impl/LinuxFileSystem.hh"
 #include "services/impl/LinuxHttpRequester.hh"
@@ -33,21 +35,14 @@ std::unique_ptr<ra::services::IHttpRequester> CreatePlatformHttpRequester()
     return std::make_unique<LinuxHttpRequester>();
 }
 
-// Replaced in the next change, which registers a real, started host.
-static QtApplicationHost& UnstartedHost()
-{
-    static QtApplicationHost s_oHost;
-    return s_oHost;
-}
-
 std::unique_ptr<ra::services::IClipboard> CreatePlatformClipboard()
 {
-    return std::make_unique<QtClipboard>(UnstartedHost());
+    return std::make_unique<QtClipboard>(ra::services::ServiceLocator::GetMutable<ra::services::IQtApplicationHost>());
 }
 
 std::unique_ptr<ra::services::IAudioSystem> CreatePlatformAudioSystem()
 {
-    return std::make_unique<QtAudioSystem>(UnstartedHost());
+    return std::make_unique<QtAudioSystem>(ra::services::ServiceLocator::GetMutable<ra::services::IQtApplicationHost>());
 }
 
 std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector()
@@ -68,6 +63,32 @@ std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
 std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository()
 {
     return std::make_unique<ra::ui::null::NullImageRepository>();
+}
+
+void StartPlatformServices()
+{
+    // A second _RA_Init without an intervening shutdown replaces the host
+    // while the old one is still registered and running. It must be Stop()ped
+    // BEFORE the new host is constructed: Start() looks the running Qt
+    // application up through QCoreApplication::instance(), so if the old
+    // host's application were still alive when the new host starts, the new
+    // host would BORROW it - and then Provide() below would destroy the old
+    // host, running its Stop() (from its destructor) and tearing that
+    // application down out from under the new host that just borrowed it. It
+    // is fine to leave the old host registered in the meantime; Provide()
+    // replaces it once the new one has started.
+    if (ra::services::ServiceLocator::Exists<ra::services::IQtApplicationHost>())
+        ra::services::ServiceLocator::GetMutable<ra::services::IQtApplicationHost>().Stop();
+
+    auto pHost = std::make_unique<QtApplicationHost>();
+    pHost->Start();
+    ra::services::ServiceLocator::Provide<ra::services::IQtApplicationHost>(std::move(pHost));
+}
+
+void StopPlatformServices()
+{
+    if (ra::services::ServiceLocator::Exists<ra::services::IQtApplicationHost>())
+        ra::services::ServiceLocator::GetMutable<ra::services::IQtApplicationHost>().Stop();
 }
 
 } // namespace impl

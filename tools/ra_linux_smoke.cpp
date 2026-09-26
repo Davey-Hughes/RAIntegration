@@ -76,6 +76,7 @@
 #include <dirent.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -681,28 +682,48 @@ static void RunChecks()
             Observe("clipboard offer accepted", sDetail);
         }
 
-        // --- the wrong-thread branch --------------------------------------
-        // No view model ever reaches the clipboard from a worker thread, but
-        // nothing stops one, and QClipboard from off the GUI thread is either
-        // a crash or a deadlock. QtClipboard is supposed to log and return.
-        // This one does run under offscreen: it is QtClipboard's own thread
-        // guard being checked, not the platform's clipboard.
-        const std::wstring sGuard = L"RA smoke guard";
-        pClipboard.SetText(sGuard);
-
+        // --- from a worker thread -----------------------------------------
+        // No view model reaches the clipboard from a worker today, but nothing
+        // stops one. QtClipboard queues the write onto the application's thread
+        // and waits there for the read's answer: this thread, whose event loop
+        // is turned below while the worker waits, as an emulator's would be.
+        // This runs under offscreen too: it checks QtClipboard's marshalling,
+        // not the platform's clipboard - whether the desktop still holds the
+        // text afterwards is the same question the round trip above asks, and
+        // gets the same answer: observed, not asserted, below.
+        const std::wstring sFromWorkerExpected = L"RA smoke from a worker";
         std::wstring sFromWorker = L"<never ran>";
-        bool bWorkerReturned = false;
-        std::thread oWorker([&pClipboard, &sFromWorker, &bWorkerReturned]() {
-            pClipboard.SetText(L"RA smoke WRONG THREAD");
+        std::atomic<bool> bWorkerReturned{false};
+        std::thread oWorker([&pClipboard, &sFromWorker, &bWorkerReturned, &sFromWorkerExpected]() {
+            pClipboard.SetText(sFromWorkerExpected);
             sFromWorker = pClipboard.GetText();
             bWorkerReturned = true;
         });
+        const auto tWorkerDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!bWorkerReturned && std::chrono::steady_clock::now() < tWorkerDeadline)
+            Pump(20);
         oWorker.join();
 
-        Check(bWorkerReturned && sFromWorker.empty(), "clipboard off-thread read refused",
-              bWorkerReturned ? "returned empty without touching QClipboard" : "never returned");
-        Check(pClipboard.GetText() == sGuard, "clipboard off-thread write refused",
-              "clipboard still holds the guard value");
+        // The worker's SetText is queued onto the Qt thread and its GetText is
+        // InvokeAndWait'd on that same thread; reading back its own write, on
+        // that same round trip, proves the write reached the application's
+        // clipboard - QtClipboard's cross-thread marshalling, which is what
+        // this checks, not the desktop's.
+        Check(bWorkerReturned && sFromWorker == sFromWorkerExpected, "clipboard off-thread read answers",
+              bWorkerReturned ? ra::util::String::Narrow(sFromWorker) : "never returned");
+
+        // Whether the desktop still holds it once this thread's own loop has
+        // turned (above, while the worker waited) is not decidable from in
+        // here any more than the round trip's own "does the desktop actually
+        // see it?" check is, and for the same reason.
+        const bool bStillHeld = (pClipboard.GetText() == sFromWorkerExpected);
+        std::string sStillHeldDetail = std::string(bStillHeld ? "yes" : "no") + " (platform " + sPlatform + ")";
+        if (sPlatform == "wayland")
+        {
+            sStillHeldDetail += "; a windowless application cannot own the Wayland selection, so the "
+                                 "desktop may take it back once the loop turns";
+        }
+        Observe("clipboard still holds the worker's text", sStillHeldDetail);
 
         pClipboard.SetText(sOriginal);
     }
@@ -1001,11 +1022,12 @@ static void RunChecks()
                   std::to_string(oBad.Residue()) + " descriptors left over");
 
             // --- teardown with sound in flight ------------------------------
-            // Leaves sound work queued on the application thread - one call from
-            // a worker (joined below), two from here. Queued work cannot run
-            // until RunChecks() returns to the event loop, so it runs after the
-            // shutdown section has torn the services down, during main()'s exit
-            // timer.
+            // One call from a worker is queued on the application's thread
+            // (joined below); the two from here run inline, since this IS the
+            // application's thread. The queued one would only run during
+            // main()'s exit timer, after _RA_Shutdown() - where the host's
+            // closed gate makes it skip itself (QtApplicationHost::Post)
+            // rather than create an effect after the stop hook emptied the pool.
             std::thread oLate([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
             pAudio.PlayAudioFile(sWav);
             pAudio.PlayAudioFile(sWav);
@@ -1034,9 +1056,9 @@ static void RunChecks()
     const bool bConfigurationRegisteredBefore = ServiceLocator::Exists<IConfiguration>();
 
     // Nothing runs concurrently with this call: the audio section joined its
-    // worker, and the sound work it queued on this thread cannot run until
-    // RunChecks() returns. That work runs after teardown instead, during
-    // main()'s exit timer. _RA_Shutdown() returns 0 on every path, so its
+    // worker, and the one sound call it left queued on this thread cannot run
+    // until RunChecks() returns - by which time the Qt host has stopped and
+    // the call skips itself. _RA_Shutdown() returns 0 on every path, so its
     // return value only shows that it came back; the flag is what shows it did
     // the work.
     const int nShutdown = _RA_Shutdown();

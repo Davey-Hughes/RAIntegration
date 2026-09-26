@@ -202,7 +202,13 @@ void QtApplicationHost::StartOwned()
     if (m_oOptions.bUseNonGlibDispatcher)
         qputenv("QT_NO_GLIB", "1");
 
-    s_fPreviousHandler = qInstallMessageHandler(&ForwardQtMessage);
+    // Record what Qt reports as the previous handler only if it is not this
+    // forwarder itself - which it would be if an earlier owned host installed
+    // it and was never stopped - so Stop()'s restore can never reinstall a
+    // handler that calls itself and recurses until the stack overflows.
+    const QtMessageHandler fInstalled = qInstallMessageHandler(&ForwardQtMessage);
+    if (fInstalled != &ForwardQtMessage)
+        s_fPreviousHandler = fInstalled;
 
     auto pState = std::make_shared<OwnedThreadState>();
     pState->vArgumentStorage.emplace_back("RAIntegration");

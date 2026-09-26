@@ -12,6 +12,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 
@@ -68,6 +69,36 @@ inline size_t CountThreads()
     }
 
     return nThreads;
+}
+
+// Qt's D-Bus connection manager starts one thread, named "QDBusConnection",
+// with the first GUI application, and keeps it until the process exits: a
+// process-lifetime global with no API to stop it. The library pins the Qt
+// libraries that thread runs in (QtApplicationHost), so it is safe to leave
+// running after RA_Shutdown and dlclose. Every other thread must be gone.
+struct ThreadCount
+{
+    size_t nOther = 0;
+    size_t nQtDBus = 0;
+};
+
+inline ThreadCount CountThreadsBesideQtDBus()
+{
+    ThreadCount oCount;
+    std::error_code oError;
+    for (std::filesystem::directory_iterator it("/proc/self/task", oError), end; !oError && it != end;
+         it.increment(oError))
+    {
+        std::ifstream oComm(it->path() / "comm");
+        std::string sName;
+        std::getline(oComm, sName);
+        if (sName == "QDBusConnection")
+            ++oCount.nQtDBus;
+        else
+            ++oCount.nOther;
+    }
+
+    return oCount;
 }
 
 #endif // RA_TOOLS_SMOKE_REPORT_HH
