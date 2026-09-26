@@ -153,10 +153,16 @@ int RunOffline()
     return Finish("ra_loader_smoke");
 }
 
-// headless: loader-smoke.sh runs this with DISPLAY, WAYLAND_DISPLAY and
-// QT_QPA_PLATFORM unset, and host.txt saying OFFLINE. Asked to start without a
-// display, Qt calls qFatal and aborts the process; the library must find that
-// out first, say so, and run on without its Qt services.
+// headless: loader-smoke.sh runs this with DISPLAY, WAYLAND_DISPLAY,
+// QT_QPA_PLATFORM, XDG_RUNTIME_DIR and XDG_SESSION_TYPE all unset, and
+// host.txt saying OFFLINE. The first three alone are not enough in a live
+// desktop session: libwayland falls back to the default socket
+// $XDG_RUNTIME_DIR/wayland-0 when WAYLAND_DISPLAY is unset, and Qt chooses
+// the wayland platform from XDG_SESSION_TYPE, so a real compositor stays
+// reachable underneath unless both XDG variables are gone too. Asked to
+// start without a display, Qt calls qFatal and aborts the process; the
+// library must find that out first, say so, and run on without its Qt
+// services.
 int RunHeadless()
 {
     const size_t nThreadsBefore = CountThreads();
