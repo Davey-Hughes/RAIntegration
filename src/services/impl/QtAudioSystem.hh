@@ -46,10 +46,12 @@ private:
     // can no longer be playing: either it finished after actually starting,
     // or its source failed to load. isPlaying() alone cannot tell those
     // apart from "still loading, hasn't started yet", which is why this is
-    // not a simple predicate swept over the pool. An effect whose source
-    // never reaches a terminal status at all - a hang or backend bug rather
-    // than a clean finish or Error - is never reaped; that residual leak
-    // cannot be detected from out here.
+    // not a simple predicate swept over the pool. Reaping takes the effect
+    // out of the pool and deleteLater()s it rather than destroying it, since
+    // the handler runs inside the effect's own signal emission. An effect
+    // whose source never reaches a terminal status at all - a hang or
+    // backend bug rather than a clean finish or Error - is never reaped;
+    // that residual leak cannot be detected from out here.
     std::shared_ptr<EffectPool> m_pPool;
 };
 

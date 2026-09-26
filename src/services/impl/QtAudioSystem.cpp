@@ -26,12 +26,30 @@ namespace {
 // isPlaying() alone can't drive that sweep. Takes the mutex/vector directly
 // rather than QtAudioSystem::EffectPool so it can sit outside the class
 // without needing access to that private nested type.
+//
+// It runs inside pEffect's own signal emission, so it must not destroy
+// pEffect: the emitting code may still touch the object after the handler
+// returns, and anything ~QSoundEffect emitted would re-enter here while
+// oMutex is held. So the pool only gives up ownership under the lock, and
+// deleteLater() destroys the effect from the event loop once the emission
+// has unwound. Only the call that finds pEffect in the pool schedules the
+// delete, so a second reap (both handlers firing) finds nothing and does
+// nothing.
 void ReapEffect(std::mutex& oMutex, std::vector<std::unique_ptr<QSoundEffect>>& vEffects, QSoundEffect* pEffect)
 {
-    std::scoped_lock<std::mutex> oLock(oMutex);
-    vEffects.erase(std::remove_if(vEffects.begin(), vEffects.end(),
-                                   [pEffect](const std::unique_ptr<QSoundEffect>& p) { return p.get() == pEffect; }),
-                   vEffects.end());
+    QSoundEffect* pReaped = nullptr;
+    {
+        std::scoped_lock<std::mutex> oLock(oMutex);
+        const auto pIter = std::find_if(vEffects.begin(), vEffects.end(),
+                                        [pEffect](const std::unique_ptr<QSoundEffect>& p) { return p.get() == pEffect; });
+        if (pIter == vEffects.end())
+            return;
+
+        pReaped = pIter->release();
+        vEffects.erase(pIter);
+    }
+
+    pReaped->deleteLater();
 }
 
 } // namespace
@@ -104,8 +122,10 @@ void QtAudioSystem::PlayAudioFile(const std::wstring& sPath) const
             // or sources (an immediate load failure, or a cached/zero-length
             // sound that starts and finishes before either call returns).
             // The handlers above would have already run against an empty
-            // pool in that case, so check the now-final state directly
-            // instead of relying on a signal that already fired.
+            // pool in that case, found nothing to reap and scheduled no
+            // delete, so check the now-final state directly instead of
+            // relying on a signal that already fired, and let pEffect go
+            // out of scope here - outside any emission of its signals.
             if (pEffect->status() == QSoundEffect::Error)
                 return;
             if (!pEffect->isPlaying() && *pHasPlayed)
