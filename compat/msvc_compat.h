@@ -67,9 +67,15 @@
 #endif
 
 
-/* MSVC's wide-character assert. glibc has no equivalent, so route it to the
- * narrow one. */
+/* MSVC's wide-character assert. glibc has no equivalent. Upstream calls it
+ * directly as a hard stop (GSL contract violations, a missing service), not
+ * through assert(), and MSVC's stops the process in every build type - so this
+ * must not depend on NDEBUG. glibc's __assert_fail would: <assert.h> declares
+ * it only when NDEBUG is NOT defined, which made every Release build of the
+ * tree fail to compile. Print in the same shape and abort instead. */
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <cwchar>
 #include <string>
 inline void _wassert(const wchar_t* pMessage, const wchar_t* pFile, unsigned nLine)
@@ -96,7 +102,9 @@ inline void _wassert(const wchar_t* pMessage, const wchar_t* pFile, unsigned nLi
         std::wcsrtombs(sFile.data(), &pSrc, nFileLength, &state);
     }
 
-    __assert_fail(sMessage.c_str(), sFile.c_str(), nLine, "");
+    std::fprintf(stderr, "%s:%u: Assertion `%s' failed.\n", sFile.c_str(), nLine, sMessage.c_str());
+    std::fflush(stderr);
+    std::abort();
 }
 
 
