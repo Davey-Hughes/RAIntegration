@@ -33,6 +33,8 @@ public:
 
     bool IsOnHostThread() const noexcept { return std::this_thread::get_id() == m_nHostThread.load(); }
 
+    std::thread::id GetHostThread() const noexcept { return m_nHostThread.load(); }
+
     void Invoke(std::function<void()> fAction);
 
     /// <summary>Installs (or, with <c>nullptr</c>, removes) the emulator's post function. Queued work is posted at once.</summary>
@@ -59,6 +61,13 @@ public:
     /// </summary>
     static void RunPosted(void* pContext);
 
+    /// <summary>
+    /// Returns <c>true</c> once <see cref="Invoke" /> has queued work while no post function was installed - work
+    /// that then waits for the next _RA_DoAchievementsFrame, so none of it runs while the emulator is paused.
+    /// Logged once; <see cref="Reset" /> clears it.
+    /// </summary>
+    bool HasWarnedNoPostFunction() const noexcept { return m_bWarnedNoPostFunction.load(); }
+
 private:
     // written only by Reset(), and read without the lock by IsOnHostThread() on any thread
     std::atomic<std::thread::id> m_nHostThread;
@@ -66,6 +75,7 @@ private:
     std::deque<std::function<void()>> m_vPending;
     PostFunction m_fpPost = nullptr;
     bool m_bShutdown = false;
+    std::atomic<bool> m_bWarnedNoPostFunction{false};
 };
 
 } // namespace impl

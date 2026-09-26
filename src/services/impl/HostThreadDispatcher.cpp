@@ -31,7 +31,20 @@ void HostThreadDispatcher::Invoke(std::function<void()> fAction)
     }
 
     if (fpPost != nullptr)
+    {
         fpPost(&HostThreadDispatcher::RunPosted, nullptr);
+    }
+    else if (!m_bWarnedNoPostFunction.exchange(true))
+    {
+        // Without a post function the queue is drained only by the next
+        // _RA_DoAchievementsFrame, and an emulator that is paused calls none:
+        // a queued Unpause never runs, and neither does a memory read one of
+        // the library's views made (AchievementRuntime::QueueMemoryRead), so
+        // the memory tools stop updating. Said once, so an emulator author can
+        // find out why.
+        RA_LOG_WARN("Work for the emulator's thread is waiting for the next frame: the emulator installed no "
+                    "RA_InstallHostDispatcher, so none of it runs while emulation is paused");
+    }
 }
 
 void HostThreadDispatcher::SetPostFunction(PostFunction fpPost)
@@ -86,6 +99,7 @@ void HostThreadDispatcher::Reset()
     std::lock_guard<std::mutex> oLock(m_oMutex);
     m_nHostThread = std::this_thread::get_id();
     m_bShutdown = false;
+    m_bWarnedNoPostFunction = false;
 }
 
 size_t HostThreadDispatcher::PendingCount() const

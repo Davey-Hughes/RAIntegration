@@ -174,6 +174,51 @@ public:
         Assert::IsFalse(ra::services::ServiceLocator::Exists<HostThreadDispatcher>(), L"test setup: a dispatcher is registered");
         HostThreadDispatcher::RunPosted(nullptr);
     }
+
+    TEST_METHOD(TestGetHostThreadIsTheConstructingThread)
+    {
+        HostThreadDispatcher oDispatcher;
+        Assert::IsTrue(oDispatcher.GetHostThread() == std::this_thread::get_id());
+
+        std::thread::id nOther{};
+        std::thread([&]() {
+            nOther = std::this_thread::get_id();
+            oDispatcher.Reset();
+        }).join();
+        Assert::IsTrue(oDispatcher.GetHostThread() == nOther, L"Reset() did not record its caller's thread");
+    }
+
+    TEST_METHOD(TestWarnsOnceWhenWorkWaitsWithoutAPostFunction)
+    {
+        HostThreadDispatcher oDispatcher;
+
+        // inline work never waits, so it is no reason to warn
+        oDispatcher.Invoke([]() {});
+        Assert::IsFalse(oDispatcher.HasWarnedNoPostFunction(), L"warned about work that ran inline");
+
+        std::thread([&]() { oDispatcher.Invoke([]() {}); }).join();
+        Assert::IsTrue(oDispatcher.HasWarnedNoPostFunction(), L"queued work with no post function did not warn");
+
+        // a second _RA_Init may come from an emulator that behaves differently
+        oDispatcher.Reset();
+        Assert::IsFalse(oDispatcher.HasWarnedNoPostFunction(), L"Reset() kept the warning");
+    }
+
+    TEST_METHOD(TestNoWarningWhenAPostFunctionIsInstalled)
+    {
+        {
+            std::lock_guard<std::mutex> oLock(PostedMutex());
+            Posted().clear();
+        }
+
+        HostThreadDispatcher oDispatcher;
+        oDispatcher.SetPostFunction(&RecordPost);
+        std::thread([&]() { oDispatcher.Invoke([]() {}); }).join();
+
+        Assert::AreEqual(size_t(1), PostedCount(), L"the rig's post function was not called");
+        Assert::IsFalse(oDispatcher.HasWarnedNoPostFunction());
+        oDispatcher.SetPostFunction(nullptr);
+    }
 };
 
 } // namespace tests
