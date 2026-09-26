@@ -102,11 +102,13 @@ int RunMissing()
     const int nConfirm = RA_ConfirmLoadNewRom(1);
     Check(nConfirm == 1, "RA_ConfirmLoadNewRom() allows quitting", "returned " + std::to_string(nConfirm));
 
-    RA_Shutdown();
-
+    // Taken right after the calls above and before RA_Shutdown(), so it really
+    // means "no thread started" rather than "no thread outlives RA_Shutdown()".
     const size_t nThreadsAfter = CountThreads();
     Check(nThreadsAfter == nThreadsBefore, "no thread started",
           std::to_string(nThreadsBefore) + " before, " + std::to_string(nThreadsAfter) + " after");
+
+    RA_Shutdown();
 
     // No library code ran, so nothing may have been written beside this binary.
     std::error_code oError;
@@ -157,6 +159,31 @@ constexpr unsigned int CONSOLE_NES = 7;
 // writes.
 unsigned char ReadZero(unsigned int) { return 0; }
 void IgnoreWrite(unsigned int, unsigned char) {}
+
+// RACache/ was empty before each run, so any history file counts. Named after
+// the username as the server spells it (AchievementRuntime.cpp), which may
+// differ in case from the staged one.
+bool HistoryFileExists()
+{
+    std::error_code oError;
+    for (std::filesystem::directory_iterator it(g_oBaseDirectory / "RACache", oError), end; !oError && it != end;
+         it.increment(oError))
+    {
+        const std::string sName = it->path().filename().string();
+        if (sName.size() > 12 && sName.compare(sName.size() - 12, 12, "-history.txt") == 0)
+            return true;
+    }
+
+    return false;
+}
+
+bool KnownHashSaved()
+{
+    std::ifstream oFile(g_oBaseDirectory / "RACache" / "Data" / "Hashes.txt", std::ios::binary);
+    const std::string sHashes((std::istreambuf_iterator<char>(oFile)), std::istreambuf_iterator<char>());
+    const std::string sEntry = std::string(KNOWN_HASH) + "=" + std::to_string(KNOWN_GAME_ID);
+    return sHashes.find(sEntry) != std::string::npos;
+}
 
 bool WaitForLog(const std::string& sText, int nTimeoutSeconds)
 {
@@ -214,6 +241,18 @@ int RunOnline(bool bInFlight, int nDelayMs)
         return Finish("ra_loader_smoke");
     }
 
+    // A real account must never start a hardcore session from this tool. If
+    // hardcore came on somehow (a stale prefs file, a server-side default
+    // change), stop here without activating a game.
+    const int nHardcoreBeforeActivate = RA_HardcoreModeIsActive();
+    Check(nHardcoreBeforeActivate == 0, "softcore before activating",
+          "RA_HardcoreModeIsActive() returned " + std::to_string(nHardcoreBeforeActivate));
+    if (nHardcoreBeforeActivate != 0)
+    {
+        RA_Shutdown();
+        return Finish("ra_loader_smoke");
+    }
+
     const auto tActivated = std::chrono::steady_clock::now();
     RA_ActivateGame(nGameId);
 
@@ -251,6 +290,15 @@ int RunOnline(bool bInFlight, int nDelayMs)
                         : "load began and was still in flight at RA_Shutdown()");
     }
 
+    // All three facts below are written only at shutdown - EndSession, and
+    // DoShutdown's SaveKnownHashes (RA_Core.cpp:136) - so recording them here,
+    // immediately before RA_Shutdown(), is what lets the post-shutdown checks
+    // prove shutdown wrote them, rather than that they were already there.
+    const std::string sEnded = "Ending session for game " + std::to_string(KNOWN_GAME_ID);
+    const bool bEndedBefore = !bInFlight && LogContains(sEnded);
+    const bool bHistoryBefore = !bInFlight && HistoryFileExists();
+    const bool bHashBefore = !bInFlight && KnownHashSaved();
+
     RA_Shutdown();
 
     const size_t nThreadsAfter = CountThreads();
@@ -261,30 +309,23 @@ int RunOnline(bool bInFlight, int nDelayMs)
 
     if (!bInFlight)
     {
-        const std::string sEnded = "Ending session for game " + std::to_string(KNOWN_GAME_ID);
-        Check(LogContains(sEnded), "session ended at shutdown", InLog(sEnded));
+        const bool bEndedAfter = LogContains(sEnded);
+        Check(!bEndedBefore && bEndedAfter, "session ended at shutdown",
+              bEndedBefore   ? "already present before RA_Shutdown() was even called"
+              : bEndedAfter  ? "absent before shutdown, written by it"
+                             : InLog(sEnded));
 
-        // Named after the username as the server spells it
-        // (AchievementRuntime.cpp), which may differ in case from the staged
-        // one. RACache/ was empty before this run, so any history file counts.
-        std::string sHistory;
-        std::error_code oError;
-        for (std::filesystem::directory_iterator it(g_oBaseDirectory / "RACache", oError), end; !oError && it != end;
-             it.increment(oError))
-        {
-            const std::string sName = it->path().filename().string();
-            if (sName.size() > 12 && sName.compare(sName.size() - 12, 12, "-history.txt") == 0)
-                sHistory = sName;
-        }
-        Check(!sHistory.empty(), "session history written",
-              sHistory.empty() ? "no RACache/*-history.txt" : "RACache/" + sHistory);
+        const bool bHistoryAfter = HistoryFileExists();
+        Check(!bHistoryBefore && bHistoryAfter, "session history written",
+              bHistoryBefore  ? "RACache/*-history.txt already present before RA_Shutdown() was even called"
+              : bHistoryAfter ? "absent before shutdown, written by it"
+                              : "no RACache/*-history.txt");
 
-        std::ifstream oFile(g_oBaseDirectory / "RACache" / "Data" / "Hashes.txt", std::ios::binary);
-        const std::string sHashes((std::istreambuf_iterator<char>(oFile)), std::istreambuf_iterator<char>());
-        const std::string sEntry = std::string(KNOWN_HASH) + "=" + std::to_string(KNOWN_GAME_ID);
-        const bool bSaved = sHashes.find(sEntry) != std::string::npos;
-        Check(bSaved, "known hash saved at shutdown",
-              "RACache/Data/Hashes.txt " + std::string(bSaved ? "has " : "lacks ") + sEntry);
+        const bool bSavedAfter = KnownHashSaved();
+        Check(!bHashBefore && bSavedAfter, "known hash saved at shutdown",
+              bHashBefore   ? "RACache/Data/Hashes.txt already had the entry before RA_Shutdown() was even called"
+              : bSavedAfter ? "absent before shutdown, written by it"
+                            : "RACache/Data/Hashes.txt lacks the entry");
     }
 
     return Finish("ra_loader_smoke");
