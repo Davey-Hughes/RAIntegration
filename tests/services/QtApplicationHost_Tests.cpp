@@ -11,9 +11,13 @@
 #include <QObject>
 #include <QTimer>
 
+#include <glib.h>
+#include <pthread.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -62,6 +66,61 @@ private:
         char* vArgv[4] = {sArg0, sArg1, sArg2, nullptr};
         int nArgc = 3;
     };
+
+    struct GlibTicks
+    {
+        std::thread::id nTestThread;
+        std::atomic<int> nOnTestThread{0};
+        std::atomic<int> nElsewhere{0};
+    };
+
+    static gboolean CountTick(gpointer pData)
+    {
+        auto* pTicks = static_cast<GlibTicks*>(pData);
+        if (std::this_thread::get_id() == pTicks->nTestThread)
+            ++pTicks->nOnTestThread;
+        else
+            ++pTicks->nElsewhere;
+        return G_SOURCE_CONTINUE;
+    }
+
+    static gboolean QuitLoop(gpointer pData)
+    {
+        g_main_loop_quit(static_cast<GMainLoop*>(pData));
+        return G_SOURCE_REMOVE;
+    }
+
+    // Runs a glib main loop on glib's DEFAULT context - as a GTK or other
+    // glib-based emulator does on its main thread - for 600 ms beside an owned
+    // Qt application, and reports which threads ran the loop's own timer.
+    static void RunGlibHostBeside(bool bUseNonGlibDispatcher, GlibTicks& oTicks)
+    {
+        auto oOptions = OffscreenOptions();
+        oOptions.bUseNonGlibDispatcher = bUseNonGlibDispatcher;
+        QtApplicationHost oHost(oOptions);
+        oHost.Start();
+
+        // keep the Qt thread iterating its event loop, as a live application does
+        oHost.InvokeAndWait(
+            []() {
+                auto* pTimer = new QTimer(QCoreApplication::instance());
+                QObject::connect(pTimer, &QTimer::timeout, []() {});
+                pTimer->start(5);
+            },
+            5s);
+
+        oTicks.nTestThread = std::this_thread::get_id();
+        GMainLoop* pLoop = g_main_loop_new(nullptr, FALSE);
+        const guint nTick = g_timeout_add(50, &CountTick, &oTicks);
+        g_timeout_add(600, &QuitLoop, pLoop);
+        g_main_loop_run(pLoop);
+        g_main_loop_unref(pLoop);
+
+        oHost.Stop();
+        g_source_remove(nTick);
+    }
+
+    static void SentinelHandler(QtMsgType, const QMessageLogContext&, const QString&) {}
 
 public:
     TEST_METHOD(TestUnavailableWithoutADisplay)
@@ -358,6 +417,55 @@ public:
         oHost.Start();
         Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Unavailable);
         Assert::IsTrue(oHost.GetUnavailableReason().find("not a GUI application") != std::string::npos);
+    }
+
+    TEST_METHOD(TestGlibHostKeepsItsDefaultContext)
+    {
+        // Negative control first. Without QT_NO_GLIB, Qt's glib dispatcher takes
+        // glib's default context from the application's thread, and the host's
+        // own callbacks run on the Qt thread. If that does not happen here, this
+        // rig cannot tell the guard from its absence.
+        ::unsetenv("QT_NO_GLIB");
+        GlibTicks oHijacked;
+        RunGlibHostBeside(false, oHijacked);
+        Assert::IsTrue(oHijacked.nElsewhere.load() > 0,
+                       L"negative control: no host glib callback ran on the Qt thread - the rig cannot see a hijack");
+
+        GlibTicks oGuarded;
+        RunGlibHostBeside(true, oGuarded);
+        Assert::AreEqual(0, oGuarded.nElsewhere.load(), L"a host glib callback ran off the host's thread");
+        Assert::IsTrue(oGuarded.nOnTestThread.load() > 5, L"the host's glib loop barely ran");
+    }
+
+    TEST_METHOD(TestOwnedThreadIsNamed)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+        std::string sName;
+        oHost.InvokeAndWait(
+            [&sName]() {
+                char sBuffer[16] = {};
+                pthread_getname_np(pthread_self(), sBuffer, sizeof(sBuffer));
+                sName = sBuffer;
+            },
+            5s);
+        oHost.Stop();
+        Assert::AreEqual(std::string("RA-Qt"), sName);
+    }
+
+    TEST_METHOD(TestMessageHandlerForwardedWhileOwnedAndRestoredAfter)
+    {
+        const QtMessageHandler fOriginal = qInstallMessageHandler(&SentinelHandler);
+
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+        const QtMessageHandler fWhileOwned = qInstallMessageHandler(nullptr);
+        qInstallMessageHandler(fWhileOwned);
+        oHost.Stop();
+        const QtMessageHandler fAfter = qInstallMessageHandler(fOriginal);
+
+        Assert::IsTrue(fWhileOwned != &SentinelHandler, L"no handler of the library's was installed while owned");
+        Assert::IsTrue(fAfter == &SentinelHandler, L"Stop() did not restore the previous handler");
     }
 };
 

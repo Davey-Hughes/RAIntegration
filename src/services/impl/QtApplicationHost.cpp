@@ -2,6 +2,8 @@
 
 #include "QtApplicationHost.hh"
 
+#include "services/ILogger.hh"
+#include "services/ServiceLocator.hh"
 #include "util/Log.hh"
 
 #include <QApplication>
@@ -10,8 +12,13 @@
 #include <QMetaObject>
 #include <QThread>
 #include <QTimer>
+#include <QtGlobal>
+
+#include <dlfcn.h>
+#include <pthread.h>
 
 #include <condition_variable>
+#include <cstdio>
 
 namespace ra {
 namespace services {
@@ -51,6 +58,58 @@ struct WaitedCall
     std::condition_variable cvDone;
     State nState = State::Pending;
 };
+
+std::atomic<QtMessageHandler> s_fPreviousHandler{nullptr};
+
+// Qt's messages while the library owns the application go to RALog.txt rather
+// than the emulator's stderr (the B3 rule). Once no logger is registered - late
+// in shutdown - they go wherever they went before.
+void ForwardQtMessage(QtMsgType nType, const QMessageLogContext& oContext, const QString& sMessage)
+{
+    if (!ra::services::ServiceLocator::Exists<ra::services::ILogger>())
+    {
+        const QtMessageHandler fPrevious = s_fPreviousHandler.load();
+        if (fPrevious != nullptr)
+            fPrevious(nType, oContext, sMessage);
+        else
+            std::fprintf(stderr, "%s\n", qFormatLogMessage(nType, oContext, sMessage).toLocal8Bit().constData());
+        return;
+    }
+
+    switch (nType)
+    {
+        case QtDebugMsg:
+            break;
+        case QtInfoMsg:
+            RA_LOG_INFO("Qt: %s", sMessage.toStdString().c_str());
+            break;
+        case QtWarningMsg:
+            RA_LOG_WARN("Qt: %s", sMessage.toStdString().c_str());
+            break;
+        case QtCriticalMsg:
+        case QtFatalMsg:
+            RA_LOG_ERR("Qt: %s", sMessage.toStdString().c_str());
+            break;
+    }
+}
+
+// Qt's D-Bus connection manager starts a thread (named "QDBusConnection") with
+// the first GUI application and keeps it until the process exits; no API stops
+// it. It runs code in QtDBus and QtCore. If a loader dlclose()s this library
+// and nothing else holds those libraries, they could be unmapped under that
+// thread - measured 2026-09-25 they stay mapped anyway, but only implicitly.
+// RTLD_NODELETE makes it explicit.
+void PinQtLibraries()
+{
+    for (const char* sLibrary : {"libQt6Core.so.6", "libQt6DBus.so.6"})
+    {
+        if (::dlopen(sLibrary, RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE) == nullptr)
+        {
+            const char* sError = ::dlerror();
+            RA_LOG_WARN("Could not pin %s: %s", sLibrary, sError ? sError : "not loaded");
+        }
+    }
+}
 
 } // namespace
 
@@ -132,6 +191,19 @@ void QtApplicationHost::MarkUnavailable(std::string sReason)
 
 void QtApplicationHost::StartOwned()
 {
+    // Qt's glib dispatcher uses glib's DEFAULT main context for the thread that
+    // owns the application - the context a glib-based emulator iterates on its
+    // own main thread. Both threads would then dispatch each other's callbacks
+    // (measured: 39 of 39 of a glib host's timer callbacks ran on the Qt
+    // thread). QT_NO_GLIB selects Qt's own dispatcher. It is read as the
+    // application is constructed, and set only on this path, where no other Qt
+    // application exists. setenv is process-global and races a concurrent
+    // getenv on another thread; this runs once, during _RA_Init.
+    if (m_oOptions.bUseNonGlibDispatcher)
+        qputenv("QT_NO_GLIB", "1");
+
+    s_fPreviousHandler = qInstallMessageHandler(&ForwardQtMessage);
+
     auto pState = std::make_shared<OwnedThreadState>();
     pState->vArgumentStorage.emplace_back("RAIntegration");
     for (const auto& sArgument : m_oOptions.vArguments)
@@ -164,6 +236,7 @@ void QtApplicationHost::StartOwned()
         // it uses, argv included, in pState.
         m_oThread.detach();
         m_pOwnedState.reset();
+        qInstallMessageHandler(s_fPreviousHandler.load());
         MarkUnavailable("the Qt application did not start within " +
                         std::to_string(m_oOptions.tStartTimeout.count()) + " ms");
         return;
@@ -178,11 +251,15 @@ void QtApplicationHost::StartOwned()
     }
     m_bHasWidgets = true;
     m_nMode = Mode::Owned;
+    PinQtLibraries();
     RA_LOG_INFO("Started a Qt application on its own thread (platform %s)", sPlatform.c_str());
 }
 
 void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
 {
+    // so that it is never mistaken for one of Qt's own threads (see PinQtLibraries)
+    pthread_setname_np(pthread_self(), "RA-Qt");
+
     {
         QApplication oApplication(pState->nArgc, pState->vArgv.data());
 
@@ -434,6 +511,8 @@ void QtApplicationHost::Stop()
                         static_cast<int>(m_oOptions.tStopTimeout.count()));
             m_oThread.detach();
         }
+
+        qInstallMessageHandler(s_fPreviousHandler.load());
     }
 
     m_bHasWidgets = false;
