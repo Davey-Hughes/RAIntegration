@@ -218,7 +218,7 @@ void MemoryWatchViewModel::OnSizeChanged(const IntModelProperty::ChangeArgs& arg
         ra::data::context::EmulatorContext::DispatchesReadMemory::DispatchMemoryRead([this]() {
             m_nValue = ReadValue();
             SetValue(CurrentValueProperty, BuildCurrentValue());
-        });
+        }, m_pDispatchHandle);
     }
 }
 
@@ -271,7 +271,7 @@ void MemoryWatchViewModel::EndInitialization()
     ra::data::context::EmulatorContext::DispatchesReadMemory::DispatchMemoryRead([this]() {
         m_nValue = ReadValue();
         SetValue(CurrentValueProperty, BuildCurrentValue());
-    });
+    }, m_pDispatchHandle);
 
     SetChanges(0);
 
@@ -526,7 +526,7 @@ void MemoryWatchViewModel::SetIndirectAddress(const std::string& sSerialized)
         SetCurrentValueRaw(nValue);
 
         UpdateRealNote();
-    });
+    }, m_pDispatchHandle);
 }
 
 void MemoryWatchViewModel::UpdateRealNote()

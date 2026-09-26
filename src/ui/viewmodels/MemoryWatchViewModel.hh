@@ -2,6 +2,7 @@
 #define RA_UI_MEMORYWATCHVIEWMODEL_H
 #pragma once
 
+#include "data/AsyncObject.hh"
 #include "data/Types.hh"
 #include "data/context/EmulatorContext.hh"
 
@@ -15,9 +16,30 @@ namespace ui {
 namespace viewmodels {
 
 class MemoryWatchViewModel : public LookupItemViewModel,
-    protected ra::data::context::EmulatorContext::DispatchesReadMemory
+    protected ra::data::context::EmulatorContext::DispatchesReadMemory,
+    protected ra::data::AsyncObject
 {
 public:
+    // The handle is created here, not on first use: CreateAsyncHandle() is
+    // unlocked, and work is dispatched from the view's thread and the frame
+    // thread alike.
+    GSL_SUPPRESS_F6 MemoryWatchViewModel() : m_pDispatchHandle(CreateAsyncHandle()) {}
+
+    // Subclasses call BeginDestruction() first as well, before their own
+    // members and overrides go; a second call does nothing.
+    ~MemoryWatchViewModel() noexcept { BeginDestruction(); }
+
+    MemoryWatchViewModel(const MemoryWatchViewModel&) noexcept = delete;
+    MemoryWatchViewModel& operator=(const MemoryWatchViewModel&) noexcept = delete;
+    MemoryWatchViewModel(MemoryWatchViewModel&&) noexcept = delete;
+    MemoryWatchViewModel& operator=(MemoryWatchViewModel&&) noexcept = delete;
+
+    /// <summary>
+    /// Gets the handle that deferred memory work for this watch checks before it runs (see
+    /// DispatchesReadMemory::DispatchMemoryRead), so that work queued for a watch removed since does nothing.
+    /// </summary>
+    const std::shared_ptr<ra::data::AsyncHandle>& GetDispatchHandle() const noexcept { return m_pDispatchHandle; }
+
     /// <summary>
     /// The <see cref="ModelProperty" /> for description of the watched memory.
     /// </summary>
@@ -308,6 +330,8 @@ private:
     std::string m_sIndirectAddress;
     std::unique_ptr<uint8_t[]> m_pBuffer;
     rc_value_t* m_pValue = nullptr;
+
+    std::shared_ptr<ra::data::AsyncHandle> m_pDispatchHandle;
 };
 
 } // namespace viewmodels

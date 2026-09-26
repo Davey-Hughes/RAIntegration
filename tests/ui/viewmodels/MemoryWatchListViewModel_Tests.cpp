@@ -14,6 +14,7 @@
 #include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockOverlayManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -754,6 +755,29 @@ public:
         pItem.SetSize(ra::data::Memory::Size::TwentyFourBit);
         Assert::AreEqual(std::wstring(L"883efa"), pItem.GetCurrentValue());
     }
+
+#ifndef _WIN32
+    TEST_METHOD(TestRemovedWatchSkipsItsQueuedRead)
+    {
+        MemoryWatchListViewModelHarness watchList;
+        std::array<uint8_t, 64> memory = {};
+        watchList.mockEmulatorContext.MockMemory(memory);
+        watchList.AddItem(1U, ra::data::Memory::Size::EightBit);
+        auto* pItem = watchList.Items().GetItemAt(0);
+        const auto pHandle = pItem->GetDispatchHandle();
+
+        ra::services::mocks::MockHostThread mockHostThread;
+        ra::services::mocks::MockHostThread::RunElsewhere(
+            [pItem]() { pItem->SetSize(ra::data::Memory::Size::SixteenBit); }); // OnSizeChanged queues a read
+        Assert::IsTrue(mockHostThread.PendingCount() >= 1U, L"the size change queued nothing");
+
+        watchList.Items().RemoveAt(0);
+        Assert::IsTrue(pHandle->IsDestroyed(), L"removing the watch did not mark its handle destroyed");
+
+        // skipped: before the guard, this read through a freed MemoryWatchViewModel
+        mockHostThread.Drain();
+    }
+#endif
 };
 
 } // namespace tests

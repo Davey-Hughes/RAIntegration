@@ -44,6 +44,14 @@ public:
     class MemoryBookmarkViewModel : public MemoryWatchViewModel
     {
     public:
+        MemoryBookmarkViewModel() = default;
+        // before this class's members and overrides go (see MemoryWatchViewModel)
+        ~MemoryBookmarkViewModel() noexcept { BeginDestruction(); }
+        MemoryBookmarkViewModel(const MemoryBookmarkViewModel&) noexcept = delete;
+        MemoryBookmarkViewModel& operator=(const MemoryBookmarkViewModel&) noexcept = delete;
+        MemoryBookmarkViewModel(MemoryBookmarkViewModel&&) noexcept = delete;
+        MemoryBookmarkViewModel& operator=(MemoryBookmarkViewModel&&) noexcept = delete;
+
         /// <summary>
         /// The <see cref="ModelProperty" /> for the behavior of the bookmark.
         /// </summary>

@@ -89,6 +89,14 @@ public:
     class StructFieldViewModel : public MemoryWatchViewModel
     {
     public:
+        StructFieldViewModel() = default;
+        // before this class's members and overrides go (see MemoryWatchViewModel)
+        ~StructFieldViewModel() noexcept { BeginDestruction(); }
+        StructFieldViewModel(const StructFieldViewModel&) noexcept = delete;
+        StructFieldViewModel& operator=(const StructFieldViewModel&) noexcept = delete;
+        StructFieldViewModel(StructFieldViewModel&&) noexcept = delete;
+        StructFieldViewModel& operator=(StructFieldViewModel&&) noexcept = delete;
+
         /// <summary>
         /// The <see cref="ModelProperty" /> for the field offset.
         /// </summary>

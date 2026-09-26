@@ -3,6 +3,8 @@
 #include "CppUnitTest.h"
 
 #include "Exports.hh"
+#include "data/AsyncObject.hh"
+#include "data/context/EmulatorContext.hh"
 #include "services/AchievementRuntime.hh"
 
 #include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
@@ -57,6 +59,35 @@ private:
     };
 
     static uint8_t ReadNothing(uint32_t) noexcept { return 0; }
+
+    // An object whose deferred memory work must not outlive it, as a bookmark's.
+    class GuardedTarget : public ra::data::AsyncObject,
+                          protected ra::data::context::EmulatorContext::DispatchesReadMemory
+    {
+    public:
+        GuardedTarget() : m_pHandle(CreateAsyncHandle()) {}
+        ~GuardedTarget() noexcept { BeginDestruction(); }
+        GuardedTarget(const GuardedTarget&) = delete;
+        GuardedTarget& operator=(const GuardedTarget&) = delete;
+        GuardedTarget(GuardedTarget&&) = delete;
+        GuardedTarget& operator=(GuardedTarget&&) = delete;
+
+        void Queue(std::atomic<int>& nRan) { DispatchMemoryRead([&nRan]() { ++nRan; }, m_pHandle); }
+
+        // guarded work that dispatches again for the same object
+        void QueueNested(std::atomic<int>& nRan)
+        {
+            DispatchMemoryRead(
+                [this, &nRan]() {
+                    ++nRan;
+                    DispatchMemoryRead([&nRan]() { ++nRan; }, m_pHandle);
+                },
+                m_pHandle);
+        }
+
+    private:
+        std::shared_ptr<ra::data::AsyncHandle> m_pHandle;
+    };
 
 public:
     TEST_METHOD(TestReadOnTheFrameThreadRunsInline)
@@ -222,6 +253,52 @@ public:
         _RA_InstallMemoryBank(0, reinterpret_cast<void*>(&ReadNothing), nullptr, 16);
         mockHostThread.Drain();
         Assert::IsFalse(oBeforeInstall.bRan.load(), L"_RA_InstallMemoryBank did not drop queued memory work");
+    }
+
+    TEST_METHOD(TestGuardedWorkRunsWhileItsObjectLives)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        GuardedTarget oTarget;
+        std::atomic<int> nRan{0};
+        mockHostThread.RunElsewhere([&]() { oTarget.Queue(nRan); });
+        Assert::AreEqual(0, nRan.load());
+
+        mockHostThread.Drain();
+        Assert::AreEqual(1, nRan.load());
+    }
+
+    TEST_METHOD(TestGuardedWorkForADestroyedObjectIsSkipped)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        auto pTarget = std::make_unique<GuardedTarget>();
+        std::atomic<int> nRan{0};
+        mockHostThread.RunElsewhere([&]() { pTarget->Queue(nRan); });
+        pTarget.reset();
+
+        mockHostThread.Drain();
+        Assert::AreEqual(0, nRan.load(), L"work queued for a destroyed object ran");
+    }
+
+    TEST_METHOD(TestGuardedWorkThatDispatchesAgainDoesNotDeadlock)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        GuardedTarget oTarget;
+        std::atomic<int> nRan{0};
+        mockHostThread.RunElsewhere([&]() { oTarget.QueueNested(nRan); });
+
+        // the outer work runs deferred, under the guard; the inner runs inline
+        // on the frame thread, and must not take the guard again
+        mockHostThread.Drain();
+        Assert::AreEqual(2, nRan.load());
     }
 };
 

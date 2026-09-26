@@ -4,8 +4,10 @@
 
 #include "RAInterface/RA_Emulators.h"
 
+#include "data/AsyncObject.hh"
 #include "data/Types.hh"
 
+#include <memory>
 #include <string>
 
 #include "data/NotifyTargetSet.hh"
@@ -182,6 +184,20 @@ public:
     {
     protected:
         static void DispatchMemoryRead(std::function<void()>&& fFunction);
+
+        /// <summary>
+        /// As the overload above, for work on an object that can be destroyed before deferred work runs - a
+        /// bookmark the user removes. Deferred work runs only if the object behind <paramref name="pAsyncHandle" />
+        /// still exists, and keeps it from being destroyed while it runs. Work that runs inline, inside this call,
+        /// is not guarded: the caller is still in one of the object's methods, and taking the guard there would
+        /// deadlock work that dispatches again for the same object.
+        /// </summary>
+        /// <remarks>
+        /// Guarded work must never destroy its own object (the destructor would wait on the guard it holds), and
+        /// must never wait on the library's UI thread (a view destroying the object waits for it).
+        /// </remarks>
+        static void DispatchMemoryRead(std::function<void()>&& fFunction,
+                                       std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle);
     };
 
 protected:

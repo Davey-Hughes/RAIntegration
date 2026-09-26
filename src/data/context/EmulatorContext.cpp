@@ -30,6 +30,8 @@
 #include <rcheevos/src/rc_client_internal.h>
 #include <rcheevos/src/rapi/rc_api_common.h>
 
+#include <atomic>
+
 namespace ra {
 namespace data {
 namespace context {
@@ -692,6 +694,27 @@ void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<voi
     }
 }
 
+void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction,
+                                                               std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
+{
+    // Set as soon as the call below returns: from then on a run is a deferred
+    // one. A deferred run that starts before it is set runs unguarded, which is
+    // safe for the reason inline work is - the caller has not yet returned from
+    // the object's method. (The guard pattern is WindowBinding::InvokeOnUIThread's.)
+    auto pReturned = std::make_shared<std::atomic<bool>>(false);
+    DispatchMemoryRead([fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned]() {
+        if (!pReturned->load())
+        {
+            fFunction();
+            return;
+        }
+
+        ra::data::AsyncKeepAlive pKeepAlive(*pAsyncHandle);
+        if (!pAsyncHandle->IsDestroyed())
+            fFunction();
+    });
+    pReturned->store(true);
+}
 
 } // namespace context
 } // namespace data
