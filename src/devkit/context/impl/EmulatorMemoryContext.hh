@@ -107,12 +107,19 @@ public:
     /// </summary>
     bool IsMemoryInsecure() const override;
 
+    /// <summary>
+    /// Gets how many times the emulator's memory was read or written on the library's own UI thread in this
+    /// process - each one a path that bypassed DispatchMemoryRead. Always 0 on Windows.
+    /// </summary>
+    static uint32_t LibraryUiThreadAccessCount() noexcept;
+
 private:
     void WriteMemory(ra::data::ByteAddress nAddress, const uint8_t* pBytes, size_t nByteCount) const;
 
 protected:
     void OnTotalMemorySizeChanged();
     void AssertIsOnDoFrameThread() const noexcept(false);
+    void AssertIsNotOnLibraryUiThread(ra::data::ByteAddress nAddress, const char* sOperation) const;
 
     std::function<std::wstring(ra::data::ByteAddress)> m_fFormatAddress;
 

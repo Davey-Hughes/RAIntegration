@@ -4,6 +4,7 @@
 
 #include "services/ILogger.hh"
 #include "services/ServiceLocator.hh"
+#include "util/LibraryUiThread.hh"
 #include "util/Log.hh"
 
 #include <QApplication>
@@ -423,6 +424,9 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
 {
     // so that it is never mistaken for one of Qt's own threads (see PinQtLibraries)
     pthread_setname_np(pthread_self(), "RA-Qt");
+
+    // host memory is never touched from here directly (see LibraryUiThread.hh)
+    ra::util::MarkLibraryUiThread();
 
     {
         OwnedApplication oApplication(pState->nArgc, pState->vArgv.data());

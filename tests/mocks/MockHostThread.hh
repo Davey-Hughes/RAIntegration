@@ -7,6 +7,8 @@
 #include "services/ServiceLocator.hh"
 #include "services/impl/HostThreadDispatcher.hh"
 
+#include "util/LibraryUiThread.hh"
+
 #include <functional>
 #include <thread>
 
@@ -31,6 +33,18 @@ public:
     /// test's thread afterwards, never inside - an assertion that throws on the new thread terminates the process.
     /// </summary>
     static void RunElsewhere(const std::function<void()>& fAction) { std::thread(fAction).join(); }
+
+    /// <summary>
+    /// Like <see cref="RunElsewhere" />, on a thread marked as the library's own UI thread - as the owned Qt thread
+    /// is - so that EmulatorMemoryContext counts any emulator memory <paramref name="fAction" /> touches directly.
+    /// </summary>
+    static void RunOnLibraryUiThread(const std::function<void()>& fAction)
+    {
+        std::thread([&fAction]() {
+            ra::util::MarkLibraryUiThread();
+            fAction();
+        }).join();
+    }
 
     /// <summary>Runs what other threads queued, on this thread: the emulator's next chance to run it.</summary>
     void Drain() { m_oDispatcher.DrainIfOnHostThread(); }

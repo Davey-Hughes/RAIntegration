@@ -5,7 +5,11 @@
 #include "services/ServiceLocator.hh"
 
 #include "util/Compat.hh"
+#include "util/LibraryUiThread.hh"
+#include "util/Log.hh"
 #include "util/TypeCasts.hh"
+
+#include <atomic>
 
 namespace ra {
 namespace context {
@@ -155,9 +159,45 @@ void EmulatorMemoryContext::AssertIsOnDoFrameThread() const
 #endif
 }
 
+#ifndef _WIN32
+static std::atomic<uint32_t> s_nLibraryUiThreadAccesses{0};
+#endif
+
+uint32_t EmulatorMemoryContext::LibraryUiThreadAccessCount() noexcept
+{
+#ifndef _WIN32
+    return s_nLibraryUiThreadAccesses.load();
+#else
+    return 0;
+#endif
+}
+
+void EmulatorMemoryContext::AssertIsNotOnLibraryUiThread([[maybe_unused]] ra::data::ByteAddress nAddress,
+                                                         [[maybe_unused]] const char* sOperation) const
+{
+#ifndef _WIN32
+    // Off Windows the library's views run on a Qt thread of their own, so a
+    // path that reaches the emulator's memory callbacks from a view without
+    // going through DispatchMemoryRead calls them while the emulator is
+    // mid-frame. Counted, and logged once rather than shown: a dialog here
+    // would itself run on that thread. Pool workers and rc_client's own reads
+    // are not checked - they read off the frame thread by design.
+    if (ra::util::IsOnLibraryUiThread())
+    {
+        if (s_nLibraryUiThreadAccesses.fetch_add(1) == 0)
+        {
+            RA_LOG_WARN("Emulator memory %s at 0x%08x on the library's UI thread: that path bypasses "
+                        "DispatchMemoryRead",
+                        sOperation, nAddress);
+        }
+    }
+#endif
+}
+
 uint8_t EmulatorMemoryContext::ReadMemoryByte(ra::data::ByteAddress nAddress) const
 {
     AssertIsOnDoFrameThread();
+    AssertIsNotOnLibraryUiThread(nAddress, "read");
 
     for (const auto& pBlock : m_vMemoryBlocks)
     {
@@ -243,6 +283,7 @@ uint32_t EmulatorMemoryContext::ReadMemory(ra::data::ByteAddress nAddress, uint8
 uint32_t EmulatorMemoryContext::ReadMemory(ra::data::ByteAddress nAddress, uint8_t pBuffer[], size_t nCount) const
 {
     AssertIsOnDoFrameThread();
+    AssertIsNotOnLibraryUiThread(nAddress, "read");
 
     uint32_t nBytesRead = 0;
     Expects(pBuffer != nullptr);
@@ -356,6 +397,7 @@ uint32_t EmulatorMemoryContext::ReadMemory(ra::data::ByteAddress nAddress, ra::d
 void EmulatorMemoryContext::WriteMemory(ra::data::ByteAddress nAddress, const uint8_t* pBytes, size_t nBytes) const
 {
     Expects(pBytes != nullptr);
+    AssertIsNotOnLibraryUiThread(nAddress, "written");
     size_t nBytesWritten = 0;
     auto nBlockAddress = nAddress;
 
@@ -550,6 +592,8 @@ _CONSTANT_VAR MAX_BLOCK_SIZE = 256U * 1024; // 256K
 
 void EmulatorMemoryContext::CaptureMemory(std::vector<ra::data::CapturedMemoryBlock>& vBlocks, ra::data::ByteAddress nAddress, uint32_t nCount, uint32_t nPadding) const
 {
+    AssertIsNotOnLibraryUiThread(nAddress, "captured");
+
     ra::data::ByteAddress nAdjustedAddress = nAddress;
     for (const auto& pMemoryBlock : m_vMemoryBlocks)
     {

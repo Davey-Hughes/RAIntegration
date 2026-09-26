@@ -2,8 +2,11 @@
 
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/devkit/services/mocks/MockDebuggerDetector.hh"
+#include "util/LibraryUiThread.hh"
 
 #include "testutil/CppUnitTest.hh"
+
+#include <thread>
 
 namespace ra {
 namespace context {
@@ -793,6 +796,37 @@ public:
         for (size_t i = 0; i < 10; i++)
             Assert::AreEqual(memory.at(i + 20), pBytes[i]);
     }
+
+#ifndef _WIN32
+    TEST_METHOD(TestAccessOnTheLibraryUiThreadIsCounted)
+    {
+        EmulatorMemoryContextHarness emulator;
+        InitializeMemory();
+        emulator.AddMemoryBlock(0, 20, &ReadMemory0, &WriteMemory0);
+
+        const uint32_t nBefore = EmulatorMemoryContext::LibraryUiThreadAccessCount();
+
+        // on any other thread, nothing is counted
+        emulator.ReadMemoryByte(1U);
+        emulator.WriteMemoryByte(1U, 0x55);
+        Assert::AreEqual(nBefore, EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"counted an access made off the library's UI thread");
+
+        // each entry point that reaches the emulator's callbacks, once
+        std::thread([&emulator]() {
+            ra::util::MarkLibraryUiThread();
+            emulator.ReadMemoryByte(1U);
+            uint8_t pBuffer[4]{};
+            emulator.ReadMemory(0U, pBuffer, sizeof(pBuffer));
+            emulator.WriteMemoryByte(1U, 0x66);
+            std::vector<ra::data::CapturedMemoryBlock> vBlocks;
+            emulator.CaptureMemory(vBlocks, 0U, 4U, 0U);
+        }).join();
+
+        Assert::AreEqual(nBefore + 4U, EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"an entry point that reaches the emulator's callbacks was not checked");
+    }
+#endif
 };
 
 std::array<uint8_t, 64> EmulatorMemoryContext_Tests::memory;

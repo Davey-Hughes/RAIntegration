@@ -3,6 +3,7 @@
 #include "services/impl/QtApplicationHost.hh"
 
 #include "tests/RA_UnitTestHelpers.h"
+#include "util/LibraryUiThread.hh"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -502,6 +503,35 @@ public:
 
         Assert::IsTrue(fWhileOwned != &SentinelHandler, L"no handler of the library's was installed while owned");
         Assert::IsTrue(fAfter == &SentinelHandler, L"Stop() did not restore the previous handler");
+    }
+
+    TEST_METHOD(TestOnlyTheOwnedQtThreadIsTheLibraryUiThread)
+    {
+        bool bOwnedMarked = false;
+        {
+            QtApplicationHost oOwned(OffscreenOptions());
+            oOwned.Start();
+            Assert::IsTrue(oOwned.GetMode() == QtApplicationHost::Mode::Owned);
+            Assert::IsTrue(oOwned.InvokeAndWait([&bOwnedMarked]() { bOwnedMarked = ra::util::IsOnLibraryUiThread(); },
+                                                5s));
+            oOwned.Stop();
+        }
+
+        // borrowed: the Qt thread is the emulator's own, where reading memory is fine
+        bool bBorrowedMarked = true;
+        {
+            OffscreenArguments oArguments;
+            QGuiApplication oApplication(oArguments.nArgc, oArguments.vArgv);
+            QtApplicationHost oBorrowed;
+            oBorrowed.Start();
+            Assert::IsTrue(oBorrowed.InvokeAndWait(
+                [&bBorrowedMarked]() { bBorrowedMarked = ra::util::IsOnLibraryUiThread(); }, 5s));
+            oBorrowed.Stop();
+        }
+
+        Assert::IsTrue(bOwnedMarked, L"the owned application's thread is not marked as the library's UI thread");
+        Assert::IsFalse(bBorrowedMarked, L"the host's own Qt thread was marked as the library's UI thread");
+        Assert::IsFalse(ra::util::IsOnLibraryUiThread(), L"the test's thread was marked");
     }
 
     TEST_METHOD(TestFFmpegMediaDumpOffWhileOwnedAndRestoredAfter)
