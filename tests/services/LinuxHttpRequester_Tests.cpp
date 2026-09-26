@@ -184,7 +184,9 @@ public:
         // leaves CURLINFO_RESPONSE_CODE at 0 - and 0 is RA_HTTP_NOT_ATTEMPTED,
         // which claims the request never happened, logs as "HTTP error code: 0"
         // with no text at all, and is retryable for that reason rather than on
-        // its merits. Report the unusable response instead. file:// is the
+        // its merits. Whatever replaces it must not be retryable either:
+        // sending the request again cannot produce a status line, and a
+        // retryable code is re-sent with no attempt limit. file:// is the
         // cheapest way to reach that state without a server; libcurl can be
         // built without it, in which case there is nothing to check here.
         if (!SupportsFileProtocol())
@@ -196,8 +198,9 @@ public:
 
         const unsigned int nStatus = oRequester.Request(oRequest, oWriter);
 
-        Assert::AreEqual(RA_HTTP_ERROR_INVALID_RESPONSE, nStatus);
         Assert::IsFalse(nStatus == RA_HTTP_NOT_ATTEMPTED, L"the request was attempted");
+        Assert::IsFalse(oRequester.IsRetryable(nStatus), L"and must not be retried");
+        Assert::AreEqual(RA_HTTP_ERROR_INTERNAL, nStatus);
         Assert::IsFalse(oRequester.GetStatusCodeText(nStatus).empty(),
                         L"and must carry text the caller can log");
     }

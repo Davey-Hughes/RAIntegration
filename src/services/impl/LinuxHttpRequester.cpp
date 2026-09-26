@@ -147,11 +147,18 @@ unsigned int LinuxHttpRequester::Request(const Http::Request& pRequest, TextWrit
 
         // CURLINFO_RESPONSE_CODE stays 0 when the transfer completed without an
         // HTTP status line (a file:// URL, or a protocol curl handled but this
-        // caller cannot interpret). 0 is RA_HTTP_NOT_ATTEMPTED, which
-        // IsRetryableStatusCode calls retryable, so returning it would retry a
-        // request that did in fact happen - forever, in ConnectedServer and
-        // RcClient. Report it as an unusable response instead.
-        nStatusCode = (nResponseCode == 0) ? RA_HTTP_ERROR_INVALID_RESPONSE
+        // caller cannot interpret). 0 is RA_HTTP_NOT_ATTEMPTED, which claims the
+        // request never happened. The substitute must also be one
+        // IsRetryableStatusCode rejects - RA_HTTP_ERROR_INVALID_RESPONSE is
+        // retryable too - because the request did happen, and sending it again
+        // cannot produce a status line it did not produce the first time.
+        // Retrying has no limit here: ConnectedServer turns a retryable code
+        // into ApiResult::Incomplete, which AssetUploadViewModel re-sends with
+        // no attempt counter, and rc_client re-queues unlocks and leaderboard
+        // entries indefinitely. The fault is in what was requested rather than
+        // in the transport, so report the same non-retryable
+        // RA_HTTP_ERROR_INTERNAL an unmapped CURLcode gets.
+        nStatusCode = (nResponseCode == 0) ? RA_HTTP_ERROR_INTERNAL
                                            : static_cast<unsigned int>(nResponseCode);
     }
     else
