@@ -360,8 +360,9 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
         // sendPostedEvents(nullptr, QEvent::DeferredDelete) at loop level 0.
         // (On Qt 6.11.2 the deleting frame is QCoreApplication::exec()+0xff,
         // with no QEventLoop::exec below it.) So an object a stop hook - or
-        // QtAudioSystem's reaping - handed to deleteLater() is deleted there,
-        // while the application still exists. Nothing later would do it: the
+        // QtAudioSystem's reaping - handed to deleteLater() is deleted there
+        // at the latest, while the application still exists; the running loop
+        // usually gets to it earlier. Nothing later would do it: the
         // application's destructor does not deliver a DeferredDelete still
         // pending, and neither does this thread's exit.
         //
@@ -430,15 +431,26 @@ bool QtApplicationHost::Post(std::function<void()> fAction, bool bIgnoreGate) co
             // yet run, must not run after it
             if (bIgnoreGate || pGate->bOpen.load())
                 fAction();
+            else
+                ++pGate->nDropped;
         },
         Qt::QueuedConnection);
     return true;
 }
 
+void QtApplicationHost::CountDropped() const
+{
+    std::shared_lock<std::shared_mutex> oLock(m_oLifetimeMutex);
+    ++m_pGate->nDropped;
+}
+
 void QtApplicationHost::Invoke(std::function<void()> fAction) const
 {
     if (!IsAvailable())
+    {
+        CountDropped();
         return;
+    }
 
     if (IsOnQtThread())
     {
@@ -446,7 +458,9 @@ void QtApplicationHost::Invoke(std::function<void()> fAction) const
         return;
     }
 
-    Post(std::move(fAction), false);
+    // refused only if Stop() began since the check above
+    if (!Post(std::move(fAction), false))
+        CountDropped();
 }
 
 bool QtApplicationHost::InvokeAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout) const
@@ -454,16 +468,26 @@ bool QtApplicationHost::InvokeAndWait(std::function<void()> fAction, std::chrono
     if (!IsAvailable())
         return false;
 
-    return RunAndWait(std::move(fAction), tTimeout, false);
+    const WaitOutcome nOutcome = RunAndWait(std::move(fAction), tTimeout, false);
+    if (nOutcome == WaitOutcome::TimedOut)
+    {
+        // The caller gets its default; this says why. A busy Qt thread, or -
+        // borrowed - a host whose thread is blocked, perhaps on the caller.
+        RA_LOG_WARN("A call to the Qt thread did not start within %d ms, and will not run",
+                    static_cast<int>(tTimeout.count()));
+    }
+
+    return nOutcome == WaitOutcome::Ran;
 }
 
-bool QtApplicationHost::RunAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout,
-                                   bool bIgnoreGate) const
+QtApplicationHost::WaitOutcome QtApplicationHost::RunAndWait(std::function<void()> fAction,
+                                                             std::chrono::milliseconds tTimeout,
+                                                             bool bIgnoreGate) const
 {
     if (IsOnQtThread())
     {
         fAction();
-        return true;
+        return WaitOutcome::Ran;
     }
 
     auto pCall = std::make_shared<WaitedCall>();
@@ -486,24 +510,24 @@ bool QtApplicationHost::RunAndWait(std::function<void()> fAction, std::chrono::m
         },
         bIgnoreGate);
     if (!bPosted)
-        return false;
+        return WaitOutcome::Refused;
 
     std::unique_lock<std::mutex> oLock(pCall->oMutex);
     if (pCall->cvDone.wait_for(oLock, tTimeout, [&pCall]() { return pCall->nState == WaitedCall::State::Done; }))
-        return true;
+        return WaitOutcome::Ran;
 
     if (pCall->nState == WaitedCall::State::Pending)
     {
         // never started: make sure it never will, since fAction may point into
         // the caller's stack
         pCall->nState = WaitedCall::State::Cancelled;
-        return false;
+        return WaitOutcome::TimedOut;
     }
 
     // already running: it cannot be stopped, and it must not outlive the
     // caller's locals, so let it finish
     pCall->cvDone.wait(oLock, [&pCall]() { return pCall->nState == WaitedCall::State::Done; });
-    return true;
+    return WaitOutcome::Ran;
 }
 
 void QtApplicationHost::AddStopHook(std::function<void()> fHook)
@@ -527,9 +551,11 @@ void QtApplicationHost::Stop()
     //    context leaves the members here too, since step 2 deletes it and
     //    nothing may be queued on it from now on.
     QObject* pContext = nullptr;
+    std::shared_ptr<Gate> pGate;
     {
         std::unique_lock<std::shared_mutex> oLock(m_oLifetimeMutex);
         m_pGate->bOpen = false;
+        pGate = m_pGate;
         pContext = m_pContext;
         m_pContext = nullptr;
     }
@@ -557,14 +583,14 @@ void QtApplicationHost::Stop()
     }
 
     const auto tHookTimeout = (nMode == Mode::Owned) ? m_oOptions.tStopTimeout : m_oOptions.tBorrowedStopTimeout;
-    if (!RunAndWait(
+    if (RunAndWait(
             [&vHooks, pContext]() {
                 for (auto& fHook : vHooks)
                     fHook();
 
                 delete pContext;
             },
-            tHookTimeout, true))
+            tHookTimeout, true) != WaitOutcome::Ran)
     {
         // RunAndWait only gives up on a call that has not started. Once the
         // hooks start they are waited for without limit - they use vHooks,
@@ -622,6 +648,14 @@ void QtApplicationHost::Stop()
 
         qInstallMessageHandler(s_fPreviousHandler.load());
     }
+
+    // What the closed gate turned away so far: Invoke calls made after step 1,
+    // and calls queued before it that came up afterwards. Calls still queued on
+    // the context when step 2 deleted it are discarded uncounted, and so is
+    // anything after this line. (The logger has no debug level.)
+    const size_t nDropped = pGate->nDropped.load();
+    if (nDropped > 0)
+        RA_LOG_INFO("Dropped %zu call(s) to the Qt thread once Stop() had begun", nDropped);
 
     m_bHasWidgets = false;
     m_nMode = Mode::Stopped;

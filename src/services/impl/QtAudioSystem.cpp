@@ -47,6 +47,14 @@ void ReapEffect(std::mutex& oMutex, std::vector<std::unique_ptr<QSoundEffect>>& 
         vEffects.erase(pIter);
     }
 
+    // The effect's connections hold this library's lambdas (and what they
+    // capture), and they would go only with the effect. Borrowed, its
+    // DeferredDelete waits in the host's queue, which a loader's dlclose can
+    // outlive; ~QSoundEffect would then destroy those lambdas through unmapped
+    // code. Dropped here, they go now - after the emission that called us
+    // returns, as Qt keeps a slot alive while it runs - with the library
+    // still loaded.
+    QObject::disconnect(pReaped, nullptr, nullptr, nullptr);
     pReaped->deleteLater();
 }
 

@@ -82,9 +82,18 @@ private:
     struct Gate
     {
         std::atomic<bool> bOpen{false};
+        // calls turned away once closed, logged by Stop()
+        std::atomic<size_t> nDropped{0};
     };
 
     struct OwnedThreadState; // defined in the .cpp
+
+    enum class WaitOutcome
+    {
+        Ran,
+        Refused,  // not posted: the gate was closed, or there is no application
+        TimedOut, // posted, but had not started in time, so it never will
+    };
 
     void StartOwned();
     // Static, and given only the state it shares with the host: a thread Start() or Stop() gave up on and detached
@@ -92,7 +101,8 @@ private:
     static void RunOwnedThread(std::shared_ptr<OwnedThreadState> pState);
     void MarkUnavailable(std::string sReason);
     bool Post(std::function<void()> fAction, bool bIgnoreGate) const;
-    bool RunAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout, bool bIgnoreGate) const;
+    void CountDropped() const;
+    WaitOutcome RunAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout, bool bIgnoreGate) const;
 
     Options m_oOptions;
     std::atomic<Mode> m_nMode{Mode::Stopped};

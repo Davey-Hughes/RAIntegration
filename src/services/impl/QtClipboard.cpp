@@ -43,7 +43,10 @@ std::wstring QtClipboard::GetText() const
     if (!m_pHost.InvokeAndWait([&sText]() { sText = QGuiApplication::clipboard()->text().toStdWString(); },
                                CLIPBOARD_TIMEOUT))
     {
-        RA_LOG_WARN("Clipboard GetText had no answer within %d s", static_cast<int>(CLIPBOARD_TIMEOUT.count()));
+        // false both when the call timed out and when Stop() began between
+        // the check above and the call: the message covers either
+        RA_LOG_WARN("Clipboard GetText got no answer (timed out after %d s, or Qt services stopping)",
+                    static_cast<int>(CLIPBOARD_TIMEOUT.count()));
         return std::wstring();
     }
 

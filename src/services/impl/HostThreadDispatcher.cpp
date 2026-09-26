@@ -96,8 +96,17 @@ size_t HostThreadDispatcher::PendingCount() const
 
 void HostThreadDispatcher::RunPosted(void*)
 {
-    if (ra::services::ServiceLocator::Exists<HostThreadDispatcher>())
-        ra::services::ServiceLocator::GetMutable<HostThreadDispatcher>().DrainIfOnHostThread();
+    if (!ra::services::ServiceLocator::Exists<HostThreadDispatcher>())
+        return;
+
+    // Once per process, so that a sign-off can tell this path from the
+    // _RA_DoAchievementsFrame fallback: both run the same callbacks on the same
+    // thread, and an emulator whose RebuildMenu does nothing shows neither.
+    static std::atomic<bool> s_bReported{false};
+    if (!s_bReported.exchange(true))
+        RA_LOG_INFO("Host work delivered through the emulator's dispatcher");
+
+    ra::services::ServiceLocator::GetMutable<HostThreadDispatcher>().DrainIfOnHostThread();
 }
 
 } // namespace impl

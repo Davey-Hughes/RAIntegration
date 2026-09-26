@@ -55,6 +55,11 @@ public:
     /// Registers a function <see cref="Stop" /> runs on the Qt thread before the application goes away.
     /// <see cref="Stop" /> clears the list.
     /// </summary>
+    /// <remarks>
+    /// The hooks run after <see cref="Stop" /> has begun refusing work: <see cref="Invoke" /> and
+    /// <see cref="InvokeAndWait" /> are refused inside a hook - on the Qt thread too, where they would otherwise run
+    /// inline - so a hook must do its work directly, and must not use either.
+    /// </remarks>
     virtual void AddStopHook(std::function<void()> fHook) = 0;
 
     /// <summary>

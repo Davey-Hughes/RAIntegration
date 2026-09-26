@@ -231,14 +231,16 @@ public:
         oHost.Start();
 
         // the limit covers starting only: a call already running may use the
-        // caller's locals, so it is waited for past the limit
+        // caller's locals, so it is waited for past the limit. The limit is
+        // generous for an idle Qt thread to start the call within; the call
+        // runs well past it.
         std::atomic<bool> bFinished{false};
         const bool bResult = oHost.InvokeAndWait(
             [&bFinished]() {
-                std::this_thread::sleep_for(200ms);
+                std::this_thread::sleep_for(700ms);
                 bFinished = true;
             },
-            50ms);
+            500ms);
         const bool bFinishedOnReturn = bFinished.load();
         oHost.Stop();
 
@@ -326,14 +328,19 @@ public:
         oHost.Start();
 
         std::atomic<bool> bDestroyed{false};
-        oHost.AddStopHook([&bDestroyed]() {
+        std::atomic<bool> bApplicationAliveThen{false};
+        oHost.AddStopHook([&bDestroyed, &bApplicationAliveThen]() {
             auto* pObject = new QObject();
-            QObject::connect(pObject, &QObject::destroyed, [&bDestroyed]() { bDestroyed = true; });
+            QObject::connect(pObject, &QObject::destroyed, [&bDestroyed, &bApplicationAliveThen]() {
+                bApplicationAliveThen = (QCoreApplication::instance() != nullptr);
+                bDestroyed = true;
+            });
             pObject->deleteLater();
         });
         oHost.Stop();
 
         Assert::IsTrue(bDestroyed.load(), L"an object handed to deleteLater() was never deleted");
+        Assert::IsTrue(bApplicationAliveThen.load(), L"an object handed to deleteLater() was deleted after the application");
     }
 
     TEST_METHOD(TestQuitNotAskedForByStopDoesNotEndTheOwnedApplication)

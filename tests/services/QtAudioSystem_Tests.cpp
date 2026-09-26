@@ -34,18 +34,29 @@ private:
     // destroyed before they are delivered - so seeing one reach a QSoundEffect
     // means that effect was still alive once control got back to the event
     // loop. Needs no moc: overriding eventFilter is not a new slot.
+    //
+    // It also records whether the effect still had anything connected to its
+    // signals then - the library's lambdas, which the reap must have dropped
+    // already, since in borrowed mode this event can outlive the library. A
+    // wildcard disconnect() says so by returning true, and costs nothing: the
+    // effect is about to be deleted.
     class DeferredDeleteWatcher : public QObject
     {
     public:
         bool eventFilter(QObject* pWatched, QEvent* pEvent) override
         {
             if (pEvent->type() == QEvent::DeferredDelete && qobject_cast<QSoundEffect*>(pWatched) != nullptr)
+            {
                 ++m_nDeferredDeletes;
+                if (QObject::disconnect(pWatched, nullptr, nullptr, nullptr))
+                    ++m_nStillConnected;
+            }
 
             return false;
         }
 
         int m_nDeferredDeletes = 0;
+        int m_nStillConnected = 0;
     };
 
 public:
@@ -104,6 +115,8 @@ public:
 
         Assert::AreEqual(1, oWatcher.m_nDeferredDeletes,
                          L"the reaped effect never reached the event loop alive - destroyed inside its own signal?");
+        Assert::AreEqual(0, oWatcher.m_nStillConnected,
+                         L"the reaped effect still held the library's connections when its deferred delete came up");
     }
 
     TEST_METHOD(TestStopHookDestroysEffectsStillInThePool)
