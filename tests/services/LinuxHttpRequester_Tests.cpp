@@ -9,10 +9,13 @@
 
 #include <curl/curl.h>
 
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <tuple>
+#include <unistd.h>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -86,6 +89,135 @@ static bool SupportsFileProtocol()
     }
 
     return false;
+}
+
+// A file with content, for a file:// transfer that has to reach the write
+// callback: file:///dev/null completes without ever calling it.
+class ScopedTempFile
+{
+public:
+    explicit ScopedTempFile(const std::string& sContent)
+    {
+        const std::string sTemplate =
+            std::filesystem::absolute(std::filesystem::temp_directory_path() / "ra-http-XXXXXX").string();
+        std::vector<char> vBuffer(sTemplate.begin(), sTemplate.end());
+        vBuffer.push_back('\0');
+
+        const int nFile = ::mkstemp(vBuffer.data());
+        Assert::IsTrue(nFile != -1, L"mkstemp failed");
+        m_sPath = std::string(vBuffer.data());
+
+        const bool bWritten =
+            ::write(nFile, sContent.data(), sContent.length()) == static_cast<ssize_t>(sContent.length());
+        ::close(nFile);
+
+        // the destructor does not run if the constructor throws
+        if (!bWritten)
+            ::unlink(m_sPath.c_str());
+        Assert::IsTrue(bWritten, L"write failed");
+    }
+
+    ~ScopedTempFile() noexcept { ::unlink(m_sPath.c_str()); }
+
+    ScopedTempFile(const ScopedTempFile&) = delete;
+    ScopedTempFile& operator=(const ScopedTempFile&) = delete;
+    ScopedTempFile(ScopedTempFile&&) = delete;
+    ScopedTempFile& operator=(ScopedTempFile&&) = delete;
+
+    std::string GetUrl() const { return "file://" + m_sPath; }
+
+private:
+    std::string m_sPath;
+};
+
+// Installs a recognisable SIGPIPE handler for the life of the object, and puts
+// back whatever was there before - including when an Assert throws. The
+// handler never runs; it only has to be told apart from anything libcurl
+// would install.
+class ScopedSigPipeSentinel
+{
+public:
+    ScopedSigPipeSentinel() noexcept
+    {
+        struct sigaction oAction {};
+        oAction.sa_handler = Handler;
+        sigemptyset(&oAction.sa_mask);
+        ::sigaction(SIGPIPE, &oAction, &m_oPrevious);
+    }
+
+    ~ScopedSigPipeSentinel() noexcept { ::sigaction(SIGPIPE, &m_oPrevious, nullptr); }
+
+    ScopedSigPipeSentinel(const ScopedSigPipeSentinel&) = delete;
+    ScopedSigPipeSentinel& operator=(const ScopedSigPipeSentinel&) = delete;
+    ScopedSigPipeSentinel(ScopedSigPipeSentinel&&) = delete;
+    ScopedSigPipeSentinel& operator=(ScopedSigPipeSentinel&&) = delete;
+
+    static bool IsInForce() noexcept
+    {
+        struct sigaction oAction {};
+        ::sigaction(SIGPIPE, nullptr, &oAction);
+        return (oAction.sa_flags & SA_SIGINFO) == 0 && oAction.sa_handler == Handler;
+    }
+
+private:
+    static void Handler(int) noexcept {}
+
+    struct sigaction m_oPrevious {};
+};
+
+// Samples SIGPIPE's disposition each time curl hands it data. That is from
+// inside curl_easy_perform, the only window in which a change libcurl makes
+// is visible: it restores the disposition before returning.
+class SigPipeProbeWriter : public TextWriter
+{
+public:
+    void Write(const std::string&) override { Sample(); }
+    void Write(const std::wstring&) override { Sample(); }
+    void WriteLine() override { Sample(); }
+    std::streampos GetPosition() const noexcept override { return 0; }
+    void SetPosition(std::streampos) noexcept override {}
+
+    void Sample() noexcept
+    {
+        ++m_nSamples;
+        if (ScopedSigPipeSentinel::IsInForce())
+            ++m_nSentinelSamples;
+    }
+
+    unsigned int GetSampleCount() const noexcept { return m_nSamples; }
+    unsigned int GetSentinelSampleCount() const noexcept { return m_nSentinelSamples; }
+
+private:
+    unsigned int m_nSamples = 0;
+    unsigned int m_nSentinelSamples = 0;
+};
+
+static size_t SampleSigPipe(char*, size_t nSize, size_t nCount, void* pUserData) noexcept
+{
+    static_cast<SigPipeProbeWriter*>(pUserData)->Sample();
+    return nSize * nCount;
+}
+
+// The positive control for TestTransferLeavesSigPipeAlone: whether this
+// libcurl, left to its defaults, changes SIGPIPE's disposition during a
+// transfer at all. libcurl 8.22 does wherever it has sigaction and no
+// SO_NOSIGPIPE (lib/sigpipe.h), which includes Linux; one that did not would
+// let a requester without CURLOPT_NOSIGNAL pass that test.
+static bool CurlDefaultsChangeSigPipe(const std::string& sUrl)
+{
+    CURL* pCurl = curl_easy_init();
+    if (pCurl == nullptr)
+        return false;
+
+    SigPipeProbeWriter oProbe;
+    curl_easy_setopt(pCurl, CURLOPT_URL, sUrl.c_str());
+    curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, SampleSigPipe);
+    curl_easy_setopt(pCurl, CURLOPT_WRITEDATA, &oProbe);
+
+    const CURLcode nResult = curl_easy_perform(pCurl);
+    curl_easy_cleanup(pCurl);
+
+    return nResult == CURLE_OK && oProbe.GetSampleCount() > 0 && oProbe.GetSentinelSampleCount() == 0;
 }
 
 } // namespace
@@ -203,6 +335,37 @@ public:
         Assert::AreEqual(RA_HTTP_ERROR_INTERNAL, nStatus);
         Assert::IsFalse(oRequester.GetStatusCodeText(nStatus).empty(),
                         L"and must carry text the caller can log");
+    }
+
+    TEST_METHOD(TestTransferLeavesSigPipeAlone)
+    {
+        // The requester runs on thread pool threads inside the emulator's
+        // process. A handle without CURLOPT_NOSIGNAL sets SIGPIPE to SIG_IGN
+        // process-wide for the length of its transfer, so overlapping transfers
+        // can leave the emulator's own disposition replaced. The content writer
+        // is called from inside the transfer, which makes it the one place a
+        // test can see what disposition libcurl has in force.
+        if (!SupportsFileProtocol())
+            return;
+
+        // constructed first: it is what runs curl_global_init, which has to
+        // precede the control's raw handle
+        const LinuxHttpRequester oRequester;
+        const ScopedTempFile oFile("content");
+        const ScopedSigPipeSentinel oSentinel;
+
+        // a libcurl that never touches SIGPIPE cannot tell a requester that
+        // sets CURLOPT_NOSIGNAL from one that does not
+        if (!CurlDefaultsChangeSigPipe(oFile.GetUrl()))
+            return;
+
+        Http::Request oRequest(oFile.GetUrl());
+        SigPipeProbeWriter oWriter;
+        oRequester.Request(oRequest, oWriter);
+
+        Assert::IsTrue(oWriter.GetSampleCount() > 0, L"the transfer must reach the writer");
+        Assert::AreEqual(oWriter.GetSampleCount(), oWriter.GetSentinelSampleCount(),
+                         L"SIGPIPE's disposition must be the process's own throughout the transfer");
     }
 
     TEST_METHOD(TestStatusCodeTextForKnownCodes)

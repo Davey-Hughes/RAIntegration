@@ -96,6 +96,22 @@ unsigned int LinuxHttpRequester::Request(const Http::Request& pRequest, TextWrit
     if (pCurl == nullptr)
         return RA_HTTP_ERROR_INTERNAL;
 
+    // The same concurrency is why every handle needs CURLOPT_NOSIGNAL. Without
+    // it, each transfer (and each curl_easy_cleanup) sets SIGPIPE to SIG_IGN
+    // process-wide and then restores whatever it found on entry. Overlapping
+    // transfers save and restore each other's SIG_IGN, so the emulator this
+    // library is loaded into can have its own SIGPIPE disposition replaced for
+    // good - libcurl-thread(3) says leaving the option off does not work once
+    // threads are involved, for exactly that race.
+    //
+    // Nothing has to take the ignore's place on Linux: libcurl sends with
+    // MSG_NOSIGNAL, and its OpenSSL and GnuTLS backends write through that same
+    // path rather than to the socket (checked against libcurl 8.22). The cost
+    // falls on a libcurl built with neither the threaded resolver nor c-ares
+    // (curl -V lists no AsynchDNS): there, a name lookup can no longer be
+    // timed out with alarm().
+    curl_easy_setopt(pCurl, CURLOPT_NOSIGNAL, 1L);
+
     std::string sUrl = pRequest.GetUrl();
     if (!pRequest.GetQueryString().empty())
     {
