@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QMetaObject>
+#include <QSessionManager>
 #include <QThread>
 #include <QTimer>
 #include <QtGlobal>
@@ -39,7 +40,8 @@ struct QtApplicationHost::OwnedThreadState
     QObject* pApplication = nullptr; // set once exec() is running
     QObject* pContext = nullptr;     // set with pApplication
     std::string sPlatform;
-    bool bExited = false; // set as the thread function returns
+    bool bQuitRequested = false; // set by Stop() as it asks the loop to end: no other quit ends it
+    bool bExited = false;        // set as the thread function returns
 };
 
 namespace {
@@ -108,6 +110,18 @@ void PinQtLibraries()
             const char* sError = ::dlerror();
             RA_LOG_WARN("Could not pin %s: %s", sLibrary, sError ? sError : "not loaded");
         }
+    }
+}
+
+// RA_LOG from the Qt thread, which can run when no logger is registered - a
+// thread detached by a timed-out Stop() outlives RA_Shutdown - where RA_LOG's
+// ServiceLocator::Get would throw. The check ForwardQtMessage makes, for the
+// library's own messages.
+void LogInfoFromQtThread(const char* sMessage)
+{
+    if (ra::services::ServiceLocator::Exists<ra::services::ILogger>())
+    {
+        RA_LOG_INFO("%s", sMessage);
     }
 }
 
@@ -226,6 +240,7 @@ void QtApplicationHost::StartOwned()
     QObject* pApplication = nullptr;
     QObject* pContext = nullptr;
     std::string sPlatform;
+    bool bExited = false;
     {
         std::unique_lock<std::mutex> oLock(pState->oMutex);
         pState->cvChanged.wait_for(oLock, m_oOptions.tStartTimeout,
@@ -233,18 +248,31 @@ void QtApplicationHost::StartOwned()
         pApplication = pState->pApplication;
         pContext = pState->pContext;
         sPlatform = pState->sPlatform;
+        bExited = pState->bExited;
     }
 
-    if (pApplication == nullptr)
+    // An application that has already exited is no start either: once the
+    // thread sets bExited, pApplication and pContext point at destroyed
+    // objects.
+    if (pApplication == nullptr || bExited)
     {
-        // Tearing down a half-built application from this thread is not safe;
-        // leave the thread to finish (or not) on its own. It holds everything
-        // it uses, argv included, in pState.
-        m_oThread.detach();
+        if (bExited)
+        {
+            // it has returned, or is returning: nothing is left to wait for
+            m_oThread.join();
+        }
+        else
+        {
+            // Tearing down a half-built application from this thread is not
+            // safe; leave the thread to finish (or not) on its own. It holds
+            // everything it uses, argv included, in pState.
+            m_oThread.detach();
+        }
         m_pOwnedState.reset();
         qInstallMessageHandler(s_fPreviousHandler.load());
-        MarkUnavailable("the Qt application did not start within " +
-                        std::to_string(m_oOptions.tStartTimeout.count()) + " ms");
+        MarkUnavailable(bExited ? std::string("the Qt application exited as it started")
+                                : "the Qt application did not start within " +
+                                      std::to_string(m_oOptions.tStartTimeout.count()) + " ms");
         return;
     }
 
@@ -269,9 +297,22 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
     {
         QApplication oApplication(pState->nArgc, pState->vArgv.data());
 
-        // Otherwise closing the last view window would end the library's event
-        // loop behind its back: only Stop() may end it.
+        // Only Stop() may end the library's event loop; the loop below
+        // re-enters it after any other quit. These two keep Qt from asking in
+        // the first place: closing the last view window, and the last
+        // QEventLoopLocker going. Both are process-global and never restored,
+        // so an application the emulator creates after RA_Shutdown inherits
+        // them (a disclosed divergence).
         QGuiApplication::setQuitOnLastWindowClosed(false);
+        QCoreApplication::setQuitLockEnabled(false);
+
+        // At an X11 session's logout the session manager asks each client to
+        // save its state, and unless told otherwise Qt registers "RAIntegration
+        // -session <id>" as the command that brings this client back at the
+        // next login. The client is the emulator's process, under our argv[0].
+        // Whether the emulator comes back is not the library's call.
+        QObject::connect(&oApplication, &QGuiApplication::saveStateRequest, &oApplication,
+                         [](QSessionManager& oManager) { oManager.setRestartHint(QSessionManager::RestartNever); });
 
         // Work is queued on this, not on the application (see m_pContext).
         // Stop()'s hook call deletes it; as the application's child it still
@@ -297,7 +338,30 @@ void QtApplicationHost::RunOwnedThread(std::shared_ptr<OwnedThreadState> pState)
         // while the application still exists. Nothing later would do it: the
         // application's destructor does not deliver a DeferredDelete still
         // pending, and neither does this thread's exit.
-        oApplication.exec();
+        //
+        // A quit Stop() did not ask for - the X11 session manager's "die" at
+        // logout, or a quit() or QEvent::Quit from anywhere in the process -
+        // enters the loop again. Leaving it would destroy the application and
+        // the context under a host that still holds both: the next Post,
+        // IsOnQtThread or Stop() would use freed objects.
+        bool bReportedUnrequestedQuit = false;
+        for (;;)
+        {
+            oApplication.exec();
+
+            {
+                std::lock_guard<std::mutex> oLock(pState->oMutex);
+                if (pState->bQuitRequested)
+                    break;
+            }
+
+            if (!bReportedUnrequestedQuit)
+            {
+                bReportedUnrequestedQuit = true;
+                LogInfoFromQtThread("The Qt event loop was told to quit by something other than the library; "
+                                    "running it again");
+            }
+        }
     }
 
     {
@@ -497,7 +561,18 @@ void QtApplicationHost::Stop()
     if (nMode == Mode::Owned)
     {
         auto pState = std::move(m_pOwnedState);
-        QMetaObject::invokeMethod(pApplication, []() { QCoreApplication::quit(); }, Qt::QueuedConnection);
+
+        // Only a quit with bQuitRequested set ends the loop (see
+        // RunOwnedThread). The quit is queued under the lock the thread takes
+        // to read the flag: otherwise a quit nobody asked for, ending exec()
+        // between the two, would let the thread see the flag and destroy the
+        // application before invokeMethod reached it. Queued first, the event
+        // is at worst discarded with the application.
+        {
+            std::lock_guard<std::mutex> oLock(pState->oMutex);
+            pState->bQuitRequested = true;
+            QMetaObject::invokeMethod(pApplication, []() { QCoreApplication::quit(); }, Qt::QueuedConnection);
+        }
 
         bool bExited = false;
         {

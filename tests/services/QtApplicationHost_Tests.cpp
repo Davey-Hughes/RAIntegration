@@ -336,6 +336,24 @@ public:
         Assert::IsTrue(bDestroyed.load(), L"an object handed to deleteLater() was never deleted");
     }
 
+    TEST_METHOD(TestQuitNotAskedForByStopDoesNotEndTheOwnedApplication)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+
+        // what an X11 session manager's "die" at logout does, or any quit() in
+        // the process: the library's loop must keep running
+        Assert::IsTrue(oHost.InvokeAndWait([]() { QCoreApplication::quit(); }, 5s));
+
+        bool bRan = false;
+        const bool bResult = oHost.InvokeAndWait([&bRan]() { bRan = true; }, 5s);
+        Assert::IsTrue(bResult && bRan, L"the owned application ran no work after a quit() Stop() did not ask for");
+
+        oHost.Stop();
+        Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Stopped);
+        Assert::IsNull(QCoreApplication::instance(), L"the owned application outlived Stop()");
+    }
+
     TEST_METHOD(TestThreeStartStopCycles)
     {
         QtApplicationHost oHost(OffscreenOptions());
