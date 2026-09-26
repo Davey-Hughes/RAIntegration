@@ -68,6 +68,29 @@ public:
         Assert::AreEqual(size_t(0), mockHostThread.PendingCount());
     }
 
+    // TestReadOnTheFrameThreadRunsInline makes the frame thread the host thread, so it
+    // cannot tell the inline-on-the-frame-thread branch apart from falling through to
+    // HostThreadDispatcher::Invoke, which also runs inline when called on the host
+    // thread. Here the frame thread and the host thread are different threads, so only
+    // the frame-thread branch can produce an inline run.
+    TEST_METHOD(TestReadOnTheFrameThreadRunsInlineWhenTheFrameThreadIsNotTheHostThread)
+    {
+        ra::services::mocks::MockHostThread mockHostThread; // the test thread is the host thread
+        RoutingHarness harness;
+
+        Probe oProbe;
+        std::thread::id nWorkerThread{};
+        mockHostThread.RunElsewhere([&]() {
+            harness.FrameHere(); // this worker becomes the frame thread, not the host thread
+            nWorkerThread = std::this_thread::get_id();
+            harness.mockRuntime.QueueMemoryRead(oProbe.Callback());
+        });
+
+        Assert::IsTrue(oProbe.bRan.load(), L"a read on the frame thread did not run inline");
+        Assert::IsTrue(oProbe.nRanOn == nWorkerThread, L"the read did not run on the frame thread");
+        Assert::AreEqual(size_t(0), mockHostThread.PendingCount());
+    }
+
     TEST_METHOD(TestReadOffTheFrameThreadWaitsForTheHostThread)
     {
         ra::services::mocks::MockHostThread mockHostThread;
