@@ -41,15 +41,19 @@
 
 #include "SmokeReport.hh" // Check, Observe, Finish, CountThreads - shared with the other smoke programs
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -75,6 +79,45 @@ bool LogContains(const std::string& sText)
 std::string InLog(const std::string& sText)
 {
     return LogContains(sText) ? ("RALog.txt: \"" + sText + "\"") : ("no \"" + sText + "\" in RALog.txt");
+}
+
+// This program's stand-in for an emulator's event queue: RA_InstallHostDispatcher's
+// post function records the work, and RunPostedWork() runs it on this thread.
+std::mutex g_oPostedMutex;
+std::deque<std::pair<void (*)(void*), void*>> g_vPosted;
+std::atomic<int> g_nPosts{0};
+
+void PostToThisThread(void (*fpWork)(void*), void* pContext)
+{
+    std::lock_guard<std::mutex> oLock(g_oPostedMutex);
+    g_vPosted.emplace_back(fpWork, pContext);
+    ++g_nPosts;
+}
+
+int RunPostedWork()
+{
+    std::deque<std::pair<void (*)(void*), void*>> vWork;
+    {
+        std::lock_guard<std::mutex> oLock(g_oPostedMutex);
+        vWork.swap(g_vPosted);
+    }
+
+    for (auto& oWork : vWork)
+        oWork.first(oWork.second);
+
+    return static_cast<int>(vWork.size());
+}
+
+std::thread::id g_nMainThread;
+std::atomic<int> g_nRebuildOnMain{0};
+std::atomic<int> g_nRebuildElsewhere{0};
+
+void CountRebuildMenu()
+{
+    if (std::this_thread::get_id() == g_nMainThread)
+        ++g_nRebuildOnMain;
+    else
+        ++g_nRebuildElsewhere;
 }
 
 int RunMissing()
@@ -248,7 +291,12 @@ int RunOnline(bool bInFlight, int nDelayMs)
     const size_t nThreadsBefore = CountThreads();
     Check(nThreadsBefore >= 1, "/proc/self/task readable", std::to_string(nThreadsBefore) + " thread(s) before init");
 
+    // Installed before init, so the loader's store-then-forward path is the one used.
+    g_nMainThread = std::this_thread::get_id();
+    RA_InstallHostDispatcher(&PostToThisThread);
+
     RA_InitClient(nullptr, CLIENT_NAME, CLIENT_VERSION);
+    RA_InstallSharedFunctions(nullptr, nullptr, nullptr, &CountRebuildMenu, nullptr, nullptr, nullptr);
 
     const size_t nThreadsAfterInit = CountThreads();
     Check(nThreadsAfterInit > nThreadsBefore, "init started threads",
@@ -267,6 +315,21 @@ int RunOnline(bool bInFlight, int nDelayMs)
     // reached the audio device, inside a host that has no Qt at all.
     const std::string sChime = "Playing sound " + (g_oBaseDirectory / "Overlay" / "login.wav").string();
     Check(WaitForLog(sChime, 10), "login chime started playing", InLog(sChime));
+
+    // The login handler asks the emulator to rebuild its menu. rc_client reports
+    // the login from a worker thread, so the request crosses to this thread
+    // through the dispatcher: posted into g_vPosted, and run here, as an
+    // emulator's event loop would run it.
+    const auto tRebuildDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (g_nRebuildOnMain.load() == 0 && std::chrono::steady_clock::now() < tRebuildDeadline)
+    {
+        RunPostedWork();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    Check(g_nRebuildOnMain.load() > 0 && g_nRebuildElsewhere.load() == 0 && g_nPosts.load() > 0,
+          "host callback delivered through the dispatcher",
+          std::to_string(g_nPosts.load()) + " post(s); RebuildMenu ran " + std::to_string(g_nRebuildOnMain.load()) +
+              "x on this thread, " + std::to_string(g_nRebuildElsewhere.load()) + "x elsewhere");
 
     RA_SetConsoleID(CONSOLE_NES);
     RA_InstallMemoryBank(0, ReadZero, IgnoreWrite, 0x800);
@@ -339,6 +402,10 @@ int RunOnline(bool bInFlight, int nDelayMs)
     const bool bHashBefore = !bInFlight && KnownHashSaved();
 
     RA_Shutdown();
+
+    // Anything posted but not yet run belongs to a library that is now shut down
+    // and unloaded: RunHostWork must drop it rather than call into it.
+    Observe("posts run after RA_Shutdown (dropped by the trampoline)", std::to_string(RunPostedWork()));
 
     const auto oAfter = CountThreadsBesideQtDBus();
     Check(oAfter.nOther == nThreadsBefore, "no thread outlives RA_Shutdown()",
