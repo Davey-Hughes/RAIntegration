@@ -10,6 +10,7 @@
 #include <QEvent>
 #include <QEventLoop>
 #include <QGuiApplication>
+#include <QLoggingCategory>
 #include <QObject>
 #include <QTimer>
 #include <QWidget>
@@ -501,6 +502,38 @@ public:
 
         Assert::IsTrue(fWhileOwned != &SentinelHandler, L"no handler of the library's was installed while owned");
         Assert::IsTrue(fAfter == &SentinelHandler, L"Stop() did not restore the previous handler");
+    }
+
+    TEST_METHOD(TestFFmpegMediaDumpOffWhileOwnedAndRestoredAfter)
+    {
+        // Logging rules apply by category name, so this object is switched
+        // exactly as Qt's FFmpeg plugin's own one is - without loading the
+        // plugin. QtAudioSystem_Tests checks the dump itself on a real decode.
+        const QLoggingCategory oCategory("qt.multimedia.ffmpeg.mediadataholder");
+        const bool bInfoBefore = oCategory.isInfoEnabled();
+
+        QtApplicationHost oOwned(OffscreenOptions());
+        oOwned.Start();
+        const bool bInfoWhileOwned = oCategory.isInfoEnabled();
+        const bool bWarningWhileOwned = oCategory.isWarningEnabled();
+        oOwned.Stop();
+        const bool bInfoAfterOwned = oCategory.isInfoEnabled();
+
+        bool bInfoWhileBorrowed = false;
+        {
+            OffscreenArguments oArguments;
+            QGuiApplication oApplication(oArguments.nArgc, oArguments.vArgv);
+            QtApplicationHost oBorrowed;
+            oBorrowed.Start();
+            bInfoWhileBorrowed = oCategory.isInfoEnabled();
+            oBorrowed.Stop();
+        }
+
+        Assert::IsTrue(bInfoBefore, L"the dump's category was already off before Start(): nothing to check");
+        Assert::IsFalse(bInfoWhileOwned, L"the dump's category was still on while owned");
+        Assert::IsTrue(bWarningWhileOwned, L"the category's warnings were turned off too; they belong in RALog.txt");
+        Assert::IsTrue(bInfoAfterOwned, L"Stop() did not turn the dump's category back on");
+        Assert::IsTrue(bInfoWhileBorrowed, L"a borrowed host's logging rules were changed");
     }
 
     // The four tests below come last, and in this order, on purpose: a Stop()

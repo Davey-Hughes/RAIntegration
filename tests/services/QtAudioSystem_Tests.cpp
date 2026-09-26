@@ -13,13 +13,19 @@
 #include <QGuiApplication>
 #include <QTimer>
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -159,6 +165,64 @@ private:
         QEventLoop oLoop;
         QTimer::singleShot(100, &oLoop, [&oLoop]() { oLoop.quit(); });
         oLoop.exec();
+    }
+
+    // Points this process's file descriptor 2 at a file until Release(), which
+    // puts it back and returns what arrived. FFmpeg's log reaches the terminal
+    // through that descriptor directly (av_log's default callback, stdio's
+    // unbuffered stderr), below anything a Qt message handler sees, so the
+    // descriptor is the only place to look for it. Anything else the process
+    // writes to stderr meanwhile lands in the file too.
+    class StderrCapture
+    {
+    public:
+        explicit StderrCapture(std::string sPath) : m_sPath(std::move(sPath))
+        {
+            std::fflush(stderr);
+            const int nFile = ::open(m_sPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            Assert::IsTrue(nFile >= 0, L"could not open the stderr capture file");
+            m_nSaved = ::dup(STDERR_FILENO);
+            ::dup2(nFile, STDERR_FILENO);
+            ::close(nFile);
+        }
+
+        ~StderrCapture() noexcept { Restore(); }
+
+        StderrCapture(const StderrCapture&) = delete;
+        StderrCapture& operator=(const StderrCapture&) = delete;
+        StderrCapture(StderrCapture&&) = delete;
+        StderrCapture& operator=(StderrCapture&&) = delete;
+
+        std::string Release()
+        {
+            Restore();
+            std::ifstream oFile(m_sPath, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(oFile), std::istreambuf_iterator<char>());
+        }
+
+    private:
+        void Restore() noexcept
+        {
+            if (m_nSaved < 0)
+                return;
+
+            std::fflush(stderr);
+            ::dup2(m_nSaved, STDERR_FILENO);
+            ::close(m_nSaved);
+            m_nSaved = -1;
+        }
+
+        std::string m_sPath;
+        int m_nSaved = -1;
+    };
+
+    // The first line of sText that starts an FFmpeg media dump, or empty.
+    static std::string FindFFmpegDump(const std::string& sText)
+    {
+        const auto nStart = sText.find("Input #0");
+        if (nStart == std::string::npos)
+            return {};
+        return sText.substr(nStart, sText.find('\n', nStart) - nStart);
     }
 
 public:
@@ -389,6 +453,83 @@ public:
         Assert::AreEqual(size_t(3), oAudioSystem.PlaybackCount(), L"not every play requested while decoding was played");
 
         oHost.Stop();
+    }
+
+    TEST_METHOD(TestOwnedDecodePrintsNoFFmpegDump)
+    {
+        // Qt 6.11's FFmpeg backend has FFmpeg print a media dump ("Input #0,
+        // wav, from ...") to stderr for every file it opens, and the library
+        // owns no stderr: a chime must not write to the emulator's terminal
+        // (QtApplicationHost::StartOwned). A borrowed host's logging rules are
+        // its own, so the dump still appears there - which makes a borrowed
+        // decode this check's control. If the control prints no dump, neither
+        // this Qt nor its logging rules would print one when owned either, and
+        // the owned half could not fail; so that is a failure here, not a pass.
+        //
+        // Needs no display (offscreen) and no audio device: the decode happens
+        // either way, and PlaybackCount() counts a sink as it is created, after
+        // the decode has finished, whether or not a device lets it start.
+        TempDirectory oDirectory;
+        WriteSilentWav(oDirectory.Path() + "/silence.wav");
+
+        ra::services::mocks::MockFileSystem mockFileSystem;
+        mockFileSystem.SetBaseDirectory(ra::util::String::Widen(oDirectory.Path() + "/"));
+
+        std::string sBorrowedStderr;
+        size_t nBorrowedPlays = 0;
+        {
+            StderrCapture oCapture(oDirectory.Path() + "/borrowed.err");
+            {
+                int nArgc = 3;
+                char sArg0[] = "ra_tests";
+                char sArg1[] = "-platform";
+                char sArg2[] = "offscreen";
+                char* vArgv[] = {sArg0, sArg1, sArg2, nullptr};
+                QGuiApplication oApplication(nArgc, vArgv);
+
+                QtApplicationHost oHost;
+                oHost.Start(); // borrows oApplication
+                QtAudioSystem oAudioSystem(oHost);
+                oAudioSystem.PlayAudioFile(L"silence.wav");
+                PumpUntil([&oAudioSystem]() { return oAudioSystem.PlaybackCount() > 0; });
+                nBorrowedPlays = oAudioSystem.PlaybackCount();
+                oHost.Stop();
+            }
+            sBorrowedStderr = oCapture.Release();
+        }
+
+        Assert::AreEqual(size_t(1), nBorrowedPlays, L"control: the borrowed decode did not finish");
+        Assert::IsFalse(FindFFmpegDump(sBorrowedStderr).empty(),
+                        L"control: a borrowed decode printed no FFmpeg dump, so the owned check cannot fail here");
+
+        std::string sOwnedStderr;
+        size_t nOwnedPlays = 0;
+        {
+            StderrCapture oCapture(oDirectory.Path() + "/owned.err");
+            {
+                QtApplicationHost::Options oOptions;
+                oOptions.fProbe = []() { return DisplayProbeResult{true, "test: offscreen"}; };
+                oOptions.vArguments = {"-platform", "offscreen"};
+                QtApplicationHost oHost(oOptions);
+                oHost.Start();
+                Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Owned, L"the host did not start owned");
+
+                // Invoke queues the play on the host's own thread; nothing here
+                // turns an event loop.
+                QtAudioSystem oAudioSystem(oHost);
+                oAudioSystem.PlayAudioFile(L"silence.wav");
+                const auto tDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                while (oAudioSystem.PlaybackCount() == 0 && std::chrono::steady_clock::now() < tDeadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                nOwnedPlays = oAudioSystem.PlaybackCount();
+                oHost.Stop();
+            }
+            sOwnedStderr = oCapture.Release();
+        }
+
+        Assert::AreEqual(size_t(1), nOwnedPlays, L"the owned decode did not finish, so there was nothing to check");
+        Assert::AreEqual(std::string(), FindFFmpegDump(sOwnedStderr),
+                         L"an owned decode printed FFmpeg's media dump to stderr");
     }
 
     TEST_METHOD(TestUnavailableHostPlaysNothing)

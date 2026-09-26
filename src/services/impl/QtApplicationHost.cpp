@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QEvent>
 #include <QGuiApplication>
+#include <QLoggingCategory>
 #include <QMetaObject>
 #include <QSessionManager>
 #include <QThread>
@@ -94,6 +95,45 @@ void ForwardQtMessage(QtMsgType nType, const QMessageLogContext& oContext, const
             RA_LOG_ERR("Qt: %s", sMessage.toStdString().c_str());
             break;
     }
+}
+
+// Qt 6.11's FFmpeg backend opens each file it decodes in MediaDataHolder, which
+// then has FFmpeg print a media dump - "Input #0, wav, from '.../login.wav':"
+// and two more lines - if that category's info level is on
+// (qffmpegmediadataholder.cpp:315 in 6.11.2; the shipped plugin tests byte 0x13
+// of the category, enabledInfo). Qt hard-wires only the debug level of qt.*
+// categories off, so info is on for everyone; no logging config on the
+// measuring machine turned it on. FFmpeg prints it through av_log's default
+// callback straight to stderr - Qt routes FFmpeg's log through its message
+// handler only under QT_FFMPEG_DEBUG - so ForwardQtMessage never sees it, and
+// the first play of each chime wrote it to the emulator's terminal. Measured
+// 2026-09-26: all 6 decodes in QtAudioSystem_Tests printed it; QT_LOGGING_RULES
+// "qt.multimedia.ffmpeg.mediadataholder.info=false" left none, and
+// ".debug=false", ".warning=false;.critical=false" or "qt.multimedia.ffmpeg=false"
+// left all 6. Only info goes off: the category's warnings still reach RALog.txt.
+//
+// QLoggingCategory::setFilterRules, not installFilter. Qt applies qtlogging.ini
+// rules, then these, then QT_LOGGING_RULES and QT_LOGGING_CONF, so a user who
+// asks for the dump in the environment still gets it; a filter runs after all
+// of them and would overrule that. And a filter is a pointer into this library
+// that Qt calls for every category registered from then on - after a loader's
+// dlclose() too, if anything kept it installed - where rules are only data. The
+// cost: the call replaces every rule set through it, and Qt cannot report the
+// earlier ones, so Stop() can only clear them. In owned mode no other
+// application exists to have set any; a host that set some without one loses
+// them, and a qtlogging.ini rule for this category is overruled while owned
+// (disclosed divergences). Rules are process-wide under Qt's registry mutex, so
+// any thread may set them, and Qt applies them to a category whenever it is
+// created - the plugin's is created at the first decode - so they go in before
+// the application exists.
+void SilenceFFmpegMediaDump()
+{
+    QLoggingCategory::setFilterRules(QStringLiteral("qt.multimedia.ffmpeg.mediadataholder.info=false"));
+}
+
+void ClearFilterRules()
+{
+    QLoggingCategory::setFilterRules(QString());
 }
 
 // Qt's D-Bus connection manager starts a thread (named "QDBusConnection") with
@@ -309,6 +349,9 @@ void QtApplicationHost::StartOwned()
     if (fInstalled != &ForwardQtMessage)
         s_fPreviousHandler = fInstalled;
 
+    // and what reaches stderr without passing through the handler
+    SilenceFFmpegMediaDump();
+
     auto pState = std::make_shared<OwnedThreadState>();
     pState->vArgumentStorage.emplace_back("RAIntegration");
     for (const auto& sArgument : m_oOptions.vArguments)
@@ -356,6 +399,7 @@ void QtApplicationHost::StartOwned()
         }
         m_pOwnedState.reset();
         qInstallMessageHandler(s_fPreviousHandler.load());
+        ClearFilterRules();
         MarkUnavailable(bExited ? std::string("the Qt application exited as it started")
                                 : "the Qt application did not start within " +
                                       std::to_string(m_oOptions.tStartTimeout.count()) + " ms");
@@ -721,6 +765,7 @@ void QtApplicationHost::Stop()
         }
 
         qInstallMessageHandler(s_fPreviousHandler.load());
+        ClearFilterRules();
     }
 
     // What the closed gate turned away so far: Invoke calls made after step 1,
