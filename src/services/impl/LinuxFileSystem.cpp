@@ -259,7 +259,11 @@ std::chrono::system_clock::time_point LinuxFileSystem::GetLastModified(const std
 
 std::unique_ptr<TextReader> LinuxFileSystem::OpenTextFile(const std::wstring& sPath) const
 {
-    const std::wstring sAbsolutePath = ra::util::String::Widen(MakeAbsolute(sPath));
+    // Kept narrow for the same reason as in GetFileSize: FileTextReader's
+    // wide-path constructor narrows it into a temporary of its own, which is
+    // destroyed before the constructor even returns - after the failed open,
+    // but before the errno read below.
+    const std::string sAbsolutePath = MakeAbsolute(sPath);
 
     auto pReader = std::make_unique<FileTextReader>(sAbsolutePath);
     if (!pReader->GetFStream().is_open())
@@ -276,7 +280,8 @@ std::unique_ptr<TextReader> LinuxFileSystem::OpenTextFile(const std::wstring& sP
 
 std::unique_ptr<TextWriter> LinuxFileSystem::CreateTextFile(const std::wstring& sPath) const
 {
-    const std::wstring sAbsolutePath = ra::util::String::Widen(MakeAbsolute(sPath));
+    // Kept narrow - see OpenTextFile.
+    const std::string sAbsolutePath = MakeAbsolute(sPath);
 
     auto pWriter = std::make_unique<FileTextWriter>(sAbsolutePath);
     if (!pWriter->GetFStream().is_open())
@@ -293,7 +298,10 @@ std::unique_ptr<TextWriter> LinuxFileSystem::CreateTextFile(const std::wstring& 
 
 std::unique_ptr<TextWriter> LinuxFileSystem::AppendTextFile(const std::wstring& sPath) const
 {
-    const std::wstring sAbsolutePath = ra::util::String::Widen(MakeAbsolute(sPath));
+    // Kept narrow - see OpenTextFile - and also used for the std::ofstream
+    // fallback below, rather than a fresh MakeAbsolute() temporary: that
+    // would be destroyed at the end of the declaration, before the errno read.
+    const std::string sAbsolutePath = MakeAbsolute(sPath);
 
     // cannot use std::ios::app, or the SetPosition method doesn't work
     // have to specify std::ios::in or the previous contents are lost
@@ -302,7 +310,7 @@ std::unique_ptr<TextWriter> LinuxFileSystem::AppendTextFile(const std::wstring& 
     if (!pWriter->GetFStream().is_open())
     {
         // failed to open the file - try creating it
-        std::ofstream oFile(MakeAbsolute(sPath), std::ios::out);
+        std::ofstream oFile(sAbsolutePath, std::ios::out);
         if (!oFile.is_open())
         {
             // See GetFileSize for why this is captured immediately into a

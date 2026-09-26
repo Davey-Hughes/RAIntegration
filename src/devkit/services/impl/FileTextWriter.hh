@@ -24,6 +24,14 @@ public:
     {
     }
 
+#ifndef _MSC_VER
+    /* see the matching FileTextReader constructor */
+    explicit FileTextWriter(const std::string& sFilename, std::ios_base::openmode nMode = std::ios::out)
+        : m_oStream(sFilename, std::ios::binary | nMode)
+    {
+    }
+#endif
+
     void Write(_In_ const std::string& sText) override
     {
         if (m_oStream.is_open())

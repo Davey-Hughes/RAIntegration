@@ -25,6 +25,16 @@ public:
     {
     }
 
+#ifndef _MSC_VER
+    /* for a caller that reads errno after a failed open: the overload above
+       narrows into a temporary that is freed before the constructor returns,
+       and freeing memory isn't guaranteed to preserve errno */
+    explicit FileTextReader(const std::string& sFilename)
+        : m_iStream(sFilename, std::ios::binary)
+    {
+    }
+#endif
+
     bool GetLine(_Out_ std::string& sLine) override
     {
         if (!std::getline(m_iStream, sLine))
