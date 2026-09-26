@@ -105,6 +105,17 @@ public:
     void SetPaused(bool bValue) noexcept { m_bPaused = bValue; }
 
     void QueueMemoryRead(std::function<void()>&& fCallback) const;
+
+    /// <summary>
+    /// Makes memory work queued so far - off Windows, where <see cref="QueueMemoryRead" /> defers work made off the
+    /// frame thread - do nothing when it comes up. Called when the emulator changes games or memory banks, after
+    /// which a queued write would land in the new game's memory and a queued read would describe the wrong game.
+    /// </summary>
+    static void InvalidateQueuedMemoryWork() noexcept;
+
+    /// <summary>Gets how much queued memory work has been dropped in this process after being invalidated.</summary>
+    static uint32_t DroppedQueuedMemoryWorkCount() noexcept;
+
     bool IsOnDoFrameThread() const noexcept
     {
         const auto nFrameThread = m_hDoFrameThread.load();

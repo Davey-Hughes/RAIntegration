@@ -2,8 +2,10 @@
 
 #include "CppUnitTest.h"
 
+#include "Exports.hh"
 #include "services/AchievementRuntime.hh"
 
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
 #include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/mocks/MockAchievementRuntime.hh"
@@ -53,6 +55,8 @@ private:
             };
         }
     };
+
+    static uint8_t ReadNothing(uint32_t) noexcept { return 0; }
 
 public:
     TEST_METHOD(TestReadOnTheFrameThreadRunsInline)
@@ -162,6 +166,62 @@ public:
             [&]() { harness.mockRuntime.QueueMemoryRead(oProbe.Callback()); });
         Assert::IsTrue(oProbe.bRan.load());
         Assert::IsTrue(oProbe.nRanOn != std::this_thread::get_id());
+    }
+
+    TEST_METHOD(TestQueuedReadIsDroppedAfterAGameOrBankChange)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        Probe oProbe;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oProbe.Callback()); });
+        const uint32_t nDroppedBefore = AchievementRuntime::DroppedQueuedMemoryWorkCount();
+
+        AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.Drain();
+
+        Assert::IsFalse(oProbe.bRan.load(), L"memory work queued before a game change ran after it");
+        Assert::AreEqual(nDroppedBefore + 1U, AchievementRuntime::DroppedQueuedMemoryWorkCount());
+
+        Probe oAfter;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oAfter.Callback()); });
+        mockHostThread.Drain();
+        Assert::IsTrue(oAfter.bRan.load(), L"work queued after the change was dropped too");
+    }
+
+    TEST_METHOD(TestReadQueuedForTheNextFrameIsDroppedAfterAGameOrBankChange)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        mockHostThread.RunElsewhere([&]() { harness.FrameHere(); });
+
+        Probe oProbe;
+        harness.mockRuntime.QueueMemoryRead(oProbe.Callback()); // into rc_client's queue
+        AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.RunElsewhere([&]() { harness.FrameHere(); });
+
+        Assert::IsFalse(oProbe.bRan.load(), L"memory work queued before a game change ran at the next frame");
+    }
+
+    TEST_METHOD(TestMemoryBankExportsDropQueuedWork)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        ra::context::mocks::MockEmulatorMemoryContext mockEmulatorMemoryContext;
+        harness.FrameHere();
+
+        Probe oBeforeClear;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oBeforeClear.Callback()); });
+        _RA_ClearMemoryBanks();
+        mockHostThread.Drain();
+        Assert::IsFalse(oBeforeClear.bRan.load(), L"_RA_ClearMemoryBanks did not drop queued memory work");
+
+        Probe oBeforeInstall;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oBeforeInstall.Callback()); });
+        _RA_InstallMemoryBank(0, reinterpret_cast<void*>(&ReadNothing), nullptr, 16);
+        mockHostThread.Drain();
+        Assert::IsFalse(oBeforeInstall.bRan.load(), L"_RA_InstallMemoryBank did not drop queued memory work");
     }
 };
 

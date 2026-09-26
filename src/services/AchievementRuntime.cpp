@@ -289,6 +289,16 @@ static void ScheduleMemoryReadOnFrameThread(std::function<void()>&& fCallback)
     // timely manner or the callback won't get called and the UI will appear unresponsive.
 }
 
+// Bumped whenever the emulator changes games or memory banks. Deferred memory
+// work remembers the value it was queued under (QueueMemoryRead). File
+// statics, so a deferred item never reaches into a runtime a re-init replaced.
+static std::atomic<uint32_t> s_nMemoryWorkGeneration{0};
+static std::atomic<uint32_t> s_nDroppedMemoryWork{0};
+
+void AchievementRuntime::InvalidateQueuedMemoryWork() noexcept { ++s_nMemoryWorkGeneration; }
+
+uint32_t AchievementRuntime::DroppedQueuedMemoryWorkCount() noexcept { return s_nDroppedMemoryWork.load(); }
+
 void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) const
 {
 #ifndef _WIN32
@@ -320,14 +330,28 @@ void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) cons
             return;
         }
 
+        // From here the work may wait. Work queued before the emulator changed
+        // games or memory banks is dropped when it comes up: a write would land
+        // in the new game's memory, and a read would describe the wrong game.
+        auto fDeferred = [nGeneration = s_nMemoryWorkGeneration.load(), fCallback = std::move(fCallback)]() {
+            if (s_nMemoryWorkGeneration.load() != nGeneration)
+            {
+                if (s_nDroppedMemoryWork.fetch_add(1) == 0)
+                    RA_LOG_INFO("Dropped memory work queued before the emulator changed games or memory banks");
+                return;
+            }
+
+            fCallback();
+        };
+
         auto& pDispatcher = ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>();
         if (nFrameThread == std::thread::id{} || nFrameThread == pDispatcher.GetHostThread())
         {
-            pDispatcher.Invoke(std::move(fCallback));
+            pDispatcher.Invoke(std::move(fDeferred));
             return;
         }
 
-        ScheduleMemoryReadOnFrameThread(std::move(fCallback));
+        ScheduleMemoryReadOnFrameThread(std::move(fDeferred));
         return;
     }
 #endif

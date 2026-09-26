@@ -481,6 +481,11 @@ API void CCONV _RA_SetUserAgentDetail(const char* sDetail)
 
 API void CCONV _RA_InstallMemoryBank(int nBankID, void* pReader, void* pWriter, int nBankSize)
 {
+#ifndef _WIN32
+    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+#endif
+
     auto* pEmulatorMemoryContext = dynamic_cast<ra::context::impl::EmulatorMemoryContext*>(&ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>());
     if (pEmulatorMemoryContext)
     {
@@ -492,6 +497,11 @@ API void CCONV _RA_InstallMemoryBank(int nBankID, void* pReader, void* pWriter, 
 
 API void CCONV _RA_InstallMemoryBankBlockReader(int nBankID, void* pReader)
 {
+#ifndef _WIN32
+    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+#endif
+
     auto* pEmulatorMemoryContext = dynamic_cast<ra::context::impl::EmulatorMemoryContext*>(&ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>());
     if (pEmulatorMemoryContext)
     {
@@ -502,6 +512,11 @@ API void CCONV _RA_InstallMemoryBankBlockReader(int nBankID, void* pReader)
 
 API void CCONV _RA_ClearMemoryBanks()
 {
+#ifndef _WIN32
+    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+#endif
+
     auto* pEmulatorMemoryContext = dynamic_cast<ra::context::impl::EmulatorMemoryContext*>(&ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>());
     if (pEmulatorMemoryContext)
         pEmulatorMemoryContext->ClearMemoryBlocks();;
@@ -519,6 +534,11 @@ API unsigned int CCONV _RA_IdentifyHash(const char* sHash)
 
 API void CCONV _RA_ActivateGame(unsigned int nGameId)
 {
+#ifndef _WIN32
+    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+#endif
+
     _RA_SuspendRepaint();
 
     if (nGameId == 0)
@@ -537,6 +557,11 @@ API void CCONV _RA_ActivateGame(unsigned int nGameId)
 
 API int CCONV _RA_OnLoadNewRom(const unsigned char* pROM, unsigned int nROMSize)
 {
+#ifndef _WIN32
+    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+#endif
+
     ra::services::ServiceLocator::GetMutable<ra::services::GameIdentifier>().IdentifyAndActivateGame(pROM, nROMSize);
     return 0;
 }
