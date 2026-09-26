@@ -138,8 +138,19 @@ static void StartWatchdog(unsigned int nSeconds)
 // count them directly. What is countable is the cost the audio backend
 // pays while sounds are actually playing: a burst of N simultaneous sounds
 // holds some fixed number of descriptors plus some number more per concurrent
-// stream. Recovering N from that total is the only external evidence for the
-// overlap guarantee.
+// stream. Recovering N from that total is the only external evidence that a
+// burst opened a stream for every sound in it.
+//
+// That is all it shows. N is read at the burst's peak, and a destroyed
+// QAudioSink keeps its descriptors (about 22) for a further 200-250 ms, so a
+// sound cut off early - ended as the next one starts - still counts at the
+// peak as if it were playing: a library that does that to every sound of a
+// burst of five still scores "5 of 5, burst = 110". What the count does catch
+// is a play that never produces a sink: a library that drops a play arriving
+// while another sound plays scores "1 of 5, burst = 22". The cut-off case is a
+// known gap, and deliberately left uncovered: a check for it would have to be
+// scored on timing - the level after that 200-250 ms tail but before the tone
+// ends - on a desktop whose load moves both.
 //
 // Both halves of the cost are backend implementation details, so neither is
 // hard-coded and neither is assumed. They are separated by calibrating at two
@@ -160,11 +171,12 @@ static void StartWatchdog(unsigned int nSeconds)
 // media.role=Notification, which checks/chime-role.sh counts against this
 // process. Calibrating through QtAudioSystem instead would make the
 // measurement depend on the correctness of the thing it exists to check: a
-// reaper that cannot tell "finished" from "still loading" destroys each sound
-// as the next arrives, so a two-sound calibration run through it never has
-// more than one stream alive, the measured marginal comes out non-positive,
-// and the check below concludes the backend gives no signal instead of
-// concluding the burst it just measured was wrong.
+// library that drops a play arriving while another sound plays - the failure
+// the burst check exists to catch - would turn a two-sound calibration into
+// one stream (its burst of five measures 22 descriptors, one stream's worth),
+// the measured marginal would come out 0, and the check below would conclude
+// the backend gives no signal instead of concluding the burst it just
+// measured was wrong.
 //
 // Where the independently measured marginal cost is not at least one
 // descriptor - a backend that pools them, or a machine too noisy to measure
@@ -997,9 +1009,18 @@ static void RunChecks()
 
             // --- PlayAudioFile from a worker thread ------------------------
             // AchievementRuntime plays unlock sounds from the frame thread, so
-            // this is the real call path, not a contrived one. A decoder or
-            // sink constructed off the application thread would report to a
-            // thread with no event loop, and never finish or be reaped.
+            // this is the real call path, not a contrived one. QtAudioSystem
+            // has to hand the call to the application thread. Run on the
+            // worker instead, it still plays: the tone is decoded already, so
+            // a sink is created there and starts inside start(), and the
+            // descriptor delta reads a whole stream, the same as a GUI-thread
+            // call. But that sink belongs to a thread with no event loop, so
+            // its drained state change is never delivered, it is never
+            // reaped, and its stream stays open. Hence the residue as well:
+            // MeasureAudio settles for 1000 ms after its 1400 ms window, well
+            // past the 0.7 s tone and the 200-250 ms a destroyed sink keeps
+            // its descriptors, so a dispatched call leaves 0 behind, and a
+            // call run on the worker leaves a stream's worth.
             const auto oWorker = MeasureAudio([&pAudio, &sWav]() {
                 std::thread oThread([&pAudio, &sWav]() { pAudio.PlayAudioFile(sWav); });
                 oThread.join();
@@ -1011,16 +1032,23 @@ static void RunChecks()
             }
             else
             {
-                Check(oWorker.Delta() >= nOneSound / 2, "PlayAudioFile off the GUI thread",
+                Check(oWorker.Delta() >= nOneSound / 2 && oWorker.Residue() == 0,
+                      "PlayAudioFile off the GUI thread",
                       "backend engaged (" + std::to_string(oWorker.Delta()) + " vs " +
-                          std::to_string(nOneSound) + " for a GUI-thread call)");
+                          std::to_string(nOneSound) + " for a GUI-thread call), " +
+                          std::to_string(oWorker.Residue()) + " descriptors left over");
             }
 
             // --- the overlap guarantee -------------------------------------
             // Simultaneous unlocks queue several PlayAudioFile calls into one
-            // pass of the event loop. A reap that cannot tell "still loading"
-            // from "finished" destroys each sound as the next arrives and only
-            // the last one is ever heard.
+            // pass of the event loop, and every one of them must play. This
+            // counts the streams the burst opened, at its peak, so it fails a
+            // library that never creates a sink for some of them - dropping a
+            // play that arrives while another sound plays scores "1 of 5". It
+            // cannot see a sound cut off by the next one: the cut sink's
+            // descriptors outlive it by 200-250 ms and still count at the
+            // peak. That gap is known and deliberately not covered; see the
+            // audio instrumentation note near the top of this file.
             constexpr int nBurst = 5;
             const auto oBurst = MeasureAudio([&pAudio, &sWav]() {
                 for (int i = 0; i < nBurst; ++i)
