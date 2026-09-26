@@ -51,6 +51,10 @@
 #include <rcheevos/src/rc_client_internal.h>
 #include <rcheevos/src/rhash/md5.h>
 
+#ifndef _WIN32
+#include "services/impl/HostThreadDispatcher.hh"
+#endif
+
 namespace ra {
 namespace services {
 
@@ -262,20 +266,12 @@ static void DispatchMemoryRead(struct rc_client_scheduled_callback_data_t* callb
     free(callback_data);
 }
 
-void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) const
+// Queues fCallback to run in the next rc_client_idle - at the end of the next
+// rc_client_do_frame, or on its own when the runtime is paused - on whichever
+// thread calls it: the frame thread.
+static void ScheduleMemoryReadOnFrameThread(std::function<void()>&& fCallback)
 {
     auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-    if (pClient->state.allow_background_memory_reads)
-    {
-        fCallback();
-        return;
-    }
-
-    if (m_hDoFrameThread == std::thread::id{} || IsOnDoFrameThread())
-    {
-        fCallback();
-        return;
-    }
 
     QueueMemoryReadData* data = new QueueMemoryReadData();
     Expects(data != nullptr);
@@ -291,6 +287,65 @@ void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) cons
 
     // We have to assume the client will call rc_client_do_frame or rc_client_idle in a
     // timely manner or the callback won't get called and the UI will appear unresponsive.
+}
+
+void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) const
+{
+#ifndef _WIN32
+    // Off Windows the library's UI does not run on the emulator's thread: an
+    // application the library owns runs on a Qt thread of its own
+    // (QtApplicationHost). A read made there - or on a worker - would call the
+    // emulator's memory callbacks while it is mid-frame on its own thread: a
+    // multi-byte value torn across two frames, or a bank list freed under the
+    // reader by _RA_ClearMemoryBanks. So every read made off the frame thread
+    // goes to the frame thread, whether or not rc_client allows background
+    // reads:
+    //  - through the host-thread dispatcher when the frame thread is the
+    //    emulator's own thread, or no frame has run yet. With the emulator's
+    //    RA_InstallHostDispatcher this runs while it is paused, too; without
+    //    one it waits for the next _RA_DoAchievementsFrame (and the dispatcher
+    //    says so, once).
+    //  - into rc_client's queue for the next frame when frames run on some
+    //    other thread, as for an rc_client host that disallows background
+    //    reads. The dispatcher would run it on the _RA_Init thread, which
+    //    races that frame thread.
+    // Every Linux _RA_Init registers the dispatcher; only a unit test that
+    // registers none takes the path below.
+    if (ra::services::ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>())
+    {
+        const auto nFrameThread = m_hDoFrameThread.load();
+        if (nFrameThread != std::thread::id{} && std::this_thread::get_id() == nFrameThread)
+        {
+            fCallback();
+            return;
+        }
+
+        auto& pDispatcher = ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>();
+        if (nFrameThread == std::thread::id{} || nFrameThread == pDispatcher.GetHostThread())
+        {
+            pDispatcher.Invoke(std::move(fCallback));
+            return;
+        }
+
+        ScheduleMemoryReadOnFrameThread(std::move(fCallback));
+        return;
+    }
+#endif
+
+    auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+    if (pClient->state.allow_background_memory_reads)
+    {
+        fCallback();
+        return;
+    }
+
+    if (m_hDoFrameThread.load() == std::thread::id{} || IsOnDoFrameThread())
+    {
+        fCallback();
+        return;
+    }
+
+    ScheduleMemoryReadOnFrameThread(std::move(fCallback));
 }
 
 static rc_client_achievement_info_t* GetAchievementInfo(rc_client_t* pClient, ra::AchievementID nId) noexcept

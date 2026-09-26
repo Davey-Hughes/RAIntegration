@@ -6,6 +6,7 @@
 #include "data/context/EmulatorContext.hh"
 #include "data/models/AchievementModel.hh"
 
+#include <atomic>
 #include <string>
 #include <thread>
 
@@ -104,7 +105,11 @@ public:
     void SetPaused(bool bValue) noexcept { m_bPaused = bValue; }
 
     void QueueMemoryRead(std::function<void()>&& fCallback) const;
-    bool IsOnDoFrameThread() const noexcept { return m_hDoFrameThread != std::thread::id{} && std::this_thread::get_id() == m_hDoFrameThread; }
+    bool IsOnDoFrameThread() const noexcept
+    {
+        const auto nFrameThread = m_hDoFrameThread.load();
+        return nFrameThread != std::thread::id{} && std::this_thread::get_id() == nFrameThread;
+    }
 
     class Synchronizer
     {
@@ -155,7 +160,8 @@ protected:
 
 private:
     bool m_bPaused = false;
-    std::thread::id m_hDoFrameThread{};
+    // written by DoFrame() on the frame thread, read from any thread (QueueMemoryRead, IsOnDoFrameThread)
+    std::atomic<std::thread::id> m_hDoFrameThread{};
 
     int m_nRichPresenceParseResult = RC_OK;
     int m_nRichPresenceErrorLine = 0;
