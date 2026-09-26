@@ -39,8 +39,9 @@ public:
     size_t PooledEffectCount() const;
 
     /// <summary>
-    /// Test seam: the number of decoders started so far, whether they succeeded or not. Each sound file is decoded
-    /// once, so this grows only on the first play of a path.
+    /// Test seam: the number of decodes tried so far, whether they succeeded or not (or, with no decoder backend,
+    /// could not start). Each sound file is decoded once, so this grows only on the first play of a path - and on
+    /// the next play after Stop() cut its decode short.
     /// </summary>
     size_t DecodeCount() const noexcept;
 

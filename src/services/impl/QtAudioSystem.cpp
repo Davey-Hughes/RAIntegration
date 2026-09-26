@@ -62,6 +62,41 @@ void ReapFromPool(std::mutex& oMutex, std::vector<std::unique_ptr<TObject>>& vOb
     pReaped->deleteLater();
 }
 
+// A sink that cannot play - no audio device, a format the device refuses, a
+// stream that broke - would otherwise go without a word: the log would show
+// neither "Playing sound" nor a warning, which is how a silent chime becomes
+// undiagnosable. Every later chime would most likely fail the same way, so
+// only the first failure in the process is reported. Only the Qt thread calls
+// this; the flag is atomic because nothing else guards it. The unit tests
+// cannot see the warning: they build with RA_UTEST, which compiles every
+// RA_LOG_* call to nothing.
+std::atomic<bool> g_bReportedSinkFailure{false};
+
+void ReportSinkFailure(const QString& sPath, QtAudio::Error nError)
+{
+    if (g_bReportedSinkFailure.exchange(true))
+        return;
+
+    const char* sName = "";
+    switch (nError)
+    {
+        case QtAudio::OpenError:
+            sName = " (OpenError)";
+            break;
+        case QtAudio::IOError:
+            sName = " (IOError)";
+            break;
+        case QtAudio::FatalError:
+            sName = " (FatalError)";
+            break;
+        default:
+            break;
+    }
+
+    RA_LOG_WARN("Could not play %s: audio output error %d%s", sPath.toStdString().c_str(),
+                static_cast<int>(nError), sName);
+}
+
 } // namespace
 
 QtAudioSystem::QtAudioSystem(ra::services::IQtApplicationHost& pHost)
@@ -207,7 +242,10 @@ void QtAudioSystem::PlayDecoded(const std::shared_ptr<EffectPool>& pPool, const 
 
                              case QtAudio::StoppedState:
                                  if (pRawSink->error() != QtAudio::NoError)
+                                 {
+                                     ReportSinkFailure(sPath, pRawSink->error());
                                      ReapFromPool(pPool->m_oMutex, pPool->m_vSinks, pRawSink);
+                                 }
                                  break;
 
                              default:
@@ -223,9 +261,14 @@ void QtAudioSystem::PlayDecoded(const std::shared_ptr<EffectPool>& pPool, const 
     // reporting anything. Its handler then ran, if at all, against a pool
     // that did not hold it yet, found nothing to reap and scheduled no
     // delete - so let pSink go out of scope here, outside any emission of its
-    // signals.
+    // signals. A failure its handler saw is reported already, and
+    // ReportSinkFailure reports only the first anyway.
     if (pRawSink->state() == QtAudio::StoppedState)
+    {
+        if (pRawSink->error() != QtAudio::NoError)
+            ReportSinkFailure(sPath, pRawSink->error());
         return;
+    }
 
     std::scoped_lock<std::mutex> oLock(pPool->m_oMutex);
     pPool->m_vSinks.push_back(std::move(pSink));
@@ -236,6 +279,21 @@ void QtAudioSystem::StartDecoding(const std::shared_ptr<EffectPool>& pPool, cons
     ++pPool->m_nDecodesStarted;
 
     auto pDecoder = std::make_unique<QAudioDecoder>();
+
+    // Without a multimedia backend to decode with - Qt's FFmpeg plugin not
+    // installed - a decoder reports nothing once started, neither finished()
+    // nor error(), and the path would wait in m_mPendingPlays forever. It
+    // counts as a failed decode instead, reported once like any other; the
+    // decoder was never started, so it goes when this returns. No unit test
+    // covers this: it needs Qt's multimedia plugin to be missing.
+    if (!pDecoder->isSupported())
+    {
+        pPool->m_mPendingPlays.erase(sPath);
+        if (pPool->m_vFailed.insert(sPath).second)
+            RA_LOG_WARN("Could not decode %s: no audio decoder available", sPath.toStdString().c_str());
+        return;
+    }
+
     QAudioDecoder* const pRawDecoder = pDecoder.get();
 
     // Filled buffer by buffer, then cached whole once the decode finishes.

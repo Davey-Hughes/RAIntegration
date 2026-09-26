@@ -247,6 +247,51 @@ public:
         Assert::AreEqual(size_t(0), oAudioSystem.PooledEffectCount(), L"Stop() left objects in the pool");
     }
 
+    TEST_METHOD(TestStopMidDecodeThenStartDecodesAndPlaysAfresh)
+    {
+        // Stop() cuts a decode short: its decoder goes, and so do the plays
+        // waiting on it. Nothing of that decode may reach the next Start() -
+        // not a pending count that swallows the next play, and not a cached
+        // result or a "failed" mark from the decoder's stop() - so the next
+        // play of the path decodes it afresh and plays it once. PlaybackCount()
+        // counts sinks as they are created, whether or not a device then lets
+        // them start, so none of this depends on an audio device.
+        TempDirectory oDirectory;
+        WriteSilentWav(oDirectory.Path() + "/silence.wav");
+
+        ra::services::mocks::MockFileSystem mockFileSystem;
+        mockFileSystem.SetBaseDirectory(ra::util::String::Widen(oDirectory.Path() + "/"));
+
+        int nArgc = 3;
+        char sArg0[] = "ra_tests";
+        char sArg1[] = "-platform";
+        char sArg2[] = "offscreen";
+        char* vArgv[] = {sArg0, sArg1, sArg2, nullptr};
+        QGuiApplication oApplication(nArgc, vArgv);
+
+        QtApplicationHost oHost;
+        oHost.Start(); // borrows oApplication
+        QtAudioSystem oAudioSystem(oHost);
+
+        // Inline on this thread, so the decoder is pooled when this returns,
+        // and it cannot finish before the event loop turns.
+        oAudioSystem.PlayAudioFile(L"silence.wav");
+        Assert::AreEqual(size_t(1), oAudioSystem.PooledEffectCount(), L"the decoder was not pooled");
+
+        oHost.Stop();
+        Assert::AreEqual(size_t(0), oAudioSystem.PooledEffectCount(), L"Stop() left the decoder in the pool");
+
+        oHost.Start();
+        oAudioSystem.PlayAudioFile(L"silence.wav");
+        PumpUntil([&oAudioSystem]() { return oAudioSystem.PooledEffectCount() == 0; });
+        Assert::AreEqual(size_t(2), oAudioSystem.DecodeCount(),
+                         L"the play after Start() did not decode the file afresh");
+        Assert::AreEqual(size_t(1), oAudioSystem.PlaybackCount(),
+                         L"the play after Start() did not play exactly once");
+
+        oHost.Stop();
+    }
+
     TEST_METHOD(TestDecodesEachFileOnce)
     {
         TempDirectory oDirectory;
