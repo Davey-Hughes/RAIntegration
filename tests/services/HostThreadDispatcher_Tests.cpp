@@ -125,6 +125,47 @@ public:
         Assert::AreEqual(1, nRan.load());
     }
 
+    TEST_METHOD(TestResetMakesTheCallingThreadTheHostThreadAndAcceptsWorkAgain)
+    {
+        // An _RA_Init that finds the dispatcher still registered resets it in
+        // place. That Reset() also logs how much it discarded cannot be seen
+        // here: RA_UTEST compiles RA_LOG out.
+        {
+            std::lock_guard<std::mutex> oLock(PostedMutex());
+            Posted().clear();
+        }
+        HostThreadDispatcher oDispatcher;
+        oDispatcher.SetPostFunction(&RecordPost);
+        std::atomic<int> nRan{0};
+
+        // a second _RA_Init with no _RA_Shutdown between: what was queued
+        // targets the runtime being replaced, and is discarded
+        std::thread([&]() { oDispatcher.Invoke([&nRan]() { ++nRan; }); }).join();
+        Assert::AreEqual(size_t(1), oDispatcher.PendingCount());
+        oDispatcher.Reset();
+        Assert::AreEqual(size_t(0), oDispatcher.PendingCount(), L"Reset() kept work queued before it");
+
+        // an _RA_Init after an _RA_Shutdown, from another thread than the first
+        oDispatcher.Shutdown();
+        {
+            std::lock_guard<std::mutex> oLock(PostedMutex());
+            Posted().clear();
+        }
+        bool bNewHostIsHost = false;
+        std::thread([&]() {
+            oDispatcher.Reset();
+            bNewHostIsHost = oDispatcher.IsOnHostThread();
+        }).join();
+        Assert::IsTrue(bNewHostIsHost, L"Reset() did not record the calling thread as the host thread");
+        Assert::IsFalse(oDispatcher.IsOnHostThread(), L"the old host thread is still the host thread");
+
+        // this thread is another thread now: its work is queued, and posted
+        oDispatcher.Invoke([&nRan]() { ++nRan; });
+        Assert::AreEqual(0, nRan.load(), L"work ran inline off the new host thread");
+        Assert::AreEqual(size_t(1), oDispatcher.PendingCount(), L"work from another thread refused after Reset()");
+        Assert::AreEqual(size_t(1), PostedCount(), L"Reset() dropped the post function");
+    }
+
     TEST_METHOD(TestRunPostedWithNoDispatcherRegisteredDoesNothing)
     {
         // A post that outlives its dispatcher (see RunPosted) arrives with no

@@ -113,6 +113,31 @@ void PinQtLibraries()
     }
 }
 
+// Called just before the Qt thread is detached - a start or a stop that timed
+// out. That thread is still in this library's code (RunOwnedThread, and the
+// functors queued on its loop), and nothing will ever join it, so a loader
+// that dlclose()s the library as RA_Shutdown returns would unmap the code it
+// is running or will return into. RTLD_NODELETE on our own module keeps it
+// mapped for the rest of the process. The cost - a later dlopen of the same
+// path gets this copy back, statics and all, instead of a fresh one - falls
+// only on a process whose Qt thread has already hung.
+void PinOwnLibrary()
+{
+    Dl_info oInfo{};
+    if (::dladdr(reinterpret_cast<void*>(&PinOwnLibrary), &oInfo) == 0 || oInfo.dli_fname == nullptr)
+    {
+        RA_LOG_WARN("Could not pin the library under its detached Qt thread: dladdr found no module");
+        return;
+    }
+
+    if (::dlopen(oInfo.dli_fname, RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE) == nullptr)
+    {
+        const char* sError = ::dlerror();
+        RA_LOG_WARN("Could not pin %s under its detached Qt thread: %s", oInfo.dli_fname,
+                    sError ? sError : "not loaded");
+    }
+}
+
 // RA_LOG from the Qt thread, which can run when no logger is registered - a
 // thread detached by a timed-out Stop() outlives RA_Shutdown - where RA_LOG's
 // ServiceLocator::Get would throw. The check ForwardQtMessage makes, for the
@@ -266,6 +291,7 @@ void QtApplicationHost::StartOwned()
             // Tearing down a half-built application from this thread is not
             // safe; leave the thread to finish (or not) on its own. It holds
             // everything it uses, argv included, in pState.
+            PinOwnLibrary();
             m_oThread.detach();
         }
         m_pOwnedState.reset();
@@ -590,6 +616,7 @@ void QtApplicationHost::Stop()
             // it holds everything it uses, argv included, in pState
             RA_LOG_WARN("Qt thread did not exit within %d ms; detaching it",
                         static_cast<int>(m_oOptions.tStopTimeout.count()));
+            PinOwnLibrary();
             m_oThread.detach();
         }
 

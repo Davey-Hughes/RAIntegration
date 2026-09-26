@@ -77,6 +77,17 @@ void HostThreadDispatcher::Shutdown()
         RA_LOG_INFO("Discarded %zu host-thread call(s) at shutdown", nDiscarded);
 }
 
+void HostThreadDispatcher::Reset()
+{
+    // The work queued so far targets the runtime being replaced. Between the
+    // two blocks, work from other threads is refused, as during a shutdown.
+    Shutdown();
+
+    std::lock_guard<std::mutex> oLock(m_oMutex);
+    m_nHostThread = std::this_thread::get_id();
+    m_bShutdown = false;
+}
+
 size_t HostThreadDispatcher::PendingCount() const
 {
     std::lock_guard<std::mutex> oLock(m_oMutex);
