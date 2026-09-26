@@ -33,6 +33,10 @@
 #include "services/impl/LoginService.hh"
 #include "services/impl/OfflineRcClient.hh"
 
+#ifndef _WIN32
+#include "services/impl/HostThreadDispatcher.hh"
+#endif
+
 #include "ui/viewmodels/IntegrationMenuViewModel.hh"
 #include "ui/viewmodels/LoginViewModel.hh"
 #include "ui/viewmodels/MessageBoxViewModel.hh"
@@ -289,6 +293,16 @@ API void CCONV _RA_InstallSharedFunctionsExt(bool(*)(void), void(*fpCauseUnpause
     pEmulatorContext.SetUnpauseFunction(fpCauseUnpause);
     pEmulatorContext.SetGetGameTitleFunction(fpEstimateTitle);
     pEmulatorContext.SetRebuildMenuFunction(fpRebuildMenu);
+}
+
+API void CCONV _RA_InstallHostDispatcher([[maybe_unused]] void (*fpPost)(void (*fpWork)(void*), void* pContext))
+{
+#ifndef _WIN32
+    if (ra::services::ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>())
+        ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>().SetPostFunction(fpPost);
+#endif
+    // On Windows the toolkit marshals the emulator's callbacks through its own
+    // dispatching window (WindowBinding::InvokeOnUIThread); nothing to install.
 }
 
 #ifdef _WIN32
@@ -604,6 +618,13 @@ static void UpdateUIForFrameChange()
 
 API void CCONV _RA_DoAchievementsFrame()
 {
+#ifndef _WIN32
+    // The emulator's callbacks queued from other threads while it had no
+    // dispatcher installed (see HostThreadDispatcher). Only on its own thread.
+    if (ra::services::ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>())
+        ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>().DrainIfOnHostThread();
+#endif
+
 #if !defined(RA_UTEST) && defined(_WIN32)
     ra::ui::win32::bindings::ControlBinding::RepaintGuard guard;
 #endif

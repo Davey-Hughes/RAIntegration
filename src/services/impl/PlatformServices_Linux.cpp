@@ -4,6 +4,7 @@
 
 #include "services/IQtApplicationHost.hh"
 #include "services/ServiceLocator.hh"
+#include "services/impl/HostThreadDispatcher.hh"
 #include "services/impl/LinuxDebuggerDetector.hh"
 #include "services/impl/LinuxFileSystem.hh"
 #include "services/impl/LinuxHttpRequester.hh"
@@ -13,7 +14,7 @@
 #include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
-#include "ui/null/NullDesktop.hh"
+#include "ui/null/LinuxDesktop.hh"
 #include "ui/null/NullImageRepository.hh"
 
 namespace ra {
@@ -52,7 +53,7 @@ std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector(
 
 std::unique_ptr<ra::ui::IDesktop> CreatePlatformDesktop()
 {
-    return std::make_unique<ra::ui::null::NullDesktop>();
+    return std::make_unique<ra::ui::null::LinuxDesktop>();
 }
 
 std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
@@ -67,6 +68,10 @@ std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository()
 
 void StartPlatformServices()
 {
+    // RegisterServices runs on the emulator's thread (from _RA_Init*), which is
+    // the thread the dispatcher records as the host's.
+    ra::services::ServiceLocator::Provide<HostThreadDispatcher>(std::make_unique<HostThreadDispatcher>());
+
     // A second _RA_Init without an intervening shutdown replaces the host
     // while the old one is still registered and running. It must be Stop()ped
     // BEFORE the new host is constructed: Start() looks the running Qt
@@ -87,6 +92,9 @@ void StartPlatformServices()
 
 void StopPlatformServices()
 {
+    if (ra::services::ServiceLocator::Exists<HostThreadDispatcher>())
+        ra::services::ServiceLocator::GetMutable<HostThreadDispatcher>().Shutdown();
+
     if (ra::services::ServiceLocator::Exists<ra::services::IQtApplicationHost>())
         ra::services::ServiceLocator::GetMutable<ra::services::IQtApplicationHost>().Stop();
 }

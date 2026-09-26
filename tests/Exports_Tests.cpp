@@ -34,6 +34,13 @@
 #include "ui/viewmodels/MessageBoxViewModel.hh"
 #include "ui/viewmodels/WindowManager.hh"
 
+#ifndef _WIN32
+#include "services/impl/HostThreadDispatcher.hh"
+
+#include <atomic>
+#include <thread>
+#endif
+
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 using ra::api::mocks::MockServer;
@@ -429,6 +436,9 @@ private:
     class DoAchievementsFrameHarness
     {
     public:
+        // Constructed first: MockAchievementRuntime's constructor asserts an
+        // IRcClient is already registered.
+        MockRcClient mockRcClient;
         MockAchievementRuntime mockRuntime;
         MockGameContext mockGameContext;
         MockDesktop mockDesktop;
@@ -447,6 +457,37 @@ private:
         MockServer mockServer;
         MockUserContext mockUserContext;
     };
+
+#ifndef _WIN32
+    static int s_nHostPosts;
+    static void CountHostPost(void (*)(void*), void*) { ++s_nHostPosts; }
+
+    TEST_METHOD(TestDoAchievementsFrameDrainsQueuedHostWork)
+    {
+        DoAchievementsFrameHarness harness;
+        ra::services::impl::HostThreadDispatcher oDispatcher; // this thread is the host's
+        ra::services::ServiceLocator::ServiceOverride<ra::services::impl::HostThreadDispatcher> oOverride(&oDispatcher);
+
+        std::atomic<bool> bRan{false};
+        std::thread([&]() { oDispatcher.Invoke([&bRan]() { bRan = true; }); }).join();
+        Assert::IsFalse(bRan.load());
+
+        _RA_DoAchievementsFrame();
+        Assert::IsTrue(bRan.load(), L"the frame did not drain host work queued with no dispatcher installed");
+    }
+
+    TEST_METHOD(TestInstallHostDispatcherReachesTheDispatcher)
+    {
+        ra::services::impl::HostThreadDispatcher oDispatcher;
+        ra::services::ServiceLocator::ServiceOverride<ra::services::impl::HostThreadDispatcher> oOverride(&oDispatcher);
+        std::thread([&]() { oDispatcher.Invoke([]() {}); }).join();
+
+        s_nHostPosts = 0;
+        _RA_InstallHostDispatcher(&CountHostPost);
+        Assert::AreEqual(1, s_nHostPosts, L"installing the dispatcher did not post the queued work");
+        _RA_InstallHostDispatcher(nullptr);
+    }
+#endif
 
     void AssertMenuItem(const RA_MenuItem* pItem, RA_MenuItemId nId, const wchar_t* sLabel, bool bChecked = false)
     {
@@ -588,6 +629,10 @@ private:
         Assert::AreEqual(std::wstring(L"MyClient - 1.2 - User_"), mockWindowManager.Emulator.GetWindowTitle());
     }
 };
+
+#ifndef _WIN32
+int Exports_Tests::s_nHostPosts = 0;
+#endif
 
 } // namespace tests
 } // namespace ra

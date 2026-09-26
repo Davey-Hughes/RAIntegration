@@ -149,6 +149,10 @@ extern "C" {
     API void CCONV _RA_InstallSharedFunctions(bool(*)(void), void(*fpCauseUnpause)(void), void(*fpRebuildMenu)(void), void(*fpEstimateTitle)(char*), void(*fpResetEmulation)(void), void(*fpLoadROM)(const char*));
     API void CCONV _RA_InstallSharedFunctionsExt(bool(*)(void), void(*fpCauseUnpause)(void), void(*fpCausePause)(void), void(*fpRebuildMenu)(void), void(*fpEstimateTitle)(char*), void(*fpResetEmulation)(void), void(*fpLoadROM)(const char*));
 
+    // Lets the toolkit run the functions above on the emulator's own thread when it needs them from another one.
+    // See RA_InstallHostDispatcher in RA_Interface.h. Ignored on Windows.
+    API void CCONV _RA_InstallHostDispatcher(void (*fpPost)(void (*fpWork)(void*), void* pContext));
+
     struct ControllerInput;
     API void CCONV _RA_NavigateOverlay(_In_ const ControllerInput* pInput);
     API int CCONV _RA_IsOverlayFullyVisible();
