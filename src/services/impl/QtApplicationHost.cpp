@@ -163,8 +163,9 @@ QtApplicationHost::QtApplicationHost(Options oOptions)
 
 QtApplicationHost::~QtApplicationHost() noexcept
 {
-    // Initialization::Shutdown stops the host. This covers a host replaced or
-    // destroyed without that - a second _RA_Init, or a test.
+    // Initialization::Shutdown stops the host, and a second _RA_Init restarts
+    // it in place (StartPlatformServices). This covers a host destroyed
+    // without either - a test, or static destruction after no shutdown.
     const Mode nMode = m_nMode.load();
     if (nMode == Mode::Owned || nMode == Mode::Borrowed)
         Stop();

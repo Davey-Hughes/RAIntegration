@@ -619,8 +619,10 @@ static void UpdateUIForFrameChange()
 API void CCONV _RA_DoAchievementsFrame()
 {
 #ifndef _WIN32
-    // The emulator's callbacks queued from other threads while it had no
-    // dispatcher installed (see HostThreadDispatcher). Only on its own thread.
+    // The emulator's callbacks queued from other threads (see
+    // HostThreadDispatcher). Drained here whether or not the emulator
+    // installed a dispatcher - without one this is the only place they run -
+    // and only on the emulator's own thread.
     if (ra::services::ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>())
         ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>().DrainIfOnHostThread();
 #endif
