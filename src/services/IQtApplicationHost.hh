@@ -44,8 +44,9 @@ public:
     virtual void Invoke(std::function<void()> fAction) const = 0;
 
     /// <summary>
-    /// Like <see cref="Invoke" />, but waits up to <paramref name="tTimeout" /> for <paramref name="fAction" /> to
-    /// finish. Returns <c>false</c> if it was dropped or had not started in time; it then never runs, so
+    /// Like <see cref="Invoke" />, but waits: up to <paramref name="tTimeout" /> for <paramref name="fAction" /> to
+    /// start, and once it has started, for as long as it takes to finish - so a hung <paramref name="fAction" />
+    /// hangs the caller. Returns <c>false</c> if it was dropped or had not started in time; it then never runs, so
     /// <paramref name="fAction" /> may capture the caller's locals by reference.
     /// </summary>
     virtual bool InvokeAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout) const = 0;
@@ -58,7 +59,8 @@ public:
 
     /// <summary>
     /// Refuses further work, runs the stop hooks on the Qt thread and - when the application is owned - ends and
-    /// joins that thread.
+    /// joins that thread. The hooks are waited for as <see cref="InvokeAndWait" /> waits: skipped if the Qt thread
+    /// does not start them in time, but once started, waited for without limit - a hung hook hangs Stop.
     /// </summary>
     virtual void Stop() = 0;
 

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -132,6 +133,60 @@ public:
         Assert::IsTrue(bInnerReturned && bInnerRan, L"a wait from the Qt thread did not run inline");
     }
 
+    TEST_METHOD(TestInvokeAndWaitThatTimesOutBeforeItStartsNeverRuns)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+
+        // hold the Qt thread, so the waited call cannot start in time
+        std::mutex oMutex;
+        std::condition_variable cvRelease;
+        bool bRelease = false;
+        oHost.Invoke([&]() {
+            std::unique_lock<std::mutex> oLock(oMutex);
+            cvRelease.wait(oLock, [&bRelease]() { return bRelease; });
+        });
+
+        std::atomic<bool> bRan{false};
+        const bool bResult = oHost.InvokeAndWait([&bRan]() { bRan = true; }, 50ms);
+
+        {
+            std::lock_guard<std::mutex> oLock(oMutex);
+            bRelease = true;
+        }
+        cvRelease.notify_all();
+
+        // queued behind the timed-out call: once it has run, that call has
+        // had its turn
+        const bool bSentinelRan = oHost.InvokeAndWait([]() {}, 5s);
+        oHost.Stop();
+
+        Assert::IsFalse(bResult, L"a call that never started was reported as run");
+        Assert::IsTrue(bSentinelRan);
+        Assert::IsFalse(bRan.load(), L"a call that timed out before it started ran later");
+    }
+
+    TEST_METHOD(TestInvokeAndWaitThatHasStartedIsWaitedFor)
+    {
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+
+        // the limit covers starting only: a call already running may use the
+        // caller's locals, so it is waited for past the limit
+        std::atomic<bool> bFinished{false};
+        const bool bResult = oHost.InvokeAndWait(
+            [&bFinished]() {
+                std::this_thread::sleep_for(200ms);
+                bFinished = true;
+            },
+            50ms);
+        const bool bFinishedOnReturn = bFinished.load();
+        oHost.Stop();
+
+        Assert::IsTrue(bResult, L"a call that had started was reported as not run");
+        Assert::IsTrue(bFinishedOnReturn, L"InvokeAndWait returned while its call was still running");
+    }
+
     TEST_METHOD(TestStopRefusesLaterWork)
     {
         QtApplicationHost oHost(OffscreenOptions());
@@ -161,8 +216,11 @@ public:
         });
         oHost.Invoke([&bSecondRan]() { bSecondRan = true; });
 
+        // released only once Stop() has closed the gate, so the second call
+        // finds it closed whenever it runs
         std::thread oReleaser([&]() {
-            std::this_thread::sleep_for(200ms);
+            while (oHost.IsAvailable())
+                std::this_thread::sleep_for(1ms);
             {
                 std::lock_guard<std::mutex> oLock(oMutex);
                 bRelease = true;
@@ -264,6 +322,31 @@ public:
         oHost.Stop();
         Assert::IsTrue(bHookRan);
         Assert::IsTrue(QCoreApplication::instance() == &oApplication, L"Stop() touched the host's application");
+    }
+
+    TEST_METHOD(TestBorrowedStopTakesQueuedWorkOutOfTheHostsLoop)
+    {
+        OffscreenArguments oArguments;
+        QGuiApplication oApplication(oArguments.nArgc, oArguments.vArgv);
+
+        QtApplicationHost oHost(OffscreenOptions());
+        oHost.Start();
+        Assert::IsTrue(oHost.GetMode() == QtApplicationHost::Mode::Borrowed);
+
+        // A worker's call waits in this thread's queue - the host's - until the
+        // loop turns. Only that queued call holds pToken.
+        auto pToken = std::make_shared<int>(0);
+        const std::weak_ptr<int> pQueued = pToken;
+        std::thread oWorker([&oHost, pToken = std::move(pToken)]() { oHost.Invoke([pToken]() {}); });
+        oWorker.join();
+        Assert::IsFalse(pQueued.expired(), L"the worker's call is not queued");
+
+        // Stop() on the Qt thread must leave none of this library's code in the
+        // host's queue: once the library is unloaded, the host's loop would run
+        // or destroy it there. This loop never turns, so only Stop() can have
+        // destroyed the call.
+        oHost.Stop();
+        Assert::IsTrue(pQueued.expired(), L"work queued before Stop() is still in the host's event queue");
     }
 
     TEST_METHOD(TestNonGuiHostApplicationIsUnavailable)

@@ -73,8 +73,12 @@ public:
     void Stop() override;
 
 private:
-    // Carried by every queued call. Stop() closes it, so a call still queued then - even one that runs after this
-    // object is gone - does nothing.
+    // Carried by every queued call, and checked as the call runs. Stop() closes it before anything else, so a call
+    // queued before Stop() began but not yet run does nothing - whether it runs ahead of the stop hooks or after
+    // this object is gone. That covers this object's lifetime, not the library's: the queued event and the functor
+    // it holds are this library's code, and in borrowed mode they sit in the host's event queue. So Stop() also
+    // deletes m_pContext, which discards the calls still queued on it while the library is loaded (Stop() names
+    // the cases that still leave an event behind).
     struct Gate
     {
         std::atomic<bool> bOpen{false};
@@ -83,7 +87,9 @@ private:
     struct OwnedThreadState; // defined in the .cpp
 
     void StartOwned();
-    void RunOwnedThread(std::shared_ptr<OwnedThreadState> pState);
+    // Static, and given only the state it shares with the host: a thread Start() or Stop() gave up on and detached
+    // may outlive this object, so it must not reach back into it.
+    static void RunOwnedThread(std::shared_ptr<OwnedThreadState> pState);
     void MarkUnavailable(std::string sReason);
     bool Post(std::function<void()> fAction, bool bIgnoreGate) const;
     bool RunAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout, bool bIgnoreGate) const;
@@ -93,10 +99,13 @@ private:
     std::atomic<bool> m_bHasWidgets{false};
     std::string m_sUnavailableReason;
 
-    // Guards m_pGate and m_pApplication against Stop() while another thread is posting.
+    // Guards m_pGate, m_pApplication and m_pContext against Stop() while another thread is posting.
     mutable std::shared_mutex m_oLifetimeMutex;
     std::shared_ptr<Gate> m_pGate;
     QObject* m_pApplication = nullptr;
+    // A plain QObject on the application's thread. Every call but Stop()'s own hook call is queued on it rather than
+    // on the application, so that deleting it - which Stop() does on the Qt thread - discards what is still queued.
+    QObject* m_pContext = nullptr;
 
     std::mutex m_oHooksMutex;
     std::vector<std::function<void()>> m_vStopHooks;
@@ -104,9 +113,6 @@ private:
     // owned mode only
     std::thread m_oThread;
     std::shared_ptr<OwnedThreadState> m_pOwnedState;
-    std::vector<std::string> m_vArgumentStorage; // argv must outlive the application
-    std::vector<char*> m_vArgv;
-    int m_nArgc = 0;
 };
 
 } // namespace impl
