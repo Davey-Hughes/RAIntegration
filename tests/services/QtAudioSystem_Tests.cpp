@@ -134,6 +134,11 @@ public:
 
     TEST_METHOD(TestUnavailableHostPlaysNothing)
     {
+        // QtAudioSystem reports an unavailable host once (a WARN on the first
+        // call only, guarded by m_bReportedUnavailable), but this cannot be
+        // observed here because the test build defines RA_UTEST, which
+        // compiles every RA_LOG_* call to nothing. This test checks only that
+        // nothing is pooled.
         QtApplicationHost::Options oOptions;
         oOptions.fProbe = []() { return DisplayProbeResult{false, "test: no display"}; };
         QtApplicationHost oHost(oOptions);

@@ -33,10 +33,12 @@ public:
 private:
     // Holds the effects PlayAudioFile creates, and the mutex guarding them.
     // This lives behind a shared_ptr rather than as plain members so it can
-    // outlive *this*: PlayAudioFile hands a copy of the shared_ptr to the
-    // QMetaObject::invokeMethod call it queues onto the application thread,
-    // and each effect's own finish handler (see the .cpp) holds another
-    // copy. If the audio system were ever replaced via
+    // outlive *this*: PlayAudioFile passes the lambda to m_pHost.Invoke,
+    // which runs it inline when already on the Qt thread and queues it
+    // otherwise; that lambda holds a copy of m_pPool. The constructor also
+    // registers a stop hook that holds another copy. Each effect's own
+    // finish handler (playingChanged/statusChanged, see the .cpp) holds
+    // another copy. If the audio system were ever replaced via
     // ServiceLocator::Provide while a call is still queued or a sound is
     // still playing, the pool stays alive until the last reference drops
     // it, instead of leaving those callbacks pointing at a freed
