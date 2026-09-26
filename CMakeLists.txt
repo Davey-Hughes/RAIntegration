@@ -53,7 +53,12 @@ list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "/services/impl/Windows")
 list(FILTER PORTABLE_SOURCES EXCLUDE REGEX "PlatformServices_Win32")
 
 find_package(CURL REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Gui Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Gui Multimedia Widgets)
+
+# glib's own API, for the test that proves the library's Qt application leaves
+# glib's default main context to the host (QtApplicationHost_Tests).
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLIB2 REQUIRED IMPORTED_TARGET glib-2.0)
 
 add_library(ra_portable OBJECT ${PORTABLE_SOURCES})
 
@@ -75,7 +80,7 @@ target_include_directories(ra_portable PRIVATE
 # carries the include directories in both modes. Linking a library into an
 # OBJECT library for its usage requirements is legal from CMake 3.12.
 target_link_libraries(ra_portable PRIVATE CURL::libcurl)
-target_link_libraries(ra_portable PUBLIC Qt6::Gui Qt6::Multimedia)
+target_link_libraries(ra_portable PUBLIC Qt6::Gui Qt6::Multimedia Qt6::Widgets)
 
 # RA_EXPORTS is what the DLL build defines; in RA_Defs.h it also selects the
 # branch that does not pull in <Windows.h>.
@@ -214,7 +219,7 @@ target_include_directories(ra_tests PRIVATE
 target_compile_definitions(ra_tests PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH RA_UTEST)
 
 target_link_libraries(ra_tests PRIVATE rcheevos CURL::libcurl)
-target_link_libraries(ra_tests PRIVATE Qt6::Gui Qt6::Multimedia)
+target_link_libraries(ra_tests PRIVATE Qt6::Gui Qt6::Multimedia Qt6::Widgets PkgConfig::GLIB2)
 
 # src/pch.h is force-included by the MSVC test project and, under RA_UTEST,
 # force-includes CppUnitTest.h with it. Several test sources rely on that and
@@ -265,7 +270,7 @@ target_compile_options(ra_entry PRIVATE -include msvc_compat.h -fdeclspec
   -Wno-unknown-pragmas -Wno-pragma-pack)
 # For their usage requirements only - include directories, and rcheevos'
 # RC_CLIENT_SUPPORTS_HASH. An OBJECT library links nothing itself.
-target_link_libraries(ra_entry PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+target_link_libraries(ra_entry PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia Qt6::Widgets)
 
 # Everything that goes into libRA_Integration.so is position-independent and
 # hidden by default, so that for RAIntegration's own code the API macro in
@@ -302,7 +307,7 @@ target_include_directories(ra_linux_smoke PRIVATE
 target_compile_definitions(ra_linux_smoke PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH)
 target_compile_options(ra_linux_smoke PRIVATE -include msvc_compat.h -fdeclspec
   -Wno-unknown-pragmas -Wno-pragma-pack)
-target_link_libraries(ra_linux_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+target_link_libraries(ra_linux_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia Qt6::Widgets)
 
 # The library a Linux RA_Interface loader dlopens: the counterpart of
 # RA_Integration.dll, built from the same objects as the harness.
@@ -327,7 +332,7 @@ add_library(RA_Integration SHARED
   $<TARGET_OBJECTS:ra_entry> $<TARGET_OBJECTS:ra_portable>)
 # It has no source file of its own to infer the link language from.
 set_target_properties(RA_Integration PROPERTIES LINKER_LANGUAGE CXX)
-target_link_libraries(RA_Integration PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia)
+target_link_libraries(RA_Integration PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia Qt6::Widgets)
 #
 # -Bsymbolic-functions binds the library's calls to its own functions at link
 # time, as they always are inside a Windows DLL. Without it, 8 _RA_* exports
