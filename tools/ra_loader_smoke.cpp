@@ -8,6 +8,8 @@
 //
 //   missing          no libRA_Integration.so: every RA_* call does nothing, safely
 //   offline          host.txt says OFFLINE: init, shut down, nothing left running
+//   headless         as offline, but with no display at all: the library must
+//                    report its Qt services unavailable and not abort
 //   online-loaded    log in with a staged token, load a real game, shut down
 //                    with it still loaded
 //   online-inflight  as online-loaded, but shut down while the load is in flight
@@ -151,6 +153,33 @@ int RunOffline()
     return Finish("ra_loader_smoke");
 }
 
+// headless: loader-smoke.sh runs this with DISPLAY, WAYLAND_DISPLAY and
+// QT_QPA_PLATFORM unset, and host.txt saying OFFLINE. Asked to start without a
+// display, Qt calls qFatal and aborts the process; the library must find that
+// out first, say so, and run on without its Qt services.
+int RunHeadless()
+{
+    const size_t nThreadsBefore = CountThreads();
+    Check(nThreadsBefore >= 1, "/proc/self/task readable", std::to_string(nThreadsBefore) + " thread(s) before init");
+
+    RA_InitClient(nullptr, CLIENT_NAME, CLIENT_VERSION);
+
+    Check(LogContains("Qt services unavailable: no usable display"), "no display: Qt services unavailable",
+          InLog("Qt services unavailable: no usable display"));
+    Check(LogContains("Initializing offline mode"), "offline entry point chosen", InLog("Initializing offline mode"));
+
+    RA_Shutdown();
+
+    // strict: with no Qt application there is no D-Bus thread either
+    const size_t nThreadsAfter = CountThreads();
+    Check(nThreadsAfter == nThreadsBefore, "no thread outlives RA_Shutdown()",
+          std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfter) + " after shutdown");
+
+    Check(LogContains("Shutdown complete"), "library shut down", InLog("Shutdown complete"));
+
+    return Finish("ra_loader_smoke");
+}
+
 // Super Mario Bros. (NES): game 1446 on retroachievements.org, with 77
 // published achievements. Checked 2026-09-24 with r=gameid and r=patch.
 constexpr const char* KNOWN_HASH = "8e3630186e35d477231bf8fd50e54cdd";
@@ -226,10 +255,12 @@ int RunOnline(bool bInFlight, int nDelayMs)
     const std::string sLoggedIn = RA_UserName();
     Check(!sLoggedIn.empty(), "logged in with the staged token", "RA_UserName() is \"" + sLoggedIn + "\"");
 
-    // The login handler plays login.wav. With no QGuiApplication the Qt audio
-    // service must refuse, say so, and leave the process running.
-    Check(LogContains("PlayAudioFile ignored: no QGuiApplication"), "Qt service without QGuiApplication",
-          InLog("PlayAudioFile ignored: no QGuiApplication"));
+    // The login handler plays Overlay/login.wav (loader-smoke.sh stages it).
+    // QtAudioSystem logs "Playing sound <path>" once the backend has actually
+    // started the effect: the library's own Qt application is running, and
+    // reached the audio device, inside a host that has no Qt at all.
+    const std::string sChime = "Playing sound " + (g_oBaseDirectory / "Overlay" / "login.wav").string();
+    Check(WaitForLog(sChime, 10), "login chime started playing", InLog(sChime));
 
     RA_SetConsoleID(CONSOLE_NES);
     RA_InstallMemoryBank(0, ReadZero, IgnoreWrite, 0x800);
@@ -355,6 +386,8 @@ int main(int argc, char* argv[])
         return RunMissing();
     if (sMode == "offline")
         return RunOffline();
+    if (sMode == "headless")
+        return RunHeadless();
 
     const int nDelayMs = (argc > 2) ? std::atoi(argv[2]) : 0;
     if (sMode == "online-loaded")
@@ -362,6 +395,6 @@ int main(int argc, char* argv[])
     if (sMode == "online-inflight")
         return RunOnline(true, nDelayMs);
 
-    std::printf("usage: ra_loader_smoke missing|offline|online-loaded|online-inflight [<inflight-delay-ms>]\n");
+    std::printf("usage: ra_loader_smoke missing|offline|headless|online-loaded|online-inflight [<inflight-delay-ms>]\n");
     return 2;
 }
