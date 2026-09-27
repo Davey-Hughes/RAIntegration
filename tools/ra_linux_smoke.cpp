@@ -1017,7 +1017,7 @@ static void RunChecks()
             const bool bWaited = !bStaleRan.load();
 
             _RA_ActivateGame(0);
-            _RA_DoAchievementsFrame(); // the frame the read waited for
+            _RA_DoAchievementsFrame(); // the frame the write waited for
 
             const uint32_t nDropped = ra::services::AchievementRuntime::DroppedQueuedMemoryWorkCount() - nDroppedBefore;
             Check(bWaited && !bStaleRan.load() && nDropped >= 1, "work queued before a game change is dropped",

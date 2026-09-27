@@ -17,13 +17,15 @@ namespace services {
 /// Owned: the host has no Qt application, so the library created a QApplication on a private thread.
 /// Borrowed: the host already had a GUI application; it is used where it is and never created, quit or destroyed.
 /// Unavailable: no display, or the host has only a non-GUI QCoreApplication; every call below is then a no-op.
-/// The Qt thread waits on another thread only for the host thread's memory work, and only in two ways: a view
-/// destroying a watch waits in AsyncHandle::SetDestroyed for that watch's guarded memory work already running
-/// (EmulatorContext::DispatchesReadMemory), and a view may wait for PointerInspectorViewModel::m_mtxLoadNote or
-/// MemorySearchViewModel::m_oMutex, which memory work on the host thread holds. What keeps InvokeAndWait
-/// deadlock-free is that nothing it can wait on waits back: guarded memory work, and host-thread code holding
-/// those mutexes, must never call InvokeAndWait, ShowModal, IClipboard::GetText or anything else that waits on the
-/// Qt thread; and Qt bindings must post property changes and repaints, never block on them.
+/// The Qt thread may wait on the host thread in two general ways: for guarded memory work already running, or on any
+/// view-model lock that host-thread code also takes - for example PointerInspectorViewModel::m_mtxLoadNote,
+/// MemorySearchViewModel::m_oMutex, or TriggerViewModel::m_pMutex, taken view-side by TriggerViewModel::UpdateFrom
+/// and host-side by its deferred UpdateMemrefs and by DoFrame, which fires SetCurrentHits property notifications
+/// while holding the lock. A view destroying a watch waits in AsyncHandle::SetDestroyed for that watch's guarded
+/// memory work (EmulatorContext::DispatchesReadMemory). What keeps InvokeAndWait deadlock-free is that nothing it can
+/// wait on waits back: guarded memory work, and host-thread code holding any such lock, must never call
+/// InvokeAndWait, ShowModal, IClipboard::GetText or anything else that waits on the Qt thread; and Qt bindings must
+/// post property changes and repaints, never block on them.
 /// </remarks>
 class IQtApplicationHost
 {
