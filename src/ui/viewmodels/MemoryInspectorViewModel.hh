@@ -4,6 +4,7 @@
 
 #include "data/Types.hh"
 #include "data/context/GameContext.hh"
+#include "data/context/EmulatorContext.hh"
 
 #include "ui/WindowViewModelBase.hh"
 
@@ -17,7 +18,8 @@ namespace viewmodels {
 
 class MemoryInspectorViewModel : public WindowViewModelBase,
     protected ViewModelBase::NotifyTarget,
-    protected ra::data::context::GameContext::NotifyTarget
+    protected ra::data::context::GameContext::NotifyTarget,
+    protected ra::data::context::EmulatorContext::DispatchesReadMemory
 {
 public:
     GSL_SUPPRESS_F6 MemoryInspectorViewModel();

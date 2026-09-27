@@ -7,9 +7,12 @@
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/devkit/context/mocks/MockConsoleContext.hh"
 #include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/testutil/MemoryAsserts.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockEmulatorContext.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockWindowManager.hh"
 
 #undef GetMessage
@@ -768,6 +771,33 @@ public:
         Assert::AreEqual({ 0x0AU }, viewer.mockEmulatorContext.ReadMemoryByte(255U));
         Assert::IsTrue(viewer.NeedsRedraw());
     }
+
+#ifndef _WIN32
+    TEST_METHOD(TestOnCharOffTheFrameThreadWaitsForTheHostThread)
+    {
+        MemoryViewerViewModelHarness viewer;
+        viewer.InitializeMemory(256);
+        viewer.MockRender();
+        ra::context::mocks::MockRcClient mockRcClient; // the harness has none; the runtime needs one
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        bool bHandled = false;
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread([&]() { bHandled = viewer.OnChar('6'); });
+
+        Assert::IsTrue(bHandled);
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the edit touched the emulator's memory on the view's thread");
+        Assert::AreEqual({ 0x60U }, viewer.GetByte(0U), L"the edit was not shown at once");
+        Assert::AreEqual({ 1U }, viewer.GetSelectedNibble(), L"the cursor did not advance");
+        Assert::AreEqual({ 0x00U }, viewer.mockEmulatorContext.ReadMemoryByte(0U),
+                         L"the write reached the emulator off the frame thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual({ 0x60U }, viewer.mockEmulatorContext.ReadMemoryByte(0U));
+    }
+#endif
 
     TEST_METHOD(TestAdvanceCursorSixteenBit)
     {

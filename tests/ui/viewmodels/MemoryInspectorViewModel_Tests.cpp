@@ -16,6 +16,7 @@
 #include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockServer.hh"
 #include "tests/mocks/MockWindowManager.hh"
 
@@ -353,6 +354,28 @@ public:
         Assert::AreEqual(std::wstring(L"0 1 0 0 0 0 0 1"), inspector.GetCurrentAddressBits());
         Assert::AreEqual(std::wstring(L"41"), pNote->GetCurrentValue());
     }
+
+#ifndef _WIN32
+    TEST_METHOD(TestToggleBitOffTheFrameThreadWaitsForTheHostThread)
+    {
+        MemoryInspectorViewModelHarness inspector; // has the MockRcClient the runtime needs
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+        inspector.Viewer().SetAddress({ 3U });
+
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread([&inspector]() { inspector.ToggleBit(6); });
+
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the toggle touched the emulator's memory on the view's thread");
+        Assert::AreEqual(std::wstring(L"0 1 0 0 0 0 1 1"), inspector.GetCurrentAddressBits(),
+                         L"the displayed bits waited for the write");
+        Assert::AreEqual({ 0x03 }, inspector.memory.at(3), L"the write reached the emulator off the frame thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual({ 0x43 }, inspector.memory.at(3));
+    }
+#endif
 
     TEST_METHOD(TestCurrentBitsVisible)
     {

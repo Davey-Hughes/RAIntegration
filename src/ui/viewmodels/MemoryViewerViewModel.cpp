@@ -1125,9 +1125,13 @@ bool MemoryViewerViewModel::OnChar(char c)
     m_pColor[nIndex] |= STALE_COLOR;
     m_nNeedsRedraw |= REDRAW_MEMORY;
 
-    // push the updated value to the emulator
-    auto& pMemoryContext = ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>();
-    pMemoryContext.WriteMemoryByte(nAddress, nByte);
+    // push the updated value to the emulator - on its frame thread, which is
+    // not this one when a view on another thread typed it (see
+    // QueueMemoryRead). m_pMemory above shows the edit until then.
+    DispatchMemoryRead([nAddress, nByte]() {
+        auto& pMemoryContext = ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>();
+        pMemoryContext.WriteMemoryByte(nAddress, nByte);
+    });
 
     // advance the cursor to the next nibble
     AdvanceCursor();
