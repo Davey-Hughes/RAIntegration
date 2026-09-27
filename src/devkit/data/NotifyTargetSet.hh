@@ -198,7 +198,11 @@ public:
     /// </summary>
     /// <remarks>
     /// Then waits until no other thread is inside a <see cref="ForEachTarget" /> call to it - whether or not it was
-    /// still in the collection. A call on this thread, such as a handler removing itself, is not waited for.
+    /// still in the collection. A call on this thread, such as a handler removing itself, is not waited for; but a
+    /// handler that calls Remove still waits for any OTHER thread inside that target. So two threads inside the same
+    /// target that each remove it deadlock, as do two handlers on two threads that remove each other's targets. Call
+    /// Remove before the target's destruction begins: from a base-class destructor it is too late, because a call on
+    /// another thread may be inside a derived override.
     /// </remarks>
     GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
     void Remove(TNotifyTarget& pTarget) noexcept

@@ -229,97 +229,121 @@ public:
         // Qt thread (bindings coming and going) and the emulator thread and pool
         // workers (notifying) do. Uses only the API that predates ForEachTarget.
         // In a normal build a race here usually goes unnoticed; run it under
-        // checks/tsan-notify.sh, which reports one.
-        NotifyTargetSet<Counter> set;
-        Counter oPermanent;
-        std::array<Counter, 8> vTransient;
-        set.Add(oPermanent);
-
-        std::atomic<bool> bStop{ false };
-        std::vector<std::thread> vMutators;
-        for (int nThread = 0; nThread < 2; ++nThread)
+        // checks/tsan-notify.sh, which reports one. The run is inside a
+        // DetachedCall so a stuck Remove fails the test instead of hanging ctest.
+        struct State
         {
-            vMutators.emplace_back([&set, &vTransient, nThread]() {
-                for (int i = 0; i < 2000; ++i)
-                {
-                    set.Add(vTransient.at((i + nThread) % 8));
-                    set.Remove(vTransient.at((i + nThread + 3) % 8));
-                }
-            });
-        }
+            NotifyTargetSet<Counter> set;
+            Counter oPermanent;
+            std::array<Counter, 8> vTransient;
+            std::atomic<bool> bStop{ false };
+        };
+        auto* pState = new State();
+        pState->set.Add(pState->oPermanent);
 
-        std::vector<std::thread> vWalkers;
-        for (int nThread = 0; nThread < 2; ++nThread)
-        {
-            vWalkers.emplace_back([&set, &bStop]() {
-                do
-                {
-                    if (set.LockIfNotEmpty())
+        ra::tests::DetachedCall oRun([pState]() {
+            std::vector<std::thread> vMutators;
+            for (int nThread = 0; nThread < 2; ++nThread)
+            {
+                vMutators.emplace_back([pState, nThread]() {
+                    for (int i = 0; i < 2000; ++i)
                     {
-                        for (auto& oTarget : set.Targets())
-                            ++oTarget.nCalls;
-
-                        set.Unlock();
+                        pState->set.Add(pState->vTransient.at((i + nThread) % 8));
+                        pState->set.Remove(pState->vTransient.at((i + nThread + 3) % 8));
                     }
-                } while (!bStop);
-            });
-        }
+                });
+            }
 
-        for (auto& tMutator : vMutators)
-            tMutator.join();
-        bStop = true;
-        for (auto& tWalker : vWalkers)
-            tWalker.join();
+            std::vector<std::thread> vWalkers;
+            for (int nThread = 0; nThread < 2; ++nThread)
+            {
+                vWalkers.emplace_back([pState]() {
+                    do
+                    {
+                        if (pState->set.LockIfNotEmpty())
+                        {
+                            for (auto& oTarget : pState->set.Targets())
+                                ++oTarget.nCalls;
 
-        Assert::IsTrue(oPermanent.nCalls > 0, L"no pass ever ran");
+                            pState->set.Unlock();
+                        }
+                    } while (!pState->bStop);
+                });
+            }
+
+            for (auto& tMutator : vMutators)
+                tMutator.join();
+            pState->bStop = true;
+            for (auto& tWalker : vWalkers)
+                tWalker.join();
+        });
+        const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
+
+        Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
+
+        Assert::IsTrue(pState->oPermanent.nCalls > 0, L"no pass ever ran");
 
         bool bPermanentFound = false;
-        for (auto& oTarget : set.Targets())
-            bPermanentFound |= (&oTarget == &oPermanent);
+        for (auto& oTarget : pState->set.Targets())
+            bPermanentFound |= (&oTarget == &pState->oPermanent);
         Assert::IsTrue(bPermanentFound, L"a target nothing removed went missing");
+
+        delete pState; // reached only when the run finished: on a failure above it is leaked on purpose
     }
 
     TEST_METHOD(TestConcurrentChangesDuringForEachTargetPasses)
     {
         // As above, through ForEachTarget. A Remove here also waits for any
-        // walker inside the target it removed.
-        NotifyTargetSet<Counter> set;
-        Counter oPermanent;
-        std::array<Counter, 8> vTransient;
-        set.Add(oPermanent);
-
-        std::atomic<bool> bStop{ false };
-        std::vector<std::thread> vMutators;
-        for (int nThread = 0; nThread < 2; ++nThread)
+        // walker inside the target it removed. The run is inside a DetachedCall
+        // so a stuck Remove fails the test instead of hanging ctest.
+        struct State
         {
-            vMutators.emplace_back([&set, &vTransient, nThread]() {
-                for (int i = 0; i < 2000; ++i)
-                {
-                    set.Add(vTransient.at((i + nThread) % 8));
-                    set.Remove(vTransient.at((i + nThread + 3) % 8));
-                }
-            });
-        }
+            NotifyTargetSet<Counter> set;
+            Counter oPermanent;
+            std::array<Counter, 8> vTransient;
+            std::atomic<bool> bStop{ false };
+        };
+        auto* pState = new State();
+        pState->set.Add(pState->oPermanent);
 
-        std::vector<std::thread> vWalkers;
-        for (int nThread = 0; nThread < 2; ++nThread)
-        {
-            vWalkers.emplace_back([&set, &bStop]() {
-                do
-                {
-                    set.ForEachTarget([](Counter& oTarget) { ++oTarget.nCalls; });
-                } while (!bStop);
-            });
-        }
+        ra::tests::DetachedCall oRun([pState]() {
+            std::vector<std::thread> vMutators;
+            for (int nThread = 0; nThread < 2; ++nThread)
+            {
+                vMutators.emplace_back([pState, nThread]() {
+                    for (int i = 0; i < 2000; ++i)
+                    {
+                        pState->set.Add(pState->vTransient.at((i + nThread) % 8));
+                        pState->set.Remove(pState->vTransient.at((i + nThread + 3) % 8));
+                    }
+                });
+            }
 
-        for (auto& tMutator : vMutators)
-            tMutator.join();
-        bStop = true;
-        for (auto& tWalker : vWalkers)
-            tWalker.join();
+            std::vector<std::thread> vWalkers;
+            for (int nThread = 0; nThread < 2; ++nThread)
+            {
+                vWalkers.emplace_back([pState]() {
+                    do
+                    {
+                        pState->set.ForEachTarget([](Counter& oTarget) { ++oTarget.nCalls; });
+                    } while (!pState->bStop);
+                });
+            }
 
-        Assert::IsTrue(oPermanent.nCalls > 0, L"no pass ever ran");
-        Assert::IsFalse(set.IsEmpty());
+            for (auto& tMutator : vMutators)
+                tMutator.join();
+            pState->bStop = true;
+            for (auto& tWalker : vWalkers)
+                tWalker.join();
+        });
+        const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
+
+        Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
+
+        Assert::IsTrue(pState->oPermanent.nCalls > 0, L"no pass ever ran");
+        Assert::IsFalse(pState->set.IsEmpty());
+
+        delete pState; // reached only when the run finished: on a failure above it is leaked on purpose
     }
 
     TEST_METHOD(TestRemoveWaitsForAnotherThreadsCallToThatTarget)
@@ -354,6 +378,47 @@ public:
 
         Assert::IsTrue(bEntered, L"the call never started");
         Assert::IsFalse(bRemovedDuringTheCall, L"Remove returned while another thread was inside the target");
+        Assert::IsTrue(bRemovedAfterIt, L"Remove never returned after the call ended");
+        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestRemoveAfterClearStillWaitsForAnotherThreadsCall)
+    {
+        // Clear() drops every target without waiting, and a later Remove of a
+        // target no longer in the set must still wait for another thread inside it.
+        struct State
+        {
+            NotifyTargetSet<Counter> set;
+            Counter oTarget;
+            std::promise<void> oEntered;
+            std::promise<void> oRelease;
+        };
+        auto* pState = new State();
+        pState->set.Add(pState->oTarget);
+        auto fEntered = pState->oEntered.get_future();
+        std::shared_future<void> fRelease = pState->oRelease.get_future().share();
+
+        ra::tests::DetachedCall oNotify([pState, fRelease]() {
+            pState->set.ForEachTarget([pState, fRelease](Counter& oTarget) {
+                ++oTarget.nCalls;
+                pState->oEntered.set_value();
+                fRelease.wait();
+            });
+        });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        pState->set.Clear();
+        ra::tests::DetachedCall oRemove([pState]() { pState->set.Remove(pState->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
+
+        pState->oRelease.set_value();
+        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the call never started");
+        Assert::IsFalse(bRemovedDuringTheCall, L"Remove of a cleared target returned while another thread was inside it");
         Assert::IsTrue(bRemovedAfterIt, L"Remove never returned after the call ended");
         Assert::IsTrue(bNotifyFinished, L"the pass never finished");
 
@@ -424,6 +489,10 @@ public:
 
     TEST_METHOD(TestAThrowingHandlerStillEndsItsCall)
     {
+        // The throwing pass runs on this thread, which stays alive, so the Remove
+        // below runs on a thread whose id cannot be a recycled copy of it: on
+        // glibc a new thread often reuses an exited thread's id, and a leaked call
+        // record would then look like Remove's own call and hide the bug.
         struct State
         {
             NotifyTargetSet<Counter> set;
@@ -432,25 +501,24 @@ public:
         auto* pState = new State();
         pState->set.Add(pState->oTarget);
 
-        ra::tests::DetachedCall oNotify([pState]() {
-            try
-            {
-                pState->set.ForEachTarget([](Counter&) { throw std::runtime_error("handler failed"); });
-            }
-            catch (const std::runtime_error&)
-            {
-            }
-        });
-        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+        bool bThrew = false;
+        try
+        {
+            pState->set.ForEachTarget([](Counter&) { throw std::runtime_error("handler failed"); });
+        }
+        catch (const std::runtime_error&)
+        {
+            bThrew = true;
+        }
 
         // Another thread's Remove must not wait for a call that ended in an exception.
         ra::tests::DetachedCall oRemove([pState]() { pState->set.Remove(pState->oTarget); });
         const bool bRemoved = oRemove.FinishedWithin(std::chrono::seconds(5));
 
-        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
+        Assert::IsTrue(bThrew, L"the handler's exception did not reach the caller");
         Assert::IsTrue(bRemoved, L"Remove waited for a call that had thrown");
 
-        delete pState;
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 };
 
