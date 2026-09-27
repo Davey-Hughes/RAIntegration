@@ -10,15 +10,16 @@ int ModelPropertyContainer::CompareModelPropertyKey(const ModelPropertyContainer
     return left.nKey < nKey;
 }
 
-const int* ModelPropertyContainer::FindValue(int nKey) const
+bool ModelPropertyContainer::FindValue(int nKey, int& nValue) const
 {
     std::lock_guard<std::mutex> pLock(m_mtxData);
 
     const auto iter = std::lower_bound(m_vValues.begin(), m_vValues.end(), nKey, CompareModelPropertyKey);
     if (iter == m_vValues.end() || iter->nKey != nKey)
-        return nullptr;
+        return false;
 
-    return &iter->nValue;
+    nValue = iter->nValue;
+    return true;
 }
 
 std::wstring ModelPropertyContainer::CopyValue(const StringModelProperty& pProperty) const

@@ -2,6 +2,11 @@
 
 #include "testutil/CppUnitTest.hh"
 
+#include "tests/devkit/testutil/DetachedCall.hh"
+
+#include <atomic>
+#include <chrono>
+
 namespace ra {
 namespace data {
 namespace tests {
@@ -104,6 +109,45 @@ public:
 
         container.SetBool(container.BoolProperty.GetDefaultValue());
         Assert::AreEqual(false, container.GetBool());
+    }
+
+    TEST_METHOD(TestGetValueIsSafeWhileAnotherThreadInsertsAndErases)
+    {
+        // The string property's entry sorts before the int's and the bool's: a worker inserting and erasing it moves
+        // theirs under the reader. A GetValue that kept a pointer past the lock would read whatever moved into the
+        // slot, or freed memory; under the TSan gate that read is also a reported race.
+        struct State
+        {
+            ModelPropertyContainerHarness container;
+            std::atomic<bool> bDone{false};
+        };
+        auto* pState = new State();
+        pState->container.SetInt(32);
+        pState->container.SetBool(true);
+
+        ra::tests::DetachedCall oWorker([pState]() {
+            for (int i = 0; i < 20000; ++i)
+                pState->container.SetString((i % 2 == 0) ? L"inserted" : L"");
+            pState->bDone = true;
+        });
+
+        int nWrongInts = 0;
+        int nWrongBools = 0;
+        const auto tDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!pState->bDone && std::chrono::steady_clock::now() < tDeadline)
+        {
+            if (pState->container.GetInt() != 32)
+                ++nWrongInts;
+            if (!pState->container.GetBool())
+                ++nWrongBools;
+        }
+        const bool bFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bFinished, L"the worker never finished");
+        Assert::AreEqual(0, nWrongInts, L"an int was read from a moved entry");
+        Assert::AreEqual(0, nWrongBools, L"a bool was read from a moved entry");
+
+        delete pState; // reached only when the worker finished: on a failure above it is leaked on purpose
     }
 
     TEST_METHOD(TestSetAllInOrder)

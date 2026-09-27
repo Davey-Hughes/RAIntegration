@@ -36,8 +36,8 @@ public:
     /// <returns>The current value of the property for this object.</returns>
     bool GetValue(const BoolModelProperty& pProperty) const
     {
-        const int* pValue = FindValue(pProperty.GetKey());
-        return pValue ? (*pValue != 0) : pProperty.GetDefaultValue();
+        int nValue = 0;
+        return FindValue(pProperty.GetKey(), nValue) ? (nValue != 0) : pProperty.GetDefaultValue();
     }
 
     /// <summary>
@@ -60,11 +60,11 @@ public:
     /// <returns>The current value of the property for this object.</returns>
     const std::wstring& GetValue(const StringModelProperty& pProperty) const
     {
-        const int* pValue = FindValue(pProperty.GetKey());
-        if (pValue == nullptr)
+        int nIndex = 0;
+        if (!FindValue(pProperty.GetKey(), nIndex))
             return pProperty.GetDefaultValue();
 
-        return GetString(*pValue);
+        return GetString(nIndex);
     }
 
     /// <summary>
@@ -98,8 +98,8 @@ public:
     /// <returns>The current value of the property for this object.</returns>
     int GetValue(const IntModelProperty& pProperty) const
     {
-        const int* pValue = FindValue(pProperty.GetKey());
-        return pValue ? *pValue : pProperty.GetDefaultValue();
+        int nValue = 0;
+        return FindValue(pProperty.GetKey(), nValue) ? nValue : pProperty.GetDefaultValue();
     }
 
     /// <summary>
@@ -147,7 +147,9 @@ private:
     static std::wstring s_sEmpty;
 
     static int CompareModelPropertyKey(const ModelPropertyValue& left, int nKey) noexcept;
-    const int* FindValue(int nKey) const;
+    // Copies the value out under the lock: a pointer into m_vValues would outlive it, and a SetValue on another
+    // thread that inserts or erases an entry moves - or frees - the one it points to.
+    bool FindValue(int nKey, int& nValue) const;
     const std::wstring& GetString(int nIndex) const noexcept;
     int LoadIntoEmptyStringSlot(const std::wstring& sValue);
 
