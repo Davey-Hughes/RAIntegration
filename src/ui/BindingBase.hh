@@ -82,7 +82,10 @@ protected:
     /// thread makes meanwhile - to this property or any other - still reaches it, as does a property the view model
     /// derives from this one.
     /// </summary>
-    /// <remarks>Call it on the thread that constructed the binding: on any other, nothing is suppressed.</remarks>
+    /// <remarks>
+    /// Call it on the thread that constructed the binding. On any other it sets the value with nothing suppressed, and
+    /// leaves the owner thread's echo state alone.
+    /// </remarks>
     void SetValueFromControl(const BoolModelProperty& pProperty, bool bValue)
     {
         const EchoScope oScope(*this, pProperty);
@@ -221,16 +224,26 @@ private:
     bool m_bAttached = false;
 
     // Marks a property as being set from the control until destroyed, then restores the previous mark, so a nested
-    // SetValueFromControl - a handler setting another property - unwinds correctly.
+    // SetValueFromControl - a handler setting another property - unwinds correctly. Only on the owner thread: off it,
+    // nothing is marked, and the mark - which only the owner thread touches - is neither read nor written.
     class EchoScope
     {
     public:
         EchoScope(BindingBase& oBinding, const ra::data::ModelPropertyBase& pProperty) noexcept
-            : m_oBinding(oBinding), m_pPrevious(oBinding.m_pSettingProperty)
+            : m_oBinding(oBinding), m_bMarked(std::this_thread::get_id() == oBinding.m_nOwnerThread)
         {
-            m_oBinding.m_pSettingProperty = &pProperty;
+            if (m_bMarked)
+            {
+                m_pPrevious = m_oBinding.m_pSettingProperty;
+                m_oBinding.m_pSettingProperty = &pProperty;
+            }
         }
-        ~EchoScope() noexcept { m_oBinding.m_pSettingProperty = m_pPrevious; }
+
+        ~EchoScope() noexcept
+        {
+            if (m_bMarked)
+                m_oBinding.m_pSettingProperty = m_pPrevious;
+        }
 
         EchoScope(const EchoScope&) noexcept = delete;
         EchoScope& operator=(const EchoScope&) noexcept = delete;
@@ -239,7 +252,8 @@ private:
 
     private:
         BindingBase& m_oBinding;
-        const ra::data::ModelPropertyBase* m_pPrevious;
+        const ra::data::ModelPropertyBase* m_pPrevious = nullptr;
+        bool m_bMarked;
     };
 
     // The thread that constructed the binding: the only one on which an echo is suppressed.

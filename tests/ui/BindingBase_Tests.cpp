@@ -6,6 +6,7 @@
 #include <chrono>
 #include <functional>
 #include <future>
+#include <string>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -24,6 +25,11 @@ TEST_CLASS(BindingBase_Tests)
 
         // A second property: a binding sets it while a worker is inside its handler for the first.
         static const StringModelProperty OtherStringProperty;
+
+        static const BoolModelProperty BoolProperty;
+        void SetBool(bool bValue) { SetValue(BoolProperty, bValue); }
+        static const IntModelProperty IntProperty;
+        void SetInt(int nValue) { SetValue(IntProperty, nValue); }
     };
 
     // Counts the string changes it is told about.
@@ -128,8 +134,13 @@ TEST_CLASS(BindingBase_Tests)
             SetValueFromControl(pProperty, sValue);
         }
 
+        void SetBoolFromControl(const BoolModelProperty& pProperty, bool bValue) { SetValueFromControl(pProperty, bValue); }
+        void SetIntFromControl(const IntModelProperty& pProperty, int nValue) { SetValueFromControl(pProperty, nValue); }
+
         std::atomic<int> nStringChanges{0};
         std::atomic<int> nOtherStringChanges{0};
+        std::atomic<int> nBoolChanges{0};
+        std::atomic<int> nIntChanges{0};
 
     protected:
         void OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs& args) noexcept override
@@ -141,6 +152,18 @@ TEST_CLASS(BindingBase_Tests)
                 ++nStringChanges;
             else if (args.Property == ViewModelHarness::OtherStringProperty)
                 ++nOtherStringChanges;
+        }
+
+        void OnViewModelBoolValueChanged(const BoolModelProperty::ChangeArgs& args) noexcept override
+        {
+            if (!IsEchoOfOwnChange(args.Property) && args.Property == ViewModelHarness::BoolProperty)
+                ++nBoolChanges;
+        }
+
+        void OnViewModelIntValueChanged(const IntModelProperty::ChangeArgs& args) noexcept override
+        {
+            if (!IsEchoOfOwnChange(args.Property) && args.Property == ViewModelHarness::IntProperty)
+                ++nIntChanges;
         }
     };
 
@@ -326,7 +349,7 @@ public:
 
         pState->vmViewModel.fOnStringChanged = [pState]() {
             pState->bEchoHere = pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty);
-            ra::tests::DetachedCall oWorker([pState]() {
+            ra::tests::DetachedCall oWorker([pState]() noexcept {
                 pState->bEchoElsewhere = pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty);
             });
             pState->bWorkerFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
@@ -341,11 +364,84 @@ public:
 
         delete pState;
     }
+
+    TEST_METHOD(TestANestedSetValueFromControlRestoresTheOuterMark)
+    {
+        DerivingViewModel vmViewModel;
+        RecordingBindingHarness oBinding(vmViewModel);
+        bool bOuterStillMarked = false;
+        bool bInnerCleared = false;
+
+        // Inside the outer set of StringProperty, the binding sets OtherStringProperty too.
+        vmViewModel.fOnStringChanged = [&oBinding, &bOuterStillMarked, &bInnerCleared]() {
+            oBinding.SetStringFromControl(ViewModelHarness::OtherStringProperty, L"nested");
+            bOuterStillMarked = oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty);
+            bInnerCleared = !oBinding.IsEchoOfOwnChange(ViewModelHarness::OtherStringProperty);
+        };
+
+        oBinding.SetStringFromControl(ViewModelHarness::StringProperty, L"typed");
+
+        Assert::IsTrue(bOuterStillMarked, L"the nested set did not restore the outer mark");
+        Assert::IsTrue(bInnerCleared, L"the nested set left its own mark");
+        Assert::IsFalse(oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty));
+    }
+
+    TEST_METHOD(TestSetValueFromControlSuppressesTheEchoForBoolAndInt)
+    {
+        ViewModelHarness vmViewModel;
+        RecordingBindingHarness oBinding(vmViewModel);
+
+        oBinding.SetBoolFromControl(ViewModelHarness::BoolProperty, true);
+        oBinding.SetIntFromControl(ViewModelHarness::IntProperty, 7);
+        Assert::AreEqual(0, oBinding.nBoolChanges.load());
+        Assert::AreEqual(0, oBinding.nIntChanges.load());
+
+        vmViewModel.SetBool(false);
+        vmViewModel.SetInt(8);
+        Assert::AreEqual(1, oBinding.nBoolChanges.load());
+        Assert::AreEqual(1, oBinding.nIntChanges.load());
+    }
+
+    TEST_METHOD(TestSetValueFromControlOffTheOwnerThreadLeavesTheMarkAlone)
+    {
+        // Another thread's sets are all delivered, and never mark: the owner thread, reading its mark meanwhile, never
+        // sees one. Under the TSan gate, a mark written there would also be a data race with the reads below.
+        struct State
+        {
+            ViewModelHarness vmViewModel;
+            RecordingBindingHarness oBinding{ vmViewModel };
+            std::atomic<bool> bDone{false};
+        };
+        auto* pState = new State();
+
+        ra::tests::DetachedCall oWorker([pState]() {
+            for (int i = 1; i <= 2000; ++i)
+                pState->oBinding.SetStringFromControl(ViewModelHarness::StringProperty, std::to_wstring(i));
+            pState->bDone = true;
+        });
+
+        int nEchoesSeen = 0;
+        const auto tDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!pState->bDone && std::chrono::steady_clock::now() < tDeadline)
+        {
+            if (pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty))
+                ++nEchoesSeen;
+        }
+        const bool bFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bFinished, L"the worker never finished");
+        Assert::AreEqual(0, nEchoesSeen, L"the owner thread saw another thread's set as its own");
+        Assert::AreEqual(2000, pState->oBinding.nStringChanges.load(), L"a set on another thread was suppressed");
+
+        delete pState; // reached only when the worker finished: on a failure above it is leaked on purpose
+    }
 };
 
 const StringModelProperty BindingBase_Tests::ViewModelHarness::StringProperty("BindingBaseHarness", "String", L"");
 const StringModelProperty BindingBase_Tests::ViewModelHarness::OtherStringProperty(
     "BindingBaseHarness", "OtherString", L"");
+const BoolModelProperty BindingBase_Tests::ViewModelHarness::BoolProperty("BindingBaseHarness", "Bool", false);
+const IntModelProperty BindingBase_Tests::ViewModelHarness::IntProperty("BindingBaseHarness", "Int", 0);
 
 } // namespace tests
 } // namespace ui
