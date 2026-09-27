@@ -4,6 +4,13 @@
 
 #include "util/GSL.hh"
 
+#include <algorithm>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+
 namespace ra {
 namespace data {
 
@@ -13,19 +20,54 @@ namespace data {
 /// <remarks>
 /// These are not allocated objects and do not need to be free'd.
 /// This behaves like a set of references, which isn't allowed.
-/// </summary>
+///
+/// Safe to use from several threads at once. The targets are kept in an immutable list: Add, Remove and Clear
+/// publish a new one, and a pass over the targets - <see cref="Targets" /> or <see cref="ForEachTarget" /> - walks
+/// the list that was current when it began. So a change made during a pass, on any thread, is seen by the next pass,
+/// not by this one.
+///
+/// <see cref="ForEachTarget" /> also records which target each thread is calling, so that <see cref="Remove" /> can
+/// wait until no OTHER thread is inside a call to the target it removes: once Remove returns, no pass will call that
+/// target again, and it can be destroyed. Two rules follow. A target's handler must never wait on a thread that may be
+/// removing that same target. And nothing may call Remove while holding a lock that the target's handler takes.
+/// </remarks>
 template<class TNotifyTarget>
 class NotifyTargetSet
 {
 private:
     using TargetList = std::vector<TNotifyTarget*>;
+    using SharedTargetList = std::shared_ptr<const TargetList>;
 
 public:
+    NotifyTargetSet() noexcept = default;
+    ~NotifyTargetSet() noexcept = default;
+
+    NotifyTargetSet(const NotifyTargetSet&) = delete;
+    NotifyTargetSet& operator=(const NotifyTargetSet&) = delete;
+
+    // Moves the targets, as the old node-based set did. Not while the set is in use: calls in progress are not
+    // carried over.
+    GSL_SUPPRESS_F6 NotifyTargetSet(NotifyTargetSet&& other) noexcept
+    {
+        std::lock_guard<std::mutex> lock(other.m_mtxTargets);
+        m_pTargets = std::move(other.m_pTargets);
+    }
+
+    GSL_SUPPRESS_F6 NotifyTargetSet& operator=(NotifyTargetSet&& other) noexcept
+    {
+        if (this != &other)
+        {
+            std::scoped_lock lock(m_mtxTargets, other.m_mtxTargets);
+            m_pTargets = std::move(other.m_pTargets);
+        }
+
+        return *this;
+    }
+
     class ValidTargets
     {
     public:
-        ValidTargets(const TargetList& pTargets) noexcept
-            : m_pBegin(pTargets.cbegin()), m_pEnd(pTargets.cend())
+        explicit ValidTargets(SharedTargetList pTargets) noexcept : m_pTargets(std::move(pTargets))
         {
         }
         ~ValidTargets() noexcept = default;
@@ -73,34 +115,61 @@ public:
             typename TargetList::const_iterator m_pCurrent;
         };
 
-        auto begin() const noexcept { return m_pBegin; }
-        auto end() const noexcept { return m_pEnd; }
+        auto begin() const noexcept { return const_iterator(m_pTargets->cbegin()); }
+        auto end() const noexcept { return const_iterator(m_pTargets->cend()); }
 
-        size_t size() const noexcept
-        {
-            return m_pEnd.m_pCurrent - m_pBegin.m_pCurrent;
-        }
+        size_t size() const noexcept { return m_pTargets->size(); }
 
     private:
-        const_iterator m_pBegin;
-        const_iterator m_pEnd;
+        // Owned, so the list stays alive - and unchanged - for as long as this object does. Never null.
+        SharedTargetList m_pTargets;
     };
 
     /// <summary>
     /// Gets the objects in the collection.
     /// </summary>
     /// <remarks>
-    /// Should be called within a <see cref="Lock"> block to ensure the collection
-    /// isn't modified while it's being processed.
+    /// The result owns the list that was current when it was taken, so changes made after that - on any thread - do
+    /// not affect it. Unlike <see cref="ForEachTarget" />, it does not make <see cref="Remove" /> wait for a target
+    /// it yielded that is still being called.
     /// </remarks>
-    const ValidTargets Targets() const noexcept
+    GSL_SUPPRESS_F6 const ValidTargets Targets() const noexcept
     {
-        if (!m_pTargetList)
+        std::lock_guard<std::mutex> lock(m_mtxTargets);
+        return ValidTargets(m_pTargets ? m_pTargets : EmptyList());
+    }
+
+    /// <summary>
+    /// Calls <paramref name="fCall" /> with each object in the collection, as <see cref="Targets" /> would yield
+    /// them - except that an object removed since the pass began is skipped, and <see cref="Remove" /> on another
+    /// thread waits for a call in progress to return.
+    /// </summary>
+    template<typename TCall>
+    void ForEachTarget(TCall&& fCall)
+    {
+        SharedTargetList pTargets;
         {
-            GSL_SUPPRESS_F6 m_pTargetList = std::make_unique<TargetListNode>();
+            std::lock_guard<std::mutex> lock(m_mtxTargets);
+            if (!m_pTargets || m_pTargets->empty())
+                return;
+
+            pTargets = m_pTargets;
         }
 
-        return ValidTargets(m_pTargetList->vTargetList);
+        const auto nThreadId = std::this_thread::get_id();
+        for (TNotifyTarget* pTarget : *pTargets)
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_mtxTargets);
+                if (!Contains(pTarget))
+                    continue; // removed since the pass began: it may already be gone
+
+                m_vCallsInProgress.push_back({ pTarget, nThreadId });
+            }
+
+            const CallInProgress oCall(*this, pTarget, nThreadId);
+            fCall(*pTarget);
+        }
     }
 
     /// <summary>
@@ -109,161 +178,149 @@ public:
     GSL_SUPPRESS_F6 // this should only throw an exception if we're out of memory
     void Add(TNotifyTarget& pTarget) noexcept
     {
-        if (!m_pTargetList)
+        std::lock_guard<std::mutex> lock(m_mtxTargets);
+        if (!m_pTargets)
         {
-            m_pTargetList = std::make_unique<TargetListNode>();
-        }
-        else
-        {
-            const auto& vNotifyTargets = m_pTargetList->vTargetList;
-            auto pIter = std::find(vNotifyTargets.begin(), vNotifyTargets.end(), &pTarget);
-            if (pIter != vNotifyTargets.end())
-                return;
-
-            EnsureMutable();
+            m_pTargets = std::make_shared<TargetList>(TargetList{ &pTarget });
+            return;
         }
 
-        m_pTargetList->vTargetList.push_back(&pTarget);
+        if (std::find(m_pTargets->begin(), m_pTargets->end(), &pTarget) != m_pTargets->end())
+            return;
+
+        auto pNewTargets = std::make_shared<TargetList>(*m_pTargets);
+        pNewTargets->push_back(&pTarget);
+        m_pTargets = std::move(pNewTargets);
     }
 
     /// <summary>
     /// Removes an object reference from the collection.
     /// </summary>
-    GSL_SUPPRESS_F6 // processing collection of raw pointers should never throw an exception
+    /// <remarks>
+    /// Then waits until no other thread is inside a <see cref="ForEachTarget" /> call to it - whether or not it was
+    /// still in the collection. A call on this thread, such as a handler removing itself, is not waited for.
+    /// </remarks>
+    GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
     void Remove(TNotifyTarget& pTarget) noexcept
     {
-        if (!m_pTargetList)
-            return;
-
-        gsl::not_null<TargetList*> vNotifyTargets = gsl::make_not_null(&m_pTargetList->vTargetList);
-        auto pIter = std::find(vNotifyTargets->begin(), vNotifyTargets->end(), &pTarget);
-        if (pIter == vNotifyTargets->end())
-            return;
-
-        EnsureMutable();
-
-        if (vNotifyTargets != &m_pTargetList->vTargetList)
+        std::unique_lock<std::mutex> lock(m_mtxTargets);
+        if (m_pTargets)
         {
-            // m_pTargetList changed. find the element in the new list.
-            vNotifyTargets = gsl::make_not_null(&m_pTargetList->vTargetList);
-            pIter = std::find(vNotifyTargets->begin(), vNotifyTargets->end(), &pTarget);
+            const auto pIter = std::find(m_pTargets->begin(), m_pTargets->end(), &pTarget);
+            if (pIter != m_pTargets->end())
+            {
+                auto pNewTargets = std::make_shared<TargetList>(*m_pTargets);
+                pNewTargets->erase(pNewTargets->begin() + (pIter - m_pTargets->begin()));
+                m_pTargets = std::move(pNewTargets);
+            }
         }
 
-        if (pIter != vNotifyTargets->end())
-            vNotifyTargets->erase(pIter);
+        const auto nThreadId = std::this_thread::get_id();
+        m_cvCallEnded.wait(lock, [this, &pTarget, nThreadId]() { return !IsCalledElsewhere(&pTarget, nThreadId); });
     }
 
     /// <summary>
     /// Removes all objects from the collection.
     /// </summary>
-    void Clear() noexcept
+    /// <remarks>
+    /// Unlike <see cref="Remove" />, does not wait for calls in progress.
+    /// </remarks>
+    GSL_SUPPRESS_F6 void Clear() noexcept
     {
-        if (m_pTargetList)
-        {
-            EnsureMutable();
-            m_pTargetList->vTargetList.clear();
-        }
+        std::lock_guard<std::mutex> lock(m_mtxTargets);
+        m_pTargets.reset();
     }
 
     /// <summary>
     /// Gets whether the collection contains no items.
     /// </summary>
-    bool IsEmpty() const noexcept
+    GSL_SUPPRESS_F6 bool IsEmpty() const noexcept
     {
-        return !m_pTargetList || m_pTargetList->vTargetList.empty();
+        std::lock_guard<std::mutex> lock(m_mtxTargets);
+        return !m_pTargets || m_pTargets->empty();
     }
 
     /// <summary>
-    /// Locks the collection while it's being processed.
+    /// Kept for source compatibility. A pass no longer needs a lock: <see cref="Targets" /> returns a list that
+    /// nothing changes.
     /// </summary>
-    /// <returns>
-    /// <c>true</c> if the collection was locked,
-    /// <c>false</c> if the collection is empty and was not locked.
-    /// </returns>
-    /// <remarks>
-    /// Changes made to the collection while locked won't appear until the collection is unlocked.
-    /// </remarks>
-    bool LockIfNotEmpty() noexcept
-    {
-        if (IsEmpty())
-            return false;
+    /// <returns><c>true</c> if the collection is not empty.</returns>
+    bool LockIfNotEmpty() noexcept { return !IsEmpty(); }
 
-        ++m_pTargetList->nLockCount;
-        return true;
-    }
+    /// <summary>Kept for source compatibility; does nothing (see <see cref="LockIfNotEmpty" />).</summary>
+    void Lock() noexcept {}
 
-    /// <summary>
-    /// Locks the collection while it's being processed.
-    /// </summary>
-    /// <remarks>
-    /// Changes made to the collection while locked won't appear until the collection is unlocked.
-    /// </remarks>
-    void Lock() noexcept
-    {
-        if (!m_pTargetList)
-        {
-            GSL_SUPPRESS_F6 // this should only throw an exception if we're out of memory
-            m_pTargetList = std::make_unique<TargetListNode>();
-        }
-
-        ++m_pTargetList->nLockCount;
-    }
-
-    /// <summary>
-    /// Unlocks the collection and applies any pending changes.
-    /// </summary>
-    void Unlock() noexcept
-    {
-        if (!m_pTargetList)
-            return;
-
-        if (m_pTargetList->nLockCount > 0)
-        {
-            // list not modified. release lock
-            --m_pTargetList->nLockCount;
-        }
-        else if (m_pTargetList->pNext)
-        {
-            // list modified. release lock on copy of list (in m_pTargetList->pNext).
-            // if there are no more locks on the copy, discard it.
-            if (--m_pTargetList->pNext->nLockCount == 0)
-                m_pTargetList->pNext = std::move(m_pTargetList->pNext->pNext);
-        }
-    }
+    /// <summary>Kept for source compatibility; does nothing (see <see cref="LockIfNotEmpty" />).</summary>
+    void Unlock() noexcept {}
 
 private:
-    struct TargetListNode
+    struct CallRecord
     {
-    public:
-        TargetListNode() noexcept {}
-        TargetListNode(const TargetList& vTargetList)
-            : vTargetList(vTargetList)
-        {
-        }
-        ~TargetListNode() noexcept = default;
-
-        TargetListNode(const TargetListNode&) noexcept = delete;
-        TargetListNode& operator=(const TargetListNode&) noexcept = delete;
-        TargetListNode(TargetListNode&&) noexcept = default;
-        TargetListNode& operator=(TargetListNode&&) noexcept = default;
-
-        TargetList vTargetList;
-        std::unique_ptr<TargetListNode> pNext;
-        int nLockCount = 0;
+        TNotifyTarget* pTarget;
+        std::thread::id nThreadId;
     };
 
-    mutable std::unique_ptr<TargetListNode> m_pTargetList;
-
-    void EnsureMutable() noexcept
+    // Ends a call ForEachTarget recorded - also when the handler throws - and wakes any Remove waiting for it.
+    class CallInProgress
     {
-        if (m_pTargetList->nLockCount)
+    public:
+        CallInProgress(NotifyTargetSet& pOwner, TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
+            : m_pOwner(pOwner), m_pTarget(pTarget), m_nThreadId(nThreadId)
         {
-            // current list is locked, clone it so it can be mutated
-            GSL_SUPPRESS_F6 auto pTargetList = std::make_unique<TargetListNode>(m_pTargetList->vTargetList);
-            pTargetList->pNext = std::move(m_pTargetList);
-            m_pTargetList = std::move(pTargetList);
         }
+        ~CallInProgress() noexcept { m_pOwner.EndCall(m_pTarget, m_nThreadId); }
+
+        CallInProgress(const CallInProgress&) noexcept = delete;
+        CallInProgress& operator=(const CallInProgress&) noexcept = delete;
+        CallInProgress(CallInProgress&&) noexcept = delete;
+        CallInProgress& operator=(CallInProgress&&) noexcept = delete;
+
+    private:
+        NotifyTargetSet& m_pOwner;
+        TNotifyTarget* m_pTarget;
+        std::thread::id m_nThreadId;
+    };
+
+    GSL_SUPPRESS_F6 void EndCall(TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_mtxTargets);
+            const auto pIter = std::find_if(m_vCallsInProgress.begin(), m_vCallsInProgress.end(),
+                [pTarget, nThreadId](const CallRecord& oCall) {
+                    return oCall.pTarget == pTarget && oCall.nThreadId == nThreadId;
+                });
+            if (pIter != m_vCallsInProgress.end())
+                m_vCallsInProgress.erase(pIter);
+        }
+
+        m_cvCallEnded.notify_all();
     }
+
+    // m_mtxTargets must be held.
+    GSL_SUPPRESS_F6 bool Contains(const TNotifyTarget* pTarget) const noexcept
+    {
+        return m_pTargets && std::find(m_pTargets->begin(), m_pTargets->end(), pTarget) != m_pTargets->end();
+    }
+
+    // m_mtxTargets must be held.
+    GSL_SUPPRESS_F6 bool IsCalledElsewhere(const TNotifyTarget* pTarget, std::thread::id nThreadId) const noexcept
+    {
+        return std::any_of(m_vCallsInProgress.begin(), m_vCallsInProgress.end(),
+            [pTarget, nThreadId](const CallRecord& oCall) {
+                return oCall.pTarget == pTarget && oCall.nThreadId != nThreadId;
+            });
+    }
+
+    GSL_SUPPRESS_F6 static const SharedTargetList& EmptyList() noexcept
+    {
+        static const SharedTargetList pEmpty = std::make_shared<TargetList>();
+        return pEmpty;
+    }
+
+    mutable std::mutex m_mtxTargets;
+    SharedTargetList m_pTargets;                  // null when empty; a published list is never changed
+    std::vector<CallRecord> m_vCallsInProgress;   // ForEachTarget's calls running now, on any thread
+    std::condition_variable m_cvCallEnded;
 };
 
 } // namespace data
