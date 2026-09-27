@@ -26,10 +26,13 @@ namespace data {
 /// the list that was current when it began. So a change made during a pass, on any thread, is seen by the next pass,
 /// not by this one.
 ///
-/// <see cref="ForEachTarget" /> also records which target each thread is calling, so that <see cref="Remove" /> can
-/// wait until no OTHER thread is inside a call to the target it removes: once Remove returns, no pass will call that
-/// target again, and it can be destroyed. Two rules follow. A target's handler must never wait on a thread that may be
-/// removing that same target. And nothing may call Remove while holding a lock that the target's handler takes.
+/// <see cref="ForEachTarget" /> also records which target each thread is calling, so that
+/// <see cref="RemoveAndWait" /> can wait until no OTHER thread is inside a call to the target it removes: once it
+/// returns, no pass will call that target again, and it can be destroyed. <see cref="Remove" /> never waits, because
+/// removing a target is also how it is muted - removed and added back around a change - sometimes while holding a
+/// lock its own handler takes. Two rules follow for RemoveAndWait. A target's handler must never wait on a thread
+/// that may be removing and waiting for that same target. And nothing may call RemoveAndWait while holding a lock
+/// that the target's handler takes.
 /// </remarks>
 template<class TNotifyTarget>
 class NotifyTargetSet
@@ -130,7 +133,7 @@ public:
     /// </summary>
     /// <remarks>
     /// The result owns the list that was current when it was taken, so changes made after that - on any thread - do
-    /// not affect it. Unlike <see cref="ForEachTarget" />, it does not make <see cref="Remove" /> wait for a target
+    /// not affect it. Unlike <see cref="ForEachTarget" />, it does not make <see cref="RemoveAndWait" /> wait for a target
     /// it yielded that is still being called.
     /// </remarks>
     GSL_SUPPRESS_F6 const ValidTargets Targets() const noexcept
@@ -141,7 +144,7 @@ public:
 
     /// <summary>
     /// Calls <paramref name="fCall" /> with each object in the collection, as <see cref="Targets" /> would yield
-    /// them - except that an object removed since the pass began is skipped, and <see cref="Remove" /> on another
+    /// them - except that an object removed since the pass began is skipped, and <see cref="RemoveAndWait" /> on another
     /// thread waits for a call in progress to return.
     /// </summary>
     template<typename TCall>
@@ -197,27 +200,34 @@ public:
     /// Removes an object reference from the collection.
     /// </summary>
     /// <remarks>
-    /// Then waits until no other thread is inside a <see cref="ForEachTarget" /> call to it - whether or not it was
-    /// still in the collection. A call on this thread, such as a handler removing itself, is not waited for; but a
-    /// handler that calls Remove still waits for any OTHER thread inside that target. So two threads inside the same
-    /// target that each remove it deadlock, as do two handlers on two threads that remove each other's targets. Call
-    /// Remove before the target's destruction begins: from a base-class destructor it is too late, because a call on
-    /// another thread may be inside a derived override.
+    /// Does not wait: a <see cref="ForEachTarget" /> call to it already running on another thread may still be running
+    /// when this returns, though no pass will start a new one. Right for muting a target that stays alive; before
+    /// destroying a target, use <see cref="RemoveAndWait" />.
     /// </remarks>
     GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
     void Remove(TNotifyTarget& pTarget) noexcept
     {
+        std::lock_guard<std::mutex> lock(m_mtxTargets);
+        Unpublish(pTarget);
+    }
+
+    /// <summary>
+    /// Removes an object reference from the collection, then waits until no other thread is inside a
+    /// <see cref="ForEachTarget" /> call to it - whether or not it was still in the collection. Use it before
+    /// destroying the target.
+    /// </summary>
+    /// <remarks>
+    /// A call on this thread, such as a handler removing itself, is not waited for; but a handler that calls
+    /// RemoveAndWait still waits for any OTHER thread inside that target. So two threads inside the same target that
+    /// each remove it this way deadlock, as do two handlers on two threads that remove each other's targets. Call it
+    /// before the target's destruction begins: from a base-class destructor it is too late, because a call on another
+    /// thread may be inside a derived override.
+    /// </remarks>
+    GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
+    void RemoveAndWait(TNotifyTarget& pTarget) noexcept
+    {
         std::unique_lock<std::mutex> lock(m_mtxTargets);
-        if (m_pTargets)
-        {
-            const auto pIter = std::find(m_pTargets->begin(), m_pTargets->end(), &pTarget);
-            if (pIter != m_pTargets->end())
-            {
-                auto pNewTargets = std::make_shared<TargetList>(*m_pTargets);
-                pNewTargets->erase(pNewTargets->begin() + (pIter - m_pTargets->begin()));
-                m_pTargets = std::move(pNewTargets);
-            }
-        }
+        Unpublish(pTarget);
 
         const auto nThreadId = std::this_thread::get_id();
         m_cvCallEnded.wait(lock, [this, &pTarget, nThreadId]() { return !IsCalledElsewhere(&pTarget, nThreadId); });
@@ -227,7 +237,7 @@ public:
     /// Removes all objects from the collection.
     /// </summary>
     /// <remarks>
-    /// Unlike <see cref="Remove" />, does not wait for calls in progress.
+    /// Unlike <see cref="RemoveAndWait" />, does not wait for calls in progress.
     /// </remarks>
     GSL_SUPPRESS_F6 void Clear() noexcept
     {
@@ -264,7 +274,7 @@ private:
         std::thread::id nThreadId;
     };
 
-    // Ends a call ForEachTarget recorded - also when the handler throws - and wakes any Remove waiting for it.
+    // Ends a call ForEachTarget recorded - also when the handler throws - and wakes any RemoveAndWait waiting for it.
     class CallInProgress
     {
     public:
@@ -298,6 +308,21 @@ private:
         }
 
         m_cvCallEnded.notify_all();
+    }
+
+    // Publishes a list without pTarget, if it is listed. m_mtxTargets must be held.
+    GSL_SUPPRESS_F6 void Unpublish(const TNotifyTarget& pTarget) noexcept
+    {
+        if (!m_pTargets)
+            return;
+
+        const auto pIter = std::find(m_pTargets->begin(), m_pTargets->end(), &pTarget);
+        if (pIter == m_pTargets->end())
+            return;
+
+        auto pNewTargets = std::make_shared<TargetList>(*m_pTargets);
+        pNewTargets->erase(pNewTargets->begin() + (pIter - m_pTargets->begin()));
+        m_pTargets = std::move(pNewTargets);
     }
 
     // m_mtxTargets must be held.

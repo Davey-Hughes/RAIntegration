@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -24,6 +25,63 @@ TEST_CLASS(NotifyTargetSet_Tests)
     {
         std::atomic<int> nCalls{ 0 };
     };
+
+    // A ForEachTarget call into oTarget, made on another thread and held inside
+    // the handler until Release(). Heap-allocate it, and delete it only after
+    // Finished() returned true: a call that timed out is still using it.
+    struct HeldCall
+    {
+        NotifyTargetSet<Counter> set;
+        Counter oTarget;
+        Counter oOther;
+        std::promise<void> oEntered;
+        std::promise<void> oRelease;
+        std::future<void> fEntered = oEntered.get_future();
+        std::shared_future<void> fRelease = oRelease.get_future().share();
+        std::unique_ptr<ra::tests::DetachedCall> pNotify;
+
+        void Start()
+        {
+            set.Add(oTarget);
+            pNotify = std::make_unique<ra::tests::DetachedCall>([this]() {
+                set.ForEachTarget([this](Counter& oCalled) {
+                    ++oCalled.nCalls;
+                    oEntered.set_value();
+                    fRelease.wait();
+                });
+            });
+        }
+
+        bool WaitUntilEntered() { return fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready; }
+        void Release() { oRelease.set_value(); }
+        bool Finished() { return pNotify->FinishedWithin(std::chrono::seconds(5)); }
+    };
+
+    // Holds a call into the target on another thread, runs fPrepare, then checks
+    // that RemoveAndWait on a third thread returns only once the call is released.
+    template<typename TPrepare>
+    static void AssertRemoveAndWaitWaitsForTheCall(TPrepare fPrepare)
+    {
+        auto* pHeld = new HeldCall();
+        pHeld->Start();
+        const bool bEntered = pHeld->WaitUntilEntered();
+
+        fPrepare(pHeld->set, pHeld->oOther);
+
+        ra::tests::DetachedCall oRemove([pHeld]() { pHeld->set.RemoveAndWait(pHeld->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
+
+        pHeld->Release();
+        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
+        const bool bNotifyFinished = pHeld->Finished();
+
+        Assert::IsTrue(bEntered, L"the call never started");
+        Assert::IsFalse(bRemovedDuringTheCall, L"RemoveAndWait returned while another thread was inside the target");
+        Assert::IsTrue(bRemovedAfterIt, L"RemoveAndWait never returned after the call ended");
+        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
+
+        delete pHeld; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
 
 public:
     TEST_METHOD(TestAddAndRemove)
@@ -278,6 +336,7 @@ public:
                 tWalker.join();
         });
         const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
+        pState->bStop = true;
 
         Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
 
@@ -314,7 +373,7 @@ public:
                     for (int i = 0; i < 2000; ++i)
                     {
                         pState->set.Add(pState->vTransient.at((i + nThread) % 8));
-                        pState->set.Remove(pState->vTransient.at((i + nThread + 3) % 8));
+                        pState->set.RemoveAndWait(pState->vTransient.at((i + nThread + 3) % 8));
                     }
                 });
             }
@@ -337,6 +396,7 @@ public:
                 tWalker.join();
         });
         const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
+        pState->bStop = true;
 
         Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
 
@@ -346,86 +406,52 @@ public:
         delete pState; // reached only when the run finished: on a failure above it is leaked on purpose
     }
 
-    TEST_METHOD(TestRemoveWaitsForAnotherThreadsCallToThatTarget)
+    TEST_METHOD(TestRemoveAndWaitWaitsForAnotherThreadsCallToThatTarget)
     {
-        struct State
-        {
-            NotifyTargetSet<Counter> set;
-            Counter oTarget;
-            std::promise<void> oEntered;
-            std::promise<void> oRelease;
-        };
-        auto* pState = new State();
-        pState->set.Add(pState->oTarget);
-        auto fEntered = pState->oEntered.get_future();
-        std::shared_future<void> fRelease = pState->oRelease.get_future().share();
-
-        ra::tests::DetachedCall oNotify([pState, fRelease]() {
-            pState->set.ForEachTarget([pState, fRelease](Counter& oTarget) {
-                ++oTarget.nCalls;
-                pState->oEntered.set_value();
-                fRelease.wait();
-            });
-        });
-        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
-
-        ra::tests::DetachedCall oRemove([pState]() { pState->set.Remove(pState->oTarget); });
-        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
-
-        pState->oRelease.set_value();
-        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
-        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
-
-        Assert::IsTrue(bEntered, L"the call never started");
-        Assert::IsFalse(bRemovedDuringTheCall, L"Remove returned while another thread was inside the target");
-        Assert::IsTrue(bRemovedAfterIt, L"Remove never returned after the call ended");
-        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
-
-        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>&, Counter&) {});
     }
 
-    TEST_METHOD(TestRemoveAfterClearStillWaitsForAnotherThreadsCall)
+    TEST_METHOD(TestRemoveAndWaitAfterClearStillWaitsForAnotherThreadsCall)
     {
-        // Clear() drops every target without waiting, and a later Remove of a
-        // target no longer in the set must still wait for another thread inside it.
-        struct State
-        {
-            NotifyTargetSet<Counter> set;
-            Counter oTarget;
-            std::promise<void> oEntered;
-            std::promise<void> oRelease;
-        };
-        auto* pState = new State();
-        pState->set.Add(pState->oTarget);
-        auto fEntered = pState->oEntered.get_future();
-        std::shared_future<void> fRelease = pState->oRelease.get_future().share();
-
-        ra::tests::DetachedCall oNotify([pState, fRelease]() {
-            pState->set.ForEachTarget([pState, fRelease](Counter& oTarget) {
-                ++oTarget.nCalls;
-                pState->oEntered.set_value();
-                fRelease.wait();
-            });
-        });
-        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
-
-        pState->set.Clear();
-        ra::tests::DetachedCall oRemove([pState]() { pState->set.Remove(pState->oTarget); });
-        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
-
-        pState->oRelease.set_value();
-        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
-        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
-
-        Assert::IsTrue(bEntered, L"the call never started");
-        Assert::IsFalse(bRemovedDuringTheCall, L"Remove of a cleared target returned while another thread was inside it");
-        Assert::IsTrue(bRemovedAfterIt, L"Remove never returned after the call ended");
-        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
-
-        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+        // Clear() drops every target without waiting, and leaves no list at all.
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter&) { set.Clear(); });
     }
 
-    TEST_METHOD(TestAHandlerMayRemoveItsOwnTarget)
+    TEST_METHOD(TestRemoveAndWaitForATargetNoLongerListedStillWaits)
+    {
+        // The list exists but no longer holds the target: returning early on
+        // "not found" would skip the wait.
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter& oOther) {
+            set.Clear();
+            set.Add(oOther);
+        });
+    }
+
+    TEST_METHOD(TestRemoveDoesNotWaitForAnotherThreadsCall)
+    {
+        // Remove is also how a target is muted - removed and added back around a
+        // change - sometimes while holding a lock its own handler takes
+        // (TriggerViewModel::DoFrame and its ConditionsMonitor). Waiting there
+        // would deadlock, so only RemoveAndWait waits.
+        auto* pHeld = new HeldCall();
+        pHeld->Start();
+        const bool bEntered = pHeld->WaitUntilEntered();
+
+        ra::tests::DetachedCall oRemove([pHeld]() { pHeld->set.Remove(pHeld->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::seconds(5));
+
+        pHeld->Release();
+        const bool bNotifyFinished = pHeld->Finished();
+
+        Assert::IsTrue(bEntered, L"the call never started");
+        Assert::IsTrue(bRemovedDuringTheCall, L"Remove waited for another thread's call");
+        Assert::IsTrue(bNotifyFinished, L"the pass never finished");
+        Assert::IsTrue(pHeld->set.IsEmpty());
+
+        delete pHeld; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestAHandlerMayRemoveAndWaitForItsOwnTarget)
     {
         struct State
         {
@@ -438,7 +464,7 @@ public:
         ra::tests::DetachedCall oNotify([pState]() {
             pState->set.ForEachTarget([pState](Counter& oTarget) {
                 ++oTarget.nCalls;
-                pState->set.Remove(oTarget); // must not wait for its own call
+                pState->set.RemoveAndWait(oTarget); // must not wait for its own call
             });
         });
         const bool bFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
@@ -511,12 +537,12 @@ public:
             bThrew = true;
         }
 
-        // Another thread's Remove must not wait for a call that ended in an exception.
-        ra::tests::DetachedCall oRemove([pState]() { pState->set.Remove(pState->oTarget); });
+        // Another thread's RemoveAndWait must not wait for a call that ended in an exception.
+        ra::tests::DetachedCall oRemove([pState]() { pState->set.RemoveAndWait(pState->oTarget); });
         const bool bRemoved = oRemove.FinishedWithin(std::chrono::seconds(5));
 
         Assert::IsTrue(bThrew, L"the handler's exception did not reach the caller");
-        Assert::IsTrue(bRemoved, L"Remove waited for a call that had thrown");
+        Assert::IsTrue(bRemoved, L"RemoveAndWait waited for a call that had thrown");
 
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
