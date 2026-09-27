@@ -797,6 +797,39 @@ public:
         mockHostThread.Drain();
         Assert::AreEqual({ 0x60U }, viewer.mockEmulatorContext.ReadMemoryByte(0U));
     }
+
+    // Typing with the cursor off-screen scrolls to it, and the new page's reload
+    // is deferred: until the frame thread runs, the buffer still holds the
+    // previous page's bytes. The nibble not typed must come from the emulator.
+    TEST_METHOD(TestOnCharOffscreenOffTheFrameThreadKeepsTheEmulatorsOtherNibble)
+    {
+        MemoryViewerViewModelHarness viewer;
+        viewer.InitializeMemory(256);
+        viewer.mockEmulatorContext.WriteMemoryByte(0xE3U, 0x5A);
+        viewer.SetAddress(0xE3U); // set address first, as it updates FirstAddress
+        viewer.SetFirstAddress(64U); // showing $0040-$00BF (8 lines): $00E3 is off-screen
+        viewer.MockRender();
+        ra::context::mocks::MockRcClient mockRcClient; // the harness has none; the runtime needs one
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        bool bHandled = false;
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread([&]() { bHandled = viewer.OnChar('0'); });
+
+        Assert::IsTrue(bHandled);
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the edit touched the emulator's memory on the view's thread");
+        Assert::AreEqual({ 0x80U }, viewer.GetFirstAddress(), L"the cursor was not scrolled onscreen");
+        Assert::AreEqual({ 1U }, viewer.GetSelectedNibble(), L"the cursor did not advance");
+        Assert::AreEqual({ 0x5AU }, viewer.mockEmulatorContext.ReadMemoryByte(0xE3U),
+                         L"the write reached the emulator off the frame thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual({ 0x0AU }, viewer.mockEmulatorContext.ReadMemoryByte(0xE3U),
+                         L"the nibble not typed did not come from the emulator's byte");
+        Assert::AreEqual({ 0x0AU }, viewer.GetByte(0xE3U));
+    }
 #endif
 
     TEST_METHOD(TestAdvanceCursorSixteenBit)

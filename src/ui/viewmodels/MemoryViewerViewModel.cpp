@@ -1051,6 +1051,23 @@ void MemoryViewerViewModel::DetermineIfASCIIShouldBeVisible()
     }
 }
 
+// Puts a typed nibble into the upper or lower half of a byte (OnChar).
+static uint8_t SetNibble(uint8_t nByte, uint8_t nNibble, bool bUpper) noexcept
+{
+    if (bUpper)
+    {
+        nByte &= 0x0F;
+        nByte |= (nNibble << 4);
+    }
+    else
+    {
+        nByte &= 0xF0;
+        nByte |= nNibble;
+    }
+
+    return nByte;
+}
+
 bool MemoryViewerViewModel::OnChar(char c)
 {
     if (m_nTotalMemorySize == 0 || m_bReadOnly)
@@ -1109,28 +1126,20 @@ bool MemoryViewerViewModel::OnChar(char c)
         return true;
     }
 
-    auto nByte = m_pMemory[nIndex];
-    if (nSelectedNibble != 0)
-    {
-        nByte &= 0x0F;
-        nByte |= (value << 4);
-    }
-    else
-    {
-        nByte &= 0xF0;
-        nByte |= value;
-    }
-
-    m_pMemory[nIndex] = nByte;
+    const bool bUpperNibble = (nSelectedNibble != 0);
+    m_pMemory[nIndex] = SetNibble(m_pMemory[nIndex], value, bUpperNibble);
     m_pColor[nIndex] |= STALE_COLOR;
     m_nNeedsRedraw |= REDRAW_MEMORY;
 
-    // push the updated value to the emulator - on its frame thread, which is
-    // not this one when a view on another thread typed it (see
-    // QueueMemoryWrite). m_pMemory above shows the edit until then.
-    DispatchMemoryWrite([nAddress, nByte]() {
+    // Push the edit to the emulator - on its frame thread, which is not this
+    // one when a view on another thread typed it (see QueueMemoryWrite).
+    // m_pMemory above shows the edit until then, but may hold the previous
+    // page's bytes - SetFirstAddress reloads the page there too - so the typed
+    // nibble goes into the emulator's byte.
+    DispatchMemoryWrite([nAddress, value, bUpperNibble]() {
         auto& pMemoryContext = ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>();
-        pMemoryContext.WriteMemoryByte(nAddress, nByte);
+        pMemoryContext.WriteMemoryByte(nAddress,
+                                       SetNibble(pMemoryContext.ReadMemoryByte(nAddress), value, bUpperNibble));
     });
 
     // advance the cursor to the next nibble

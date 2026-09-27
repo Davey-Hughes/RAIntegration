@@ -375,6 +375,34 @@ public:
         mockHostThread.Drain();
         Assert::AreEqual({ 0x43 }, inspector.memory.at(3));
     }
+
+    // Moving to an address off the viewer's page defers the page's reload, so
+    // until the frame thread runs, the viewer still holds the previous page's
+    // bytes. A bit toggled there must be toggled in the emulator's byte.
+    TEST_METHOD(TestToggleBitOffTheViewersPageTogglesTheEmulatorsByte)
+    {
+        MemoryInspectorViewModelHarness inspector; // has the MockRcClient the runtime needs
+        std::array<unsigned char, 256> memory{};
+        for (size_t i = 0; i < memory.size(); ++i)
+            memory.at(i) = gsl::narrow_cast<unsigned char>(i);
+        inspector.mockEmulatorContext.MockMemory(memory);
+        inspector.Viewer().DoFrame(); // the viewer shows $0000-$007F
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread([&inspector]() {
+            inspector.SetCurrentAddress({ 0xC3U });
+            inspector.ToggleBit(6);
+        });
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the toggle touched the emulator's memory on the view's thread");
+        Assert::AreEqual({ 0xC3 }, memory.at(0xC3), L"the write reached the emulator off the frame thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual({ 0x83 }, memory.at(0xC3), L"the bit was not toggled in the emulator's byte");
+        Assert::AreEqual(std::wstring(L"1 0 0 0 0 0 1 1"), inspector.GetCurrentAddressBits());
+    }
 #endif
 
     TEST_METHOD(TestCurrentBitsVisible)

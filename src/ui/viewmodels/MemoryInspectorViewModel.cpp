@@ -315,11 +315,20 @@ void MemoryInspectorViewModel::OnCurrentAddressChanged(ra::data::ByteAddress nNe
             m_pSearch.ClearSelection();
     }
 
-    // update viewer first so memory will be ready for GetValueAtAddress call
     m_pViewer.SetAddress(nNewAddress);
 
-    const auto nValue = Viewer().GetValueAtAddress(nNewAddress);
-    SetValue(CurrentAddressValueProperty, nValue);
+    // The viewer reloads a page it scrolls to on the frame thread, which is not
+    // this one when a view on another thread moved the address (see
+    // QueueMemoryRead), so its buffer may still hold the previous page here.
+    // The value is read there too; inline, it is the byte the viewer just read.
+    DispatchMemoryRead([this, nNewAddress]() {
+        // moved again since - the later move reads its own address
+        if (GetCurrentAddress() != nNewAddress)
+            return;
+
+        const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
+        SetValue(CurrentAddressValueProperty, pMemoryContext.ReadMemoryByte(nNewAddress));
+    });
 }
 
 std::string MemoryInspectorViewModel::GetCurrentAddressMemRefChain() const
@@ -483,18 +492,21 @@ bool MemoryInspectorViewModel::PreviousNote()
 void MemoryInspectorViewModel::ToggleBit(int nBit)
 {
     const auto nAddress = GetCurrentAddress();
-    auto nValue = GetValue(CurrentAddressValueProperty);
-    nValue ^= (1 << nBit);
 
-    // push the updated value to the emulator - on its frame thread, which is
-    // not this one when a view on another thread asked (see QueueMemoryWrite)
-    DispatchMemoryWrite([nAddress, nValue]() {
+    // update the local value at once, which will cause the bits string to get updated
+    SetValue(CurrentAddressValueProperty, GetValue(CurrentAddressValueProperty) ^ (1 << nBit));
+
+    // Push the change to the emulator - on its frame thread, which is not this
+    // one when a view on another thread asked (see QueueMemoryWrite). The value
+    // shown may be stale by then (OnCurrentAddressChanged reads it there too),
+    // so the bit is toggled in the emulator's byte, and the value shown becomes
+    // the one written. The inspector lives as long as the WindowManager.
+    DispatchMemoryWrite([this, nAddress, nBit]() {
         const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
-        pMemoryContext.WriteMemoryByte(nAddress, gsl::narrow_cast<uint8_t>(nValue));
+        const auto nValue = gsl::narrow_cast<uint8_t>(pMemoryContext.ReadMemoryByte(nAddress) ^ (1 << nBit));
+        pMemoryContext.WriteMemoryByte(nAddress, nValue);
+        SetValue(CurrentAddressValueProperty, nValue);
     });
-
-    // update the local value, which will cause the bits string to get updated
-    SetValue(CurrentAddressValueProperty, nValue);
 }
 
 void MemoryInspectorViewModel::OnBeforeActiveGameChanged()
