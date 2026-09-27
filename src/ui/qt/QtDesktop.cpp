@@ -46,6 +46,25 @@ struct ModalWait
     }
 };
 
+const char* DialogResultName(ra::ui::DialogResult nResult) noexcept
+{
+    switch (nResult)
+    {
+        case ra::ui::DialogResult::OK:
+            return "OK";
+        case ra::ui::DialogResult::Cancel:
+            return "Cancel";
+        case ra::ui::DialogResult::Yes:
+            return "Yes";
+        case ra::ui::DialogResult::No:
+            return "No";
+        case ra::ui::DialogResult::Retry:
+            return "Retry";
+        default:
+            return "None";
+    }
+}
+
 } // namespace
 
 QtDesktop::QtDesktop() : m_pState(std::make_shared<State>())
@@ -80,6 +99,15 @@ ra::services::IQtApplicationHost* QtDesktop::GetHost()
 bool QtDesktop::CanHostWidgets(const ra::services::IQtApplicationHost* pHost)
 {
     return pHost != nullptr && pHost->IsAvailable() && pHost->HasWidgets();
+}
+
+ra::ui::DialogResult QtDesktop::RefusalAnswer(const WindowViewModelBase& vmWindow)
+{
+    const auto* vmMessageBox = dynamic_cast<const ra::ui::viewmodels::MessageBoxViewModel*>(&vmWindow);
+    if (vmMessageBox != nullptr)
+        return MessageBoxDialog::GetEscapeAnswer(vmMessageBox->GetButtons());
+
+    return ra::ui::DialogResult::No;
 }
 
 IDialogPresenter* QtDesktop::FindPresenter(const WindowViewModelBase& vmWindow) const
@@ -119,7 +147,14 @@ void QtDesktop::ShowWindow(WindowViewModelBase& vmWindow) const
     // The view model outlives the queued call, as with Win32's queued
     // ShowWindow: every caller's is a WindowManager member.
     pHost->Invoke([pState = m_pState, pPresenter, &vmWindow]() {
-        (void)pState; // keeps the presenter alive
+        // pState also keeps the presenter alive. CloseAll may have run since
+        // the check above, and a window opened now would outlive its view model.
+        if (pState->bClosed.load())
+        {
+            ++pState->nRefusedAfterShutdown;
+            return;
+        }
+
         pPresenter->ShowWindow(vmWindow);
     });
 }
@@ -143,18 +178,21 @@ ra::ui::DialogResult QtDesktop::DoShowModal(WindowViewModelBase& vmWindow) const
     auto* pPresenter = FindPresenter(vmWindow);
     if (pPresenter == nullptr || !CanHostWidgets(pHost))
     {
-        // NullDesktop logs "No view layer to show dialog" - ra_linux_smoke
-        // looks for that line - and answers No.
+        // "No view layer to show dialog" is the line ra_linux_smoke looks for
         ++m_pState->nNoViewLayer;
-        return NullDesktop::ShowModal(vmWindow);
+        const auto nAnswer = RefusalAnswer(vmWindow);
+        RA_LOG_WARN("No view layer to show dialog \"%s\" - returning %s",
+                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+        return nAnswer;
     }
 
     if (m_pState->bClosed.load())
     {
         ++m_pState->nRefusedAfterShutdown;
-        RA_LOG_WARN("Dialog \"%s\" not shown: the windows are closed for shutdown - returning No",
-                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
-        return ra::ui::DialogResult::No;
+        const auto nAnswer = RefusalAnswer(vmWindow);
+        RA_LOG_WARN("Dialog \"%s\" not shown: the windows are closed for shutdown - returning %s",
+                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+        return nAnswer;
     }
 
     if (pHost->IsOnQtThread())
@@ -169,7 +207,7 @@ ra::ui::DialogResult QtDesktop::ShowModalOnQtThread(IDialogPresenter& oPresenter
     if (pState->bClosed.load())
     {
         ++pState->nRefusedAfterShutdown;
-        return ra::ui::DialogResult::No;
+        return RefusalAnswer(vmWindow);
     }
 
     // A caller on the Qt thread can only be answered from a nested event loop.
@@ -190,9 +228,10 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                                                          WindowViewModelBase& vmWindow) const
 {
     // Shown, not exec()'d: this thread waits, and the Qt thread goes back to
-    // its own loop. Two modals from two threads are then answered
-    // independently; nested exec() loops would hold the first caller until the
-    // second dialog closed.
+    // its own loop. Each caller is released as soon as its own dialog is
+    // answered - the newest application-modal dialog still has to be answered
+    // first, but nested exec() loops would also hold the first caller until
+    // the second dialog closed.
     auto pWait = std::make_shared<ModalWait>();
     auto pState = m_pState;
     const bool bOpened = oHost.InvokeAndWait(
@@ -226,6 +265,19 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                 pWait->SetDone();
             });
 
+            // Destroyed without finishing - deleted directly, or with stop hooks
+            // skipped - it wrote no DialogResult: release the caller anyway, with
+            // the refusal answer rather than the view model's None.
+            QObject::connect(pOpened, &QObject::destroyed, [pWait]() {
+                {
+                    std::lock_guard<std::mutex> oLock(pWait->oMutex);
+                    if (pWait->bDone)
+                        return;
+                    pWait->bRefused = true;
+                }
+                pWait->SetDone();
+            });
+
             // show(), not open(): open() forces Qt::WindowModal (measured, Qt
             // 6.11), and a window-modal dialog with no parent blocks nothing.
             // finished() still comes from done().
@@ -237,15 +289,16 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
     if (!bOpened)
     {
         ++pState->nModalNotStarted;
-        RA_LOG_WARN("Dialog \"%s\" could not be opened on the Qt thread - returning No",
-                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
-        return ra::ui::DialogResult::No;
+        const auto nAnswer = RefusalAnswer(vmWindow);
+        RA_LOG_WARN("Dialog \"%s\" could not be opened on the Qt thread - returning %s",
+                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+        return nAnswer;
     }
 
     std::unique_lock<std::mutex> oLock(pWait->oMutex);
     pWait->cvDone.wait(oLock, [&pWait]() { return pWait->bDone; });
     if (pWait->bRefused)
-        return ra::ui::DialogResult::No;
+        return RefusalAnswer(vmWindow);
     return vmWindow.GetDialogResult();
 }
 
@@ -364,6 +417,10 @@ void QtDesktop::InvokeOnHostThread(std::function<void()> fAction) const
 
 void QtDesktop::Shutdown()
 {
+    // Refuse new dialogs from here on, even if the Qt thread is slow to start
+    // CloseAll below (CloseAll sets it too, for the stop-hook path).
+    m_pState->bClosed = true;
+
     // Runs first in Initialization::Shutdown, before the thread pool drains: a
     // worker waiting in ShowModal has to be answered before the drain can end.
     // No widgets, no windows: nothing to close, and no reason to wait on the

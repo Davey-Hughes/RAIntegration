@@ -27,10 +27,10 @@ public:
         m_oThread = std::thread([pResult, &oDesktop, &vmWindow]() { pResult->set_value(oDesktop.ShowModal(vmWindow)); });
     }
 
-    // Joins a caller that returned. One that never did is detached: it can only
-    // be waiting on a dialog that nothing will finish any more (the test has
-    // already failed, and its Qt host is stopping), and it touches nothing
-    // until woken.
+    // Joins a caller that returned. One that never did is detached: the test
+    // has already failed. If something wakes it later - a stop hook's CloseAll
+    // - it reads its view model, which may be gone by then; a failure path
+    // only.
     ~ModalCaller() noexcept
     {
         if (Returned(std::chrono::milliseconds(0)))

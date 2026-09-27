@@ -30,6 +30,11 @@ WindowBinding::WindowBinding(WindowViewModelBase& vmWindow) : BindingBase(vmWind
 
 WindowBinding::~WindowBinding() noexcept
 {
+    // Handlers that arrive from now on drop their change instead of posting to
+    // a window that is going away (the notify-target removal comes last, in
+    // ~BindingBase - see the class comment).
+    m_pWidget.store(nullptr);
+
     const auto pIter = std::find(s_vKnownBindings.begin(), s_vKnownBindings.end(), this);
     if (pIter != s_vKnownBindings.end())
         s_vKnownBindings.erase(pIter);

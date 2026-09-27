@@ -21,8 +21,8 @@ void MessageBoxDialog::Presenter::ShowWindow(ra::ui::WindowViewModelBase& vmWind
 {
     // Win32 shows a message box modally even from ShowWindow. Here it would be
     // a window nobody waits for: shutdown could not find it, and its answer
-    // would go to a view model that may be gone. No caller does this (checked
-    // 2026-09-27), so it is refused visibly rather than opened.
+    // would go to a view model that may be gone. No caller does this today, so
+    // it is refused visibly rather than opened.
     RA_LOG_WARN("Message box \"%s\" shown without waiting for an answer - not shown; use ShowModal",
                 ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
 }

@@ -6,6 +6,7 @@
 
 #include "ui/qt/DialogBase.hh"
 #include "ui/qt/bindings/WindowBinding.hh"
+#include "ui/viewmodels/MessageBoxViewModel.hh"
 
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/ui/UIAsserts.hh"
@@ -242,6 +243,23 @@ public:
         Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
     }
 
+    TEST_METHOD(TestAMessageBoxThatCannotBeShownGetsItsEscapeAnswer)
+    {
+        using ra::ui::viewmodels::MessageBoxViewModel;
+        MessageBoxViewModel vmOkCancel(L"message");
+        vmOkCancel.SetButtons(MessageBoxViewModel::Buttons::OKCancel);
+        MessageBoxViewModel vmYesNo(L"message");
+        vmYesNo.SetButtons(MessageBoxViewModel::Buttons::YesNo);
+        MessageBoxViewModel vmOk(L"message");
+        FakeQtApplicationHost oHost; // a borrowed QGuiApplication: no widgets
+        QtDesktop oDesktop;
+
+        Assert::AreEqual(DialogResult::Cancel, oDesktop.ShowModal(vmOkCancel));
+        Assert::AreEqual(DialogResult::No, oDesktop.ShowModal(vmYesNo));
+        Assert::AreEqual(DialogResult::OK, oDesktop.ShowModal(vmOk));
+        Assert::AreEqual(size_t(3), oDesktop.NoViewLayerCount());
+    }
+
     TEST_METHOD(TestShowWindowWithoutWidgetsIsDropped)
     {
         TestViewModel vmWindow(L"A");
@@ -475,6 +493,23 @@ public:
         Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
     }
 
+    TEST_METHOD(TestADialogDestroyedUnansweredReleasesItsCaller)
+    {
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+
+        ModalCaller oCaller(oDesktop, vmWindow);
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        oQt.RunOnQt([]() { delete FindDialog(QStringLiteral("A")); }); // no done(), no finished()
+        const bool bReleased = oCaller.Returned(2s);
+
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::IsTrue(bReleased, L"the caller still waits on a dialog that no longer exists");
+        Assert::AreEqual(DialogResult::No, oCaller.Result());
+    }
+
     TEST_METHOD(TestAModalAfterShutdownAnswersNo)
     {
         TestViewModel vmWindow(L"A");
@@ -496,6 +531,30 @@ public:
         Assert::AreEqual(DialogResult::No, oCaller.Result());
         Assert::AreEqual(size_t(1), oDesktop.RefusedAfterShutdownCount());
         Assert::AreEqual(0, oPresenter.nCreateModal.load());
+    }
+
+    TEST_METHOD(TestAnOkCancelBoxAfterShutdownAnswersCancel)
+    {
+        using ra::ui::viewmodels::MessageBoxViewModel;
+        MessageBoxViewModel vmMessageBox(L"A newer client is required for hardcore mode.");
+        vmMessageBox.SetButtons(MessageBoxViewModel::Buttons::OKCancel);
+        QtTestHost oQt;
+        QtDesktop oDesktop; // the built-in MessageBoxDialog presenter shows it
+
+        oDesktop.Shutdown();
+
+        ModalCaller oCaller(oDesktop, vmMessageBox);
+        const bool bReturned = oCaller.Returned(2s);
+        if (!bReturned)
+            oQt.RunOnQt([]() {
+                auto* pModal = QApplication::activeModalWidget();
+                if (pModal != nullptr)
+                    pModal->close();
+            });
+
+        Assert::IsTrue(bReturned, L"a message box opened after Shutdown and waited for an answer");
+        Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
+        Assert::AreEqual(size_t(1), oDesktop.RefusedAfterShutdownCount());
     }
 
     TEST_METHOD(TestShutdownClosesAndDeletesBoundWindows)

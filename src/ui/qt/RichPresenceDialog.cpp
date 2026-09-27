@@ -17,7 +17,10 @@ bool RichPresenceDialog::Presenter::IsSupported(const ra::ui::WindowViewModelBas
 void RichPresenceDialog::Presenter::ShowWindow(ra::ui::WindowViewModelBase& vmWindow)
 {
     // One window, as Win32 keeps one: a second ShowWindow raises it.
-    if (m_pDialog.isNull())
+    // A window already closed and waiting for its deferred delete is gone as
+    // far as showing goes: Qt clears WA_DeleteOnClose when it schedules that
+    // delete, and re-showing it would lose it to the delete moments later.
+    if (m_pDialog.isNull() || !m_pDialog->testAttribute(Qt::WA_DeleteOnClose))
         m_pDialog = new RichPresenceDialog(dynamic_cast<RichPresenceMonitorViewModel&>(vmWindow));
 
     m_pDialog->show();

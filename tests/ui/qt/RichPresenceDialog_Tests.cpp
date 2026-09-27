@@ -180,6 +180,32 @@ public:
         Assert::IsFalse(vmRichPresence.IsVisible());
     }
 
+    TEST_METHOD(TestShowingItWhileItClosesOpensANewWindow)
+    {
+        ra::services::mocks::MockWindowConfiguration mockWindowConfiguration;
+        RichPresenceMonitorViewModelHarness vmRichPresence;
+        QtTestHost oQt;
+
+        oQt.RunOnQt([&vmRichPresence]() {
+            RichPresenceDialog::Presenter oPresenter;
+            oPresenter.ShowWindow(vmRichPresence);
+            auto* pText = FindMonitorText();
+            if (pText != nullptr)
+                pText->window()->close();         // schedules the delete
+            oPresenter.ShowWindow(vmRichPresence); // before that delete has run
+        });
+
+        int nMonitors = 0;
+        const bool bReopened = oQt.WaitOnQt([&nMonitors]() {
+            nMonitors = CountMonitors();
+            return FindMonitorText() != nullptr && nMonitors == 1;
+        });
+        const bool bVisible = vmRichPresence.IsVisible();
+
+        Assert::IsTrue(bReopened, L"the monitor was lost to the pending delete");
+        Assert::IsTrue(bVisible);
+    }
+
     TEST_METHOD(TestItsSizeIsSavedAndRestored)
     {
         ra::services::mocks::MockWindowConfiguration mockWindowConfiguration;

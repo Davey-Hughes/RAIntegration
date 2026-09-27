@@ -71,6 +71,13 @@ private:
 
     static ra::services::IQtApplicationHost* GetHost();
     static bool CanHostWidgets(const ra::services::IQtApplicationHost* pHost);
+
+    // The answer for a dialog that is never shown: a message box's escape
+    // answer - what closing it unanswered gives: Cancel, else No, else OK - and
+    // No for anything else. Never None, which callers read as yes; and not
+    // always No, which the OK/Cancel minimum-version box reads as "log out".
+    static ra::ui::DialogResult RefusalAnswer(const WindowViewModelBase& vmWindow);
+
     IDialogPresenter* FindPresenter(const WindowViewModelBase& vmWindow) const;
 
     ra::ui::DialogResult DoShowModal(WindowViewModelBase& vmWindow) const;

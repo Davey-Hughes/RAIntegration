@@ -17,6 +17,9 @@ namespace qt {
 /// <remarks>
 /// A subclass builds its widgets, binds them through <c>m_bindWindow</c>, and calls
 /// <c>m_bindWindow.SetWidget(*this)</c> last in its constructor. Qt thread only.
+/// The view model must outlive the window: the binding is a member, and leaves the view model's notify targets
+/// when the window is destroyed. QtDesktop's Shutdown and its Qt-host stop hook delete every window before the
+/// view models go.
 /// </remarks>
 class DialogBase : public QWidget
 {
