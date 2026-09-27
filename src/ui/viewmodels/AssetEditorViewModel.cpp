@@ -696,12 +696,14 @@ void AssetEditorViewModel::HandleStateChanged(ra::data::models::AssetState nOldS
     // otherwise, just update the measured value. Both read what the frame
     // thread writes - the emulator's memory, the runtime's trigger - so a
     // change made from a view on another thread waits for it (see
-    // QueueMemoryRead). The asset may have been unloaded by then.
-    DispatchMemoryRead([this, bIsActive]() {
+    // QueueMemoryRead). The asset may have been unloaded - or swapped for a
+    // different one - by then, so the active/inactive decision is made when
+    // the work runs, not when it's queued.
+    DispatchMemoryRead([this]() {
         if (m_pAsset == nullptr)
             return;
 
-        if (bIsActive)
+        if (m_pAsset->IsActive())
             UpdateAssetFrameValues();
         else
             UpdateMeasuredValue();
