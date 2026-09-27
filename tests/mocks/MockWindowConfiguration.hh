@@ -5,6 +5,10 @@
 #include "services/IWindowConfiguration.hh"
 #include "services/ServiceLocator.hh"
 
+#include <cstdint>
+#include <map>
+#include <string>
+
 namespace ra {
 namespace services {
 namespace mocks {
@@ -39,22 +43,27 @@ public:
         assert(!"Not implemented");
     }
 
-    ra::ui::Size GetWindowSize([[maybe_unused]] const std::string& /*sPositionKey*/) const noexcept override
+    ra::ui::Size GetWindowSize(const std::string& sPositionKey) const override
     {
-        assert(!"Not implemented");
-        return ra::ui::Size();
+        const auto pIter = m_mWindowSizes.find(sPositionKey);
+        if (pIter != m_mWindowSizes.end())
+            return pIter->second;
+
+        // what JsonFileConfiguration returns for a size never saved
+        return ra::ui::Size{INT32_MIN, INT32_MIN};
     }
 
-    void SetWindowSize([[maybe_unused]] const std::string& /*sPositionKey*/,
-                       [[maybe_unused]] const ra::ui::Size& /*oSize*/) noexcept override
+    void SetWindowSize(const std::string& sPositionKey, const ra::ui::Size& oSize) override
     {
-        assert(!"Not implemented");
+        m_mWindowSizes.insert_or_assign(sPositionKey, oSize);
     }
 
 private:
     ra::services::ServiceLocator::ServiceOverride<ra::services::IWindowConfiguration> m_Override;
 
     std::array<ra::ui::viewmodels::PopupLocation, ra::etoi(ra::ui::viewmodels::Popup::NumPopups)> m_vPopupLocations = {};
+
+    std::map<std::string, ra::ui::Size> m_mWindowSizes;
 };
 
 } // namespace mocks
