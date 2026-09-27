@@ -38,6 +38,7 @@
 #include "services/Initialization.hh"
 #include "services/ServiceLocator.hh"
 
+#include "services/AchievementRuntime.hh"
 #include "services/FrameEventQueue.hh"
 #include "services/IAudioSystem.hh"
 #include "services/IClipboard.hh"
@@ -49,7 +50,9 @@
 #include "services/IQtApplicationHost.hh"
 #include "services/IThreadPool.hh"
 
+#include "context/IEmulatorMemoryContext.hh"
 #include "context/IRcClient.hh"
+#include "context/impl/EmulatorMemoryContext.hh"
 #include "data/context/GameContext.hh"
 #include "data/context/EmulatorContext.hh"
 
@@ -61,6 +64,7 @@
 
 #include "services/Http.hh"
 #include "services/HttpErrorCodes.hh"
+#include "services/impl/HostThreadDispatcher.hh"
 #include "services/impl/StringTextWriter.hh"
 
 #include "util/Strings.hh"
@@ -929,6 +933,55 @@ static void RunChecks()
                           ", " + std::to_string(nConfirmUndone) + " after the edit was undone");
             }
 
+            // --- a worker's read waits for the frame -------------------------
+            // Off Windows a read made off the frame thread runs on the frame
+            // thread (AchievementRuntime::QueueMemoryRead). This harness frames
+            // on its own thread and installs no RA_InstallHostDispatcher, so
+            // the read must wait for the next _RA_DoAchievementsFrame, and the
+            // dispatcher must say once that host work waits for frames. The
+            // warning may already have fired earlier in this run (the game
+            // load queues host work from a worker), so the log is searched
+            // from the start of this run, not from here.
+            {
+                g_pResetMemory[0] = 0x5A;
+                const uint32_t nUiAccessesBefore =
+                    ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+
+                std::atomic<bool> bReadRan{false};
+                std::atomic<int> nReadValue{-1};
+                std::thread::id nReadThread{};
+                std::thread([&]() {
+                    ServiceLocator::Get<ra::services::AchievementRuntime>().QueueMemoryRead([&]() {
+                        nReadValue = ServiceLocator::Get<ra::context::IEmulatorMemoryContext>().ReadMemoryByte(0);
+                        nReadThread = std::this_thread::get_id();
+                        bReadRan = true;
+                    });
+                }).join();
+                const bool bRanOnTheWorker = bReadRan.load();
+
+                _RA_DoAchievementsFrame();
+
+                const bool bWarned =
+                    ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>() &&
+                    ServiceLocator::Get<ra::services::impl::HostThreadDispatcher>().HasWarnedNoPostFunction();
+                const bool bWarningLogged = ReadFileFrom(sLogPath, nLogSizeBefore)
+                                                .find("installed no RA_InstallHostDispatcher") != std::string::npos;
+                const bool bOnFrameThread = bReadRan.load() && nReadThread == std::this_thread::get_id();
+                const uint32_t nUiAccesses =
+                    ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount() - nUiAccessesBefore;
+
+                Check(!bRanOnTheWorker && bOnFrameThread && nReadValue.load() == 0x5A && bWarned &&
+                          bWarningLogged && nUiAccesses == 0,
+                      "worker read waits for the frame",
+                      std::string(bRanOnTheWorker ? "ran on the worker" : "waited") + ", " +
+                          (bReadRan.load() ? (bOnFrameThread ? "ran on the frame thread" : "ran off the frame thread")
+                                           : "never ran") +
+                          ", read " + std::to_string(nReadValue.load()) + ", " +
+                          (bWarned ? "warned" : "did NOT warn") + (bWarningLogged ? " (logged)" : " (NOT logged)") +
+                          ", " + std::to_string(nUiAccesses) + " UI-thread access(es)");
+                g_pResetMemory[0] = 1;
+            }
+
             // What a real consumer's teardown does: clear the external-client
             // flag that _Rcheevos_GetExternalClient set. destroy() leaves the
             // pause and reset hooks that the same call installed on
@@ -948,7 +1001,30 @@ static void RunChecks()
         // token, and none of the files this section caused to be written.
         // Shutdown then still runs offline with no game, and the load's
         // info.wav has finished before the audio section takes its baselines.
-        _RA_ActivateGame(0);
+
+        // --- work queued before a game change is dropped --------------------
+        // _RA_ActivateGame is one of the exports after which the emulator's
+        // memory may belong to another game (AchievementRuntime::
+        // InvalidateQueuedMemoryWork): a read queued before it and still
+        // waiting for the frame must not run after it. Other work queued by
+        // the unload may be dropped too, hence "at least one".
+        {
+            std::atomic<bool> bStaleRan{false};
+            const uint32_t nDroppedBefore = ra::services::AchievementRuntime::DroppedQueuedMemoryWorkCount();
+            std::thread([&bStaleRan]() {
+                ServiceLocator::Get<ra::services::AchievementRuntime>().QueueMemoryRead([&bStaleRan]() { bStaleRan = true; });
+            }).join();
+            const bool bWaited = !bStaleRan.load();
+
+            _RA_ActivateGame(0);
+            _RA_DoAchievementsFrame(); // the frame the read waited for
+
+            const uint32_t nDropped = ra::services::AchievementRuntime::DroppedQueuedMemoryWorkCount() - nDroppedBefore;
+            Check(bWaited && !bStaleRan.load() && nDropped >= 1, "work queued before a game change is dropped",
+                  std::string(bWaited ? "waited" : "ran on the worker") + ", " +
+                      (bStaleRan.load() ? "ran after the change" : "did not run") + ", " +
+                      std::to_string(nDropped) + " dropped");
+        }
         _RA_ClearMemoryBanks();
         _RA_SetConsoleID(0); // ConsoleID::UnknownConsoleID, as Initialization registers it
         pRcClient->user.token = sSavedToken;
