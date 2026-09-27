@@ -487,8 +487,8 @@ void MemoryInspectorViewModel::ToggleBit(int nBit)
     nValue ^= (1 << nBit);
 
     // push the updated value to the emulator - on its frame thread, which is
-    // not this one when a view on another thread asked (see QueueMemoryRead)
-    DispatchMemoryRead([nAddress, nValue]() {
+    // not this one when a view on another thread asked (see QueueMemoryWrite)
+    DispatchMemoryWrite([nAddress, nValue]() {
         const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
         pMemoryContext.WriteMemoryByte(nAddress, gsl::narrow_cast<uint8_t>(nValue));
     });

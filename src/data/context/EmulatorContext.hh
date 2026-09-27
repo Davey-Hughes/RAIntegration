@@ -201,6 +201,19 @@ public:
         /// </remarks>
         static void DispatchMemoryRead(std::function<void()>&& fFunction,
                                        std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle);
+
+        /// <summary>
+        /// As <see cref="DispatchMemoryRead" />, for work that writes the emulator's memory: off Windows, work
+        /// deferred to the frame thread is dropped if the emulator changes games or memory banks before it runs,
+        /// as its address may then belong to another game (AchievementRuntime::QueueMemoryWrite).
+        /// </summary>
+        static void DispatchMemoryWrite(std::function<void()>&& fFunction);
+
+        /// <summary>
+        /// As the guarded <see cref="DispatchMemoryRead" /> overload, for work that writes the emulator's memory.
+        /// </summary>
+        static void DispatchMemoryWrite(std::function<void()>&& fFunction,
+                                        std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle);
     };
 
 protected:

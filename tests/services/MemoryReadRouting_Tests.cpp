@@ -74,6 +74,10 @@ private:
 
         void Queue(std::atomic<int>& nRan) { DispatchMemoryRead([&nRan]() { ++nRan; }, m_pHandle); }
 
+        void QueueWrite(std::atomic<int>& nRan) { DispatchMemoryWrite([&nRan]() { ++nRan; }, m_pHandle); }
+
+        static void QueueUnguardedWrite(std::atomic<int>& nRan) { DispatchMemoryWrite([&nRan]() { ++nRan; }); }
+
         // guarded work that dispatches again for the same object
         void QueueNested(std::atomic<int>& nRan)
         {
@@ -199,7 +203,32 @@ public:
         Assert::IsTrue(oProbe.nRanOn != std::this_thread::get_id());
     }
 
-    TEST_METHOD(TestQueuedReadIsDroppedAfterAGameOrBankChange)
+    TEST_METHOD(TestQueuedWriteIsDroppedAfterAGameOrBankChange)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        Probe oProbe;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryWrite(oProbe.Callback()); });
+        const uint32_t nDroppedBefore = AchievementRuntime::DroppedQueuedMemoryWorkCount();
+
+        AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.Drain();
+
+        Assert::IsFalse(oProbe.bRan.load(), L"memory work queued before a game change ran after it");
+        Assert::AreEqual(nDroppedBefore + 1U, AchievementRuntime::DroppedQueuedMemoryWorkCount());
+
+        Probe oAfter;
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryWrite(oAfter.Callback()); });
+        mockHostThread.Drain();
+        Assert::IsTrue(oAfter.bRan.load(), L"work queued after the change was dropped too");
+    }
+
+    // A read re-reads the current state when it runs, and some carry the second
+    // half of work their caller began at once - a bookmark list cleared for the
+    // new game is filled by one - so a game or bank change never drops a read.
+    TEST_METHOD(TestQueuedReadIsNotDroppedAfterAGameOrBankChange)
     {
         ra::services::mocks::MockHostThread mockHostThread;
         RoutingHarness harness;
@@ -212,30 +241,25 @@ public:
         AchievementRuntime::InvalidateQueuedMemoryWork();
         mockHostThread.Drain();
 
-        Assert::IsFalse(oProbe.bRan.load(), L"memory work queued before a game change ran after it");
-        Assert::AreEqual(nDroppedBefore + 1U, AchievementRuntime::DroppedQueuedMemoryWorkCount());
-
-        Probe oAfter;
-        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oAfter.Callback()); });
-        mockHostThread.Drain();
-        Assert::IsTrue(oAfter.bRan.load(), L"work queued after the change was dropped too");
+        Assert::IsTrue(oProbe.bRan.load(), L"a read queued before a game change was dropped");
+        Assert::AreEqual(nDroppedBefore, AchievementRuntime::DroppedQueuedMemoryWorkCount());
     }
 
-    TEST_METHOD(TestReadQueuedForTheNextFrameIsDroppedAfterAGameOrBankChange)
+    TEST_METHOD(TestWriteQueuedForTheNextFrameIsDroppedAfterAGameOrBankChange)
     {
         ra::services::mocks::MockHostThread mockHostThread;
         RoutingHarness harness;
         mockHostThread.RunElsewhere([&]() { harness.FrameHere(); });
 
         Probe oProbe;
-        harness.mockRuntime.QueueMemoryRead(oProbe.Callback()); // into rc_client's queue
+        harness.mockRuntime.QueueMemoryWrite(oProbe.Callback()); // into rc_client's queue
         AchievementRuntime::InvalidateQueuedMemoryWork();
         mockHostThread.RunElsewhere([&]() { harness.FrameHere(); });
 
         Assert::IsFalse(oProbe.bRan.load(), L"memory work queued before a game change ran at the next frame");
     }
 
-    TEST_METHOD(TestMemoryBankExportsDropQueuedWork)
+    TEST_METHOD(TestMemoryBankExportsDropQueuedWrites)
     {
         ra::services::mocks::MockHostThread mockHostThread;
         RoutingHarness harness;
@@ -243,16 +267,46 @@ public:
         harness.FrameHere();
 
         Probe oBeforeClear;
-        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oBeforeClear.Callback()); });
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryWrite(oBeforeClear.Callback()); });
         _RA_ClearMemoryBanks();
         mockHostThread.Drain();
         Assert::IsFalse(oBeforeClear.bRan.load(), L"_RA_ClearMemoryBanks did not drop queued memory work");
 
         Probe oBeforeInstall;
-        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryRead(oBeforeInstall.Callback()); });
+        mockHostThread.RunElsewhere([&]() { harness.mockRuntime.QueueMemoryWrite(oBeforeInstall.Callback()); });
         _RA_InstallMemoryBank(0, reinterpret_cast<void*>(&ReadNothing), nullptr, 16);
         mockHostThread.Drain();
         Assert::IsFalse(oBeforeInstall.bRan.load(), L"_RA_InstallMemoryBank did not drop queued memory work");
+    }
+
+    // Both DispatchMemoryWrite overloads queue through QueueMemoryWrite: a game
+    // or bank change drops what they queued, and not what DispatchMemoryRead did.
+    TEST_METHOD(TestDispatchedWritesAreDroppedAfterAGameOrBankChange)
+    {
+        ra::services::mocks::MockHostThread mockHostThread;
+        RoutingHarness harness;
+        harness.FrameHere();
+
+        GuardedTarget oTarget;
+        std::atomic<int> nWrites{0};
+        std::atomic<int> nReads{0};
+        mockHostThread.RunElsewhere([&]() {
+            oTarget.QueueWrite(nWrites);
+            GuardedTarget::QueueUnguardedWrite(nWrites);
+            oTarget.Queue(nReads);
+        });
+
+        AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.Drain();
+        Assert::AreEqual(0, nWrites.load(), L"a write queued before a game change ran after it");
+        Assert::AreEqual(1, nReads.load(), L"a read queued before a game change was dropped");
+
+        mockHostThread.RunElsewhere([&]() {
+            oTarget.QueueWrite(nWrites);
+            GuardedTarget::QueueUnguardedWrite(nWrites);
+        });
+        mockHostThread.Drain();
+        Assert::AreEqual(2, nWrites.load(), L"writes queued after the change did not run");
     }
 
     TEST_METHOD(TestGuardedWorkRunsWhileItsObjectLives)

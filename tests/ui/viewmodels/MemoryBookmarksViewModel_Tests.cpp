@@ -18,6 +18,7 @@
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockFrameEventQueue.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockOverlayManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -235,6 +236,34 @@ public:
         bookmarks.mockGameContext.NotifyGameLoad();
         Assert::AreEqual({ 0U }, bookmarks.Bookmarks().Items().Count());
     }
+
+#ifndef _WIN32
+    // A game change empties the list at once, and fills it in work queued for
+    // the frame thread. That work only reads, so a memory-bank change before it
+    // runs (RALibretro installs its banks after RA_ActivateGame) must not drop
+    // it: the list would stay empty, count as modified once a bookmark is added,
+    // and overwrite the game's saved bookmarks at the next game change.
+    TEST_METHOD(TestLoadBookmarksQueuedBeforeAGameOrBankChangeStillLoads)
+    {
+        MemoryBookmarksViewModelHarness bookmarks; // has the runtime and the client it needs
+        bookmarks.SetIsVisible(true);
+        bookmarks.mockGameContext.SetGameId(3U);
+        bookmarks.mockLocalStorage.MockStoredData(ra::services::StorageItemType::Bookmarks, L"3",
+            "{\"Bookmarks\":[{\"Description\":\"desc\",\"Address\":1234,\"Type\":1,\"Decimal\":true}]}");
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        ra::services::mocks::MockHostThread::RunElsewhere(
+            [&bookmarks]() { bookmarks.mockGameContext.NotifyActiveGameChanged(); });
+        Assert::AreEqual({ 0U }, bookmarks.Bookmarks().Items().Count(), L"the bookmarks did not wait for the frame thread");
+
+        ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.Drain();
+
+        Assert::AreEqual({ 1U }, bookmarks.Bookmarks().Items().Count(), L"the bookmarks were never loaded");
+        Assert::IsTrue(bookmarks.HasBookmark(1234U));
+        Assert::IsFalse(bookmarks.IsModified());
+    }
+#endif
 
     TEST_METHOD(TestLoadBookmarksDescriptionFromMemoryNotes)
     {

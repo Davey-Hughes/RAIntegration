@@ -289,8 +289,8 @@ static void ScheduleMemoryReadOnFrameThread(std::function<void()>&& fCallback)
     // timely manner or the callback won't get called and the UI will appear unresponsive.
 }
 
-// Bumped whenever the emulator changes games or memory banks. Deferred memory
-// work remembers the value it was queued under (QueueMemoryRead). File
+// Bumped whenever the emulator changes games or memory banks. A deferred memory
+// write remembers the value it was queued under (QueueMemoryWork). File
 // statics, so a deferred item never reaches into a runtime a re-init replaced.
 static std::atomic<uint32_t> s_nMemoryWorkGeneration{0};
 static std::atomic<uint32_t> s_nDroppedMemoryWork{0};
@@ -301,15 +301,25 @@ uint32_t AchievementRuntime::DroppedQueuedMemoryWorkCount() noexcept { return s_
 
 void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) const
 {
+    QueueMemoryWork(std::move(fCallback), false);
+}
+
+void AchievementRuntime::QueueMemoryWrite(std::function<void()>&& fCallback) const
+{
+    QueueMemoryWork(std::move(fCallback), true);
+}
+
+void AchievementRuntime::QueueMemoryWork(std::function<void()>&& fCallback, [[maybe_unused]] bool bDropIfStale) const
+{
 #ifndef _WIN32
     // Off Windows the library's UI does not run on the emulator's thread: an
     // application the library owns runs on a Qt thread of its own
     // (QtApplicationHost). A read made there - or on a worker - would call the
     // emulator's memory callbacks while it is mid-frame on its own thread: a
     // multi-byte value torn across two frames, or a bank list freed under the
-    // reader by _RA_ClearMemoryBanks. So every read made off the frame thread
-    // goes to the frame thread, whether or not rc_client allows background
-    // reads:
+    // reader by _RA_ClearMemoryBanks. So every read or write made off the frame
+    // thread goes to the frame thread, whether or not rc_client allows
+    // background reads:
     //  - through the host-thread dispatcher when the frame thread is the
     //    emulator's own thread, or no frame has run yet. With the emulator's
     //    RA_InstallHostDispatcher this runs while it is paused, too; without
@@ -330,19 +340,30 @@ void AchievementRuntime::QueueMemoryRead(std::function<void()>&& fCallback) cons
             return;
         }
 
-        // From here the work may wait. Work queued before the emulator changed
-        // games or memory banks is dropped when it comes up: a write would land
-        // in the new game's memory, and a read would describe the wrong game.
-        auto fDeferred = [nGeneration = s_nMemoryWorkGeneration.load(), fCallback = std::move(fCallback)]() {
-            if (s_nMemoryWorkGeneration.load() != nGeneration)
-            {
-                if (s_nDroppedMemoryWork.fetch_add(1) == 0)
-                    RA_LOG_INFO("Dropped memory work queued before the emulator changed games or memory banks");
-                return;
-            }
+        // From here the work may wait. A write queued before the emulator
+        // changed games or memory banks is dropped when it comes up: its address
+        // may now belong to another game. A read is never dropped: it reads the
+        // current state when it runs, and some reads finish work their caller
+        // began at once (a bookmark list emptied for the new game is filled by
+        // one), which dropping would leave half done.
+        std::function<void()> fDeferred;
+        if (bDropIfStale)
+        {
+            fDeferred = [nGeneration = s_nMemoryWorkGeneration.load(), fCallback = std::move(fCallback)]() {
+                if (s_nMemoryWorkGeneration.load() != nGeneration)
+                {
+                    if (s_nDroppedMemoryWork.fetch_add(1) == 0)
+                        RA_LOG_INFO("Dropped a memory write queued before the emulator changed games or memory banks");
+                    return;
+                }
 
-            fCallback();
-        };
+                fCallback();
+            };
+        }
+        else
+        {
+            fDeferred = std::move(fCallback);
+        }
 
         auto& pDispatcher = ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>();
         if (nFrameThread == std::thread::id{} || nFrameThread == pDispatcher.GetHostThread())

@@ -683,12 +683,17 @@ void EmulatorContext::Unpause() const
         ra::services::ServiceLocator::Get<ra::ui::IDesktop>().InvokeOnHostThread(m_fUnpauseEmulator);
 }
 
-void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction)
+// The runtime's QueueMemoryRead or QueueMemoryWrite.
+using QueueMemoryFunction = void (ra::services::AchievementRuntime::*)(std::function<void()>&&) const;
+
+// DispatchMemoryRead and DispatchMemoryWrite. With no runtime there is no frame
+// thread to wait for, so the work runs inline.
+static void DispatchMemoryWork(QueueMemoryFunction fQueue, std::function<void()>&& fFunction)
 {
     if (ra::services::ServiceLocator::Exists<ra::services::AchievementRuntime>())
     {
         const auto& pRuntime = ra::services::ServiceLocator::Get<ra::services::AchievementRuntime>();
-        pRuntime.QueueMemoryRead(std::move(fFunction));
+        (pRuntime.*fQueue)(std::move(fFunction));
     }
     else
     {
@@ -696,8 +701,9 @@ void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<voi
     }
 }
 
-void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction,
-                                                               std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
+// The guarded DispatchMemoryRead and DispatchMemoryWrite overloads.
+static void DispatchGuardedMemoryWork(QueueMemoryFunction fQueue, std::function<void()>&& fFunction,
+                                      std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
 {
     // A run is unguarded only when it is genuinely inline: still on the caller's thread, before this
     // call has returned. That is the same run the caller is already inside, so the object cannot have
@@ -709,8 +715,8 @@ void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<voi
     // above) or on another thread, which holds none of the caller's locks.
     const auto nCaller = std::this_thread::get_id();
     auto pReturned = std::make_shared<std::atomic<bool>>(false);
-    DispatchMemoryRead([fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned,
-                        nCaller]() {
+    DispatchMemoryWork(fQueue, [fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned,
+                                nCaller]() {
         if (!pReturned->load() && std::this_thread::get_id() == nCaller)
         {
             fFunction();
@@ -722,6 +728,30 @@ void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<voi
             fFunction();
     });
     pReturned->store(true);
+}
+
+void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction)
+{
+    DispatchMemoryWork(&ra::services::AchievementRuntime::QueueMemoryRead, std::move(fFunction));
+}
+
+void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction,
+                                                               std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
+{
+    DispatchGuardedMemoryWork(&ra::services::AchievementRuntime::QueueMemoryRead, std::move(fFunction),
+                              std::move(pAsyncHandle));
+}
+
+void EmulatorContext::DispatchesReadMemory::DispatchMemoryWrite(std::function<void()>&& fFunction)
+{
+    DispatchMemoryWork(&ra::services::AchievementRuntime::QueueMemoryWrite, std::move(fFunction));
+}
+
+void EmulatorContext::DispatchesReadMemory::DispatchMemoryWrite(std::function<void()>&& fFunction,
+                                                                std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
+{
+    DispatchGuardedMemoryWork(&ra::services::AchievementRuntime::QueueMemoryWrite, std::move(fFunction),
+                              std::move(pAsyncHandle));
 }
 
 } // namespace context

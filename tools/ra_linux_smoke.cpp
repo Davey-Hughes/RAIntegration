@@ -1005,14 +1005,14 @@ static void RunChecks()
         // --- work queued before a game change is dropped --------------------
         // _RA_ActivateGame is one of the exports after which the emulator's
         // memory may belong to another game (AchievementRuntime::
-        // InvalidateQueuedMemoryWork): a read queued before it and still
-        // waiting for the frame must not run after it. Other work queued by
-        // the unload may be dropped too, hence "at least one".
+        // InvalidateQueuedMemoryWork): a write queued before it and still
+        // waiting for the frame must not run after it. Other writes queued
+        // meanwhile would be dropped too, hence "at least one".
         {
             std::atomic<bool> bStaleRan{false};
             const uint32_t nDroppedBefore = ra::services::AchievementRuntime::DroppedQueuedMemoryWorkCount();
             std::thread([&bStaleRan]() {
-                ServiceLocator::Get<ra::services::AchievementRuntime>().QueueMemoryRead([&bStaleRan]() { bStaleRan = true; });
+                ServiceLocator::Get<ra::services::AchievementRuntime>().QueueMemoryWrite([&bStaleRan]() { bStaleRan = true; });
             }).join();
             const bool bWaited = !bStaleRan.load();
 

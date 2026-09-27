@@ -8,15 +8,18 @@
 #include "tests/devkit/context/mocks/MockConsoleContext.hh"
 #include "tests/devkit/context/mocks/MockDevKitContext.hh"
 #include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/context/mocks/MockUserContext.hh"
 #include "tests/devkit/services/mocks/MockConfiguration.hh"
 #include "tests/devkit/services/mocks/MockLocalStorage.hh"
 #include "tests/devkit/services/mocks/MockLogger.hh"
 #include "tests/devkit/services/mocks/MockThreadPool.hh"
 #include "tests/devkit/testutil/MemoryAsserts.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockClipboard.hh"
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockServer.hh"
 #include "tests/mocks/MockWindowManager.hh"
 
@@ -269,6 +272,44 @@ public:
         inspector.AssertField(1, 8, 20U, L"+0008", L"Max HP", ra::data::Memory::Size::ThirtyTwoBit, ra::data::Memory::Format::Dec, L"20");
         inspector.AssertFieldFullNote(1, L"[32-bit] Max HP");
     }
+
+#ifndef _WIN32
+    // LoadNote puts the field list into update mode at once, and ends it in the
+    // work it queues for the frame thread. That work only reads, so a game or
+    // memory-bank change before it runs must not drop it: the list would stay
+    // in update mode for the rest of the session.
+    TEST_METHOD(TestLoadNoteQueuedBeforeAGameOrBankChangeStillEndsTheUpdate)
+    {
+        PointerInspectorViewModelHarness inspector;
+        inspector.mockGameContext.SetGameId(1);
+        inspector.mockGameContext.NotifyActiveGameChanged(); // enable note support
+
+        std::array<uint8_t, 64> memory = {};
+        for (uint8_t i = 8; i < memory.size(); i += 4)
+            memory.at(i) = i;
+        inspector.mockEmulatorContext.MockMemory(memory);
+        memory.at(4) = 12;
+
+        inspector.mockGameContext.Assets().FindMemoryNotes()->SetNote({4U},
+            L"[32-bit pointer] Player data\r\n"
+            L"+4: [32-bit] Current HP\r\n"
+            L"+8: [32-bit] Max HP");
+
+        ra::context::mocks::MockRcClient mockRcClient; // the harness has none; the runtime needs one
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        ra::services::mocks::MockHostThread::RunElsewhere([&inspector]() { inspector.SetCurrentAddress({4U}); });
+        Assert::IsTrue(inspector.Fields().Items().IsUpdating(), L"the view's side did not begin the update");
+
+        ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
+        mockHostThread.Drain();
+
+        Assert::IsFalse(inspector.Fields().Items().IsUpdating(), L"the field list was left in update mode");
+        Assert::AreEqual({ 2U }, inspector.Fields().Items().Count());
+        inspector.AssertField(0, 4, 16U, L"+0004", L"Current HP", ra::data::Memory::Size::ThirtyTwoBit, ra::data::Memory::Format::Dec, L"16");
+    }
+#endif
 
     TEST_METHOD(TestNoKnownPointers)
     {

@@ -482,7 +482,7 @@ API void CCONV _RA_SetUserAgentDetail(const char* sDetail)
 API void CCONV _RA_InstallMemoryBank(int nBankID, void* pReader, void* pWriter, int nBankSize)
 {
 #ifndef _WIN32
-    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    // the emulator's memory may now belong to another game (see QueueMemoryWrite)
     ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
 #endif
 
@@ -498,7 +498,7 @@ API void CCONV _RA_InstallMemoryBank(int nBankID, void* pReader, void* pWriter, 
 API void CCONV _RA_InstallMemoryBankBlockReader(int nBankID, void* pReader)
 {
 #ifndef _WIN32
-    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    // the emulator's memory may now belong to another game (see QueueMemoryWrite)
     ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
 #endif
 
@@ -513,7 +513,7 @@ API void CCONV _RA_InstallMemoryBankBlockReader(int nBankID, void* pReader)
 API void CCONV _RA_ClearMemoryBanks()
 {
 #ifndef _WIN32
-    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    // the emulator's memory may now belong to another game (see QueueMemoryWrite)
     ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
 #endif
 
@@ -535,7 +535,7 @@ API unsigned int CCONV _RA_IdentifyHash(const char* sHash)
 API void CCONV _RA_ActivateGame(unsigned int nGameId)
 {
 #ifndef _WIN32
-    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    // the emulator's memory may now belong to another game (see QueueMemoryWrite)
     ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
 #endif
 
@@ -558,7 +558,7 @@ API void CCONV _RA_ActivateGame(unsigned int nGameId)
 API int CCONV _RA_OnLoadNewRom(const unsigned char* pROM, unsigned int nROMSize)
 {
 #ifndef _WIN32
-    // the emulator's memory may now belong to another game (see QueueMemoryRead)
+    // the emulator's memory may now belong to another game (see QueueMemoryWrite)
     ra::services::AchievementRuntime::InvalidateQueuedMemoryWork();
 #endif
 

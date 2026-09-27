@@ -329,9 +329,9 @@ bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std
 
     // Everything from here reaches the emulator - the write, and for a text
     // watch OnValueChanged's read - so it runs on the frame thread (see
-    // QueueMemoryRead). The watch may be removed before it does; the handle
+    // QueueMemoryWrite). The watch may be removed before it does; the handle
     // makes the work do nothing then.
-    DispatchMemoryRead([this, nAddress, nValue]() {
+    DispatchMemoryWrite([this, nAddress, nValue]() {
         // set m_nValue directly to avoid bookmark behaviors from firing
         m_nValue = nValue;
 

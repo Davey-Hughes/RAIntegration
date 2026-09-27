@@ -712,7 +712,7 @@ void MemoryViewerViewModel::IncreaseCurrentValue(uint32_t nModifier)
     if (m_bReadOnly)
         return;
 
-    DispatchMemoryRead([this, nModifier]() {
+    DispatchMemoryWrite([this, nModifier]() {
         const auto nAddress = GetAddress();
         const auto nSize = GetSize();
         const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
@@ -736,7 +736,7 @@ void MemoryViewerViewModel::DecreaseCurrentValue(uint32_t nModifier)
     if (m_bReadOnly)
         return;
 
-    DispatchMemoryRead([this, nModifier]() {
+    DispatchMemoryWrite([this, nModifier]() {
         const auto nAddress = GetAddress();
         const auto nSize = GetSize();
         const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
@@ -1127,8 +1127,8 @@ bool MemoryViewerViewModel::OnChar(char c)
 
     // push the updated value to the emulator - on its frame thread, which is
     // not this one when a view on another thread typed it (see
-    // QueueMemoryRead). m_pMemory above shows the edit until then.
-    DispatchMemoryRead([nAddress, nByte]() {
+    // QueueMemoryWrite). m_pMemory above shows the edit until then.
+    DispatchMemoryWrite([nAddress, nByte]() {
         auto& pMemoryContext = ra::services::ServiceLocator::GetMutable<ra::context::IEmulatorMemoryContext>();
         pMemoryContext.WriteMemoryByte(nAddress, nByte);
     });
