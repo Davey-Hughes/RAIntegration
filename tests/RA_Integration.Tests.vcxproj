@@ -158,6 +158,7 @@
     <ClCompile Include="services\LoginService_Tests.cpp" />
     <ClCompile Include="ui\OverlayTheme_Tests.cpp" />
     <ClCompile Include="ui\ViewModelBase_Tests.cpp" />
+    <ClCompile Include="ui\BindingBase_Tests.cpp" />
     <ClCompile Include="services\FileLogger_Tests.cpp" />
     <ClCompile Include="services\JsonFileConfiguration_Tests.cpp" />
     <ClCompile Include="services\SearchResults_Tests.cpp" />

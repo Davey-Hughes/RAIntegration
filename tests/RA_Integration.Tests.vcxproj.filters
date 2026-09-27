@@ -72,6 +72,9 @@
     <ClCompile Include="..\src\services\impl\FileLocalStorage.cpp">
       <Filter>Code</Filter>
     </ClCompile>
+    <ClCompile Include="ui\BindingBase_Tests.cpp">
+      <Filter>Tests\UI</Filter>
+    </ClCompile>
     <ClCompile Include="ui\ViewModelBase_Tests.cpp">
       <Filter>Tests\UI</Filter>
     </ClCompile>

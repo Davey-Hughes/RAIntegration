@@ -13,7 +13,7 @@ class BindingBase : protected ViewModelBase::NotifyTarget
 public:
     ~BindingBase() noexcept
     {
-        if (ra::services::ServiceLocator::IsInitialized())
+        if (m_bAttached && ra::services::ServiceLocator::IsInitialized())
             m_vmViewModel.RemoveNotifyTarget(*this);
     }
     BindingBase(const BindingBase&) noexcept = delete;
@@ -23,9 +23,54 @@ public:
 
 protected:
     explicit BindingBase(_Inout_ ViewModelBase& vmViewModel) noexcept :
-        m_vmViewModel{ vmViewModel }
+        m_vmViewModel{ vmViewModel }, m_bAttached{ true }
     {
         vmViewModel.AddNotifyTarget(*this);
+    }
+
+    /// <summary>
+    /// Selects the constructor that leaves the binding out of the view model's notify targets until
+    /// <see cref="AttachToViewModel" />.
+    /// </summary>
+    struct AttachLater {};
+
+    /// <summary>
+    /// Constructs the binding without joining the view model's notify targets. For a binding whose change handlers
+    /// read its own members and can run on another thread: joining in this base constructor would let a handler run
+    /// before those members exist.
+    /// </summary>
+    BindingBase(_Inout_ ViewModelBase& vmViewModel, AttachLater) noexcept :
+        m_vmViewModel{ vmViewModel }
+    {
+    }
+
+    /// <summary>
+    /// Joins the view model's notify targets, if not already joined. Call it once everything the change handlers
+    /// read is ready.
+    /// </summary>
+    void AttachToViewModel() noexcept
+    {
+        if (!m_bAttached)
+        {
+            m_bAttached = true;
+            m_vmViewModel.AddNotifyTarget(*this);
+        }
+    }
+
+    /// <summary>
+    /// Leaves the view model's notify targets, if joined. When it returns, no other thread is inside one of this
+    /// binding's change handlers, and none will enter one (RemoveNotifyTargetAndWait waits). Call it first in the
+    /// destructor of a binding whose handlers read its own members: ~BindingBase runs only after they are gone.
+    /// Never call it while holding a lock this binding's handlers take.
+    /// </summary>
+    void DetachFromViewModel() noexcept
+    {
+        if (m_bAttached)
+        {
+            m_bAttached = false;
+            if (ra::services::ServiceLocator::IsInitialized())
+                m_vmViewModel.RemoveNotifyTargetAndWait(*this);
+        }
     }
 
     /// <summary>
@@ -45,12 +90,14 @@ protected:
     /// <param name="bValue">The value to set.</param>
     void SetValue(const BoolModelProperty& pProperty, bool bValue)
     {
-        if (m_nSetDepth++ == 0)
+        // Leave the notify targets while setting, so the change does not echo back into the control that made it -
+        // unless detached, when there is nothing to leave and nothing may re-join.
+        if (m_nSetDepth++ == 0 && m_bAttached)
             m_vmViewModel.RemoveNotifyTarget(*this);
 
         m_vmViewModel.SetValue(pProperty, bValue);
 
-        if (--m_nSetDepth == 0)
+        if (--m_nSetDepth == 0 && m_bAttached)
             m_vmViewModel.AddNotifyTarget(*this);
     }
 
@@ -81,12 +128,12 @@ protected:
     /// <param name="sValue">The value to set.</param>
     void SetValue(const StringModelProperty& pProperty, const std::wstring& sValue)
     {
-        if (m_nSetDepth++ == 0)
+        if (m_nSetDepth++ == 0 && m_bAttached)
             m_vmViewModel.RemoveNotifyTarget(*this);
 
         m_vmViewModel.SetValue(pProperty, sValue);
 
-        if (--m_nSetDepth == 0)
+        if (--m_nSetDepth == 0 && m_bAttached)
             m_vmViewModel.AddNotifyTarget(*this);
     }
 
@@ -107,12 +154,12 @@ protected:
     /// <param name="nValue">The value to set.</param>
     void SetValue(const IntModelProperty& pProperty, int nValue)
     {
-        if (m_nSetDepth++ == 0)
+        if (m_nSetDepth++ == 0 && m_bAttached)
             m_vmViewModel.RemoveNotifyTarget(*this);
 
         m_vmViewModel.SetValue(pProperty, nValue);
 
-        if (--m_nSetDepth == 0)
+        if (--m_nSetDepth == 0 && m_bAttached)
             m_vmViewModel.AddNotifyTarget(*this);
     }
 
@@ -123,6 +170,10 @@ protected:
 private:
     ra::ui::ViewModelBase& m_vmViewModel;
     int m_nSetDepth = 0;
+
+    // Whether the binding is (meant to be) one of the view model's notify targets. Changed only on the thread that
+    // owns the binding - the UI thread - so not atomic.
+    bool m_bAttached = false;
 };
 
 } // namespace ui
