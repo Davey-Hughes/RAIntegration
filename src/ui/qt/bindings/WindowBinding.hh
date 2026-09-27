@@ -79,6 +79,13 @@ public:
     /// <summary>The window's size changed. Qt thread.</summary>
     void OnResized(int nWidth, int nHeight);
 
+    /// <summary>
+    /// Leaves the view model's notify targets now, waiting for a handler running on another thread. A modal dialog
+    /// calls it in done(), before finished(): its caller may destroy the view model as soon as it wakes. Idempotent.
+    /// Qt thread.
+    /// </summary>
+    void Detach() noexcept { DetachFromViewModel(); }
+
 protected:
     void OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs& args) override;
     void OnViewModelIntValueChanged(const IntModelProperty::ChangeArgs& args) override;

@@ -260,6 +260,45 @@ public:
 
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
+
+    TEST_METHOD(TestAnEmptyTitleLeavesTheWindowsOwn)
+    {
+        // Win32 takes some titles from the dialog resource (Login's caption), not from the view model.
+        TextViewModel vmText; // its title is empty
+        QtTestHost oQt;
+
+        std::wstring sTitle;
+        oQt.RunOnQt([&vmText, &sTitle]() {
+            BoundWindow oWindow(vmText);
+            oWindow.oWidget.setWindowTitle(QStringLiteral("Its own"));
+            oWindow.Attach();
+            sTitle = oWindow.oWidget.windowTitle().toStdWString();
+        });
+
+        Assert::AreEqual(std::wstring(L"Its own"), sTitle);
+    }
+
+    TEST_METHOD(TestADialogResultSetOnTheQtThreadClosesTheWindowAfterTheSetter)
+    {
+        // A view model may set its result inside its own logic on the Qt thread. A close run inline would finish a
+        // modal dialog - waking a caller that may destroy the view model - while that logic is still on the stack.
+        TextViewModel vmText;
+        QtTestHost oQt;
+        BoundWindow* pWindow = nullptr;
+        bool bVisibleAfterSet = false;
+        oQt.RunOnQt([&vmText, &pWindow, &bVisibleAfterSet]() {
+            pWindow = new BoundWindow(vmText);
+            pWindow->Attach();
+            pWindow->oWidget.show();
+            vmText.SetDialogResult(DialogResult::OK);
+            bVisibleAfterSet = pWindow->oWidget.isVisible();
+        });
+        const bool bClosed = oQt.WaitOnQt([pWindow]() { return !pWindow->oWidget.isVisible(); });
+        oQt.RunOnQt([pWindow]() { delete pWindow; });
+
+        Assert::IsTrue(bVisibleAfterSet, L"closed inside the setter");
+        Assert::IsTrue(bClosed, L"the window stayed open");
+    }
 };
 
 } // namespace tests

@@ -89,7 +89,12 @@ void WindowBinding::SetWidget(QWidget& oWidget)
     // below would have happened before that thread's load.
     m_pWidget.store(&oWidget);
 
-    oWidget.setWindowTitle(QString::fromStdWString(CopyValue(WindowViewModelBase::WindowTitleProperty)));
+    // An untouched title leaves the window's own: Win32 takes some from the dialog resource (Login's caption).
+    // WindowTitleProperty's own default is "Window", not "" - compared against the property's default rather than
+    // an empty string, so a view model that never called SetWindowTitle is the case this catches.
+    const auto sTitle = CopyValue(WindowViewModelBase::WindowTitleProperty);
+    if (sTitle != WindowViewModelBase::WindowTitleProperty.GetDefaultValue())
+        oWidget.setWindowTitle(QString::fromStdWString(sTitle));
 
     for (const auto& pLabel : m_vLabels)
         pLabel.second->setText(QString::fromStdWString(CopyValue(*pLabel.first)));
@@ -133,9 +138,11 @@ void WindowBinding::OnViewModelIntValueChanged(const IntModelProperty::ChangeArg
         return;
     }
 
+    // Queued even on the Qt thread: a view model sets its result inside its own logic, and closing a modal dialog
+    // emits finished(), whose caller may destroy the view model while that logic - this notification - is on the stack.
     QWidget* pWidget = m_pWidget.load();
     if (pWidget != nullptr)
-        Post(*pWidget, [pWidget]() { pWidget->close(); });
+        PostQueued(*pWidget, [pWidget]() { pWidget->close(); });
 }
 
 void WindowBinding::OnShown()

@@ -32,6 +32,18 @@ void Post(QObject& oContext, TAction&& fAction)
         QMetaObject::invokeMethod(&oContext, std::forward<TAction>(fAction), Qt::QueuedConnection);
 }
 
+/// <summary>
+/// Queues <paramref name="fAction" /> on <paramref name="oContext" />'s thread even when the caller is already there,
+/// and discards it, unrun, if <paramref name="oContext" /> is destroyed first. For work that must not run inside the
+/// caller's stack: a close that finishes a modal dialog, whose caller may then destroy the view model that is still
+/// notifying.
+/// </summary>
+template<typename TAction>
+void PostQueued(QObject& oContext, TAction&& fAction)
+{
+    QMetaObject::invokeMethod(&oContext, std::forward<TAction>(fAction), Qt::QueuedConnection);
+}
+
 } // namespace bindings
 } // namespace qt
 } // namespace ui
