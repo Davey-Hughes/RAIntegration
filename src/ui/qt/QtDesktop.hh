@@ -25,7 +25,8 @@ namespace qt {
 /// <summary>
 /// The Linux desktop. Shows the view models' windows on the Qt application's thread (RA-Qt); sends RA's UI work
 /// there and the emulator's callbacks back to the emulator's thread. A view model with no Qt window yet - or no Qt
-/// application that can host widgets - gets NullDesktop's answer: logged, and No.
+/// application that can host widgets - is answered without one: logged, with a message box's escape answer (Cancel,
+/// else No, else OK) and No for anything else.
 /// </summary>
 class QtDesktop : public ra::ui::null::NullDesktop
 {
@@ -46,7 +47,9 @@ public:
     /// <summary>Adds a presenter after the built-in ones. For tests: call before anything is shown.</summary>
     void AddPresenter(std::unique_ptr<IDialogPresenter> pPresenter);
 
-    /// <summary>How long ShowModal waits for its dialog to open on the Qt thread before answering No.</summary>
+    /// <summary>
+    /// How long ShowModal waits for its dialog to open on the Qt thread before answering without it (see RefusalAnswer).
+    /// </summary>
     void SetModalStartTimeout(std::chrono::milliseconds tTimeout) noexcept { m_tModalStartTimeout = tTimeout; }
 
     // RA_LOG_* is a no-op under RA_UTEST, so each logged outcome is counted too.
@@ -66,7 +69,7 @@ private:
         std::atomic<size_t> nModalNotStarted{0};
         std::atomic<size_t> nClosedForShutdown{0};
         std::atomic<size_t> nRefusedAfterShutdown{0};
-        std::atomic<bool> bClosed{false}; // set by CloseAll: from then on nothing opens
+        std::atomic<bool> bClosed{false}; // set by Shutdown and CloseAll: from then on nothing opens
     };
 
     static ra::services::IQtApplicationHost* GetHost();

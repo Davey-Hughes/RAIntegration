@@ -265,9 +265,11 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                 pWait->SetDone();
             });
 
-            // Destroyed without finishing - deleted directly, or with stop hooks
-            // skipped - it wrote no DialogResult: release the caller anyway, with
-            // the refusal answer rather than the view model's None.
+            // Destroyed without finishing - deleted directly - it wrote no
+            // DialogResult: release the caller anyway, with the refusal answer
+            // rather than the view model's None. (Not a cure for skipped stop
+            // hooks: destroying the application does not delete an open dialog,
+            // so nothing is destroyed and its caller still waits.)
             QObject::connect(pOpened, &QObject::destroyed, [pWait]() {
                 {
                     std::lock_guard<std::mutex> oLock(pWait->oMutex);
