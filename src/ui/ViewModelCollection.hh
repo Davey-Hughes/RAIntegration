@@ -60,6 +60,12 @@ public:
         }
     }
 
+    /// <summary>
+    /// Removes <paramref name="pTarget" />. Never waits: a call to it already running on another thread may still be
+    /// running when this returns (see NotifyTargetSet::Remove). There is no waiting variant yet; add one, as
+    /// ViewModelBase::RemoveNotifyTargetAndWait, once a collection binding can be destroyed while another thread
+    /// notifies it.
+    /// </summary>
     void RemoveNotifyTarget(NotifyTarget& pTarget) noexcept(false)
     {
 #ifdef RA_UTEST

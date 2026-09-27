@@ -1,5 +1,10 @@
 #include "ui/ViewModelBase.hh"
 
+#include "tests/devkit/testutil/DetachedCall.hh"
+
+#include <chrono>
+#include <future>
+
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace ra {
@@ -94,6 +99,40 @@ TEST_CLASS(ViewModelBase_Tests)
         bool m_bOldValue{}, m_bNewValue{};
     };
 
+    // Removes another target when it is told of a string change.
+    class RemovingTarget : public ViewModelBase::NotifyTarget
+    {
+    public:
+        RemovingTarget(ViewModelBase& vmViewModel, ViewModelBase::NotifyTarget& oVictim) noexcept
+            : m_vmViewModel(vmViewModel), m_oVictim(oVictim)
+        {
+        }
+
+        void OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs&) noexcept override
+        {
+            m_vmViewModel.RemoveNotifyTarget(m_oVictim);
+        }
+
+    private:
+        ViewModelBase& m_vmViewModel;
+        ViewModelBase::NotifyTarget& m_oVictim;
+    };
+
+    // Stays inside its string-change handler until released.
+    class BlockingTarget : public ViewModelBase::NotifyTarget
+    {
+    public:
+        void OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs&) override
+        {
+            oEntered.set_value();
+            fRelease.wait();
+        }
+
+        std::promise<void> oEntered;
+        std::promise<void> oRelease;
+        std::shared_future<void> fRelease = oRelease.get_future().share();
+    };
+
 public:
     TEST_METHOD(TestStringProperty)
     {
@@ -168,6 +207,79 @@ public:
         vmViewModel.RemoveNotifyTarget(oNotify);
         vmViewModel.SetBool(true);
         oNotify.AssertNotChanged();
+    }
+
+    TEST_METHOD(TestATargetRemovedByAnEarlierTargetIsNotNotified)
+    {
+        ViewModelHarness vmViewModel;
+        NotifyTargetHarness oSecond;
+        RemovingTarget oFirst(vmViewModel, oSecond);
+        vmViewModel.AddNotifyTarget(oFirst);
+        vmViewModel.AddNotifyTarget(oSecond);
+
+        vmViewModel.SetString(L"Test");
+
+        oSecond.AssertNotChanged();
+    }
+
+    TEST_METHOD(TestRemoveNotifyTargetAndWaitWaitsForAnotherThreadsCall)
+    {
+        // A binding's destructor removes it on the UI thread while a worker may
+        // be inside its handler; the binding must not be destroyed under it.
+        struct State
+        {
+            ViewModelHarness vmViewModel;
+            BlockingTarget oTarget;
+        };
+        auto* pState = new State();
+        pState->vmViewModel.AddNotifyTarget(pState->oTarget);
+        auto fEntered = pState->oTarget.oEntered.get_future();
+
+        ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        ra::tests::DetachedCall oRemove([pState]() { pState->vmViewModel.RemoveNotifyTargetAndWait(pState->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
+
+        pState->oTarget.oRelease.set_value();
+        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the notification never started");
+        Assert::IsFalse(bRemovedDuringTheCall, L"RemoveNotifyTargetAndWait returned while another thread was inside the target");
+        Assert::IsTrue(bRemovedAfterIt, L"RemoveNotifyTargetAndWait never returned after the call ended");
+        Assert::IsTrue(bNotifyFinished, L"the notification never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestRemoveNotifyTargetDoesNotWaitForAnotherThreadsCall)
+    {
+        // RemoveNotifyTarget is also how a target is muted while holding a lock
+        // its own handler takes (TriggerViewModel::DoFrame), so it must never wait.
+        struct State
+        {
+            ViewModelHarness vmViewModel;
+            BlockingTarget oTarget;
+        };
+        auto* pState = new State();
+        pState->vmViewModel.AddNotifyTarget(pState->oTarget);
+        auto fEntered = pState->oTarget.oEntered.get_future();
+
+        ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        ra::tests::DetachedCall oRemove([pState]() { pState->vmViewModel.RemoveNotifyTarget(pState->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::seconds(5));
+
+        pState->oTarget.oRelease.set_value();
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the notification never started");
+        Assert::IsTrue(bRemovedDuringTheCall, L"RemoveNotifyTarget waited for another thread's call");
+        Assert::IsTrue(bNotifyFinished, L"the notification never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 };
 

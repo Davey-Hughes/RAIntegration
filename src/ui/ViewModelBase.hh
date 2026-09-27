@@ -32,12 +32,30 @@ public:
 
     void AddNotifyTarget(NotifyTarget& pTarget) noexcept { m_vNotifyTargets.Add(pTarget); }
 
+    /// <summary>
+    /// Removes <paramref name="pTarget" />. Never waits: a call to it already running on another thread may still be
+    /// running when this returns. Right for muting a target that stays alive; before destroying one that another
+    /// thread may be notifying, use <see cref="RemoveNotifyTargetAndWait" />.
+    /// </summary>
     void RemoveNotifyTarget(NotifyTarget& pTarget) noexcept
     {
 #ifdef DEBUG
         GSL_SUPPRESS_F6 Expects(!m_bDestructed);
 #endif
         m_vNotifyTargets.Remove(pTarget);
+    }
+
+    /// <summary>
+    /// Removes <paramref name="pTarget" />, then waits until no other thread is inside one of its handlers. For a
+    /// target about to be destroyed, such as a binding in its destructor. <see cref="RemoveNotifyTarget" /> never
+    /// waits, and is the one to use for muting. See NotifyTargetSet::RemoveAndWait for the deadlock rules.
+    /// </summary>
+    void RemoveNotifyTargetAndWait(NotifyTarget& pTarget) noexcept
+    {
+#ifdef DEBUG
+        GSL_SUPPRESS_F6 Expects(!m_bDestructed);
+#endif
+        m_vNotifyTargets.RemoveAndWait(pTarget);
     }
 
 protected:

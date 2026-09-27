@@ -166,6 +166,25 @@ TEST_CLASS(ViewModelCollection_Tests)
         std::map<gsl::index, std::string> m_nChanges;
     };
 
+    // Removes another target when it is told of a string change.
+    class RemovingTarget : public ViewModelCollectionBase::NotifyTarget
+    {
+    public:
+        RemovingTarget(ViewModelCollectionBase& vmCollection, ViewModelCollectionBase::NotifyTarget& oVictim) noexcept
+            : m_vmCollection(vmCollection), m_oVictim(oVictim)
+        {
+        }
+
+        void OnViewModelStringValueChanged(gsl::index, const StringModelProperty::ChangeArgs&) override
+        {
+            m_vmCollection.RemoveNotifyTarget(m_oVictim);
+        }
+
+    private:
+        ViewModelCollectionBase& m_vmCollection;
+        ViewModelCollectionBase::NotifyTarget& m_oVictim;
+    };
+
 public:
     TEST_METHOD(TestAddWithoutSubscription)
     {
@@ -339,6 +358,23 @@ public:
 
         pItem2.SetBool(false);
         oNotify.AssertNotChanged();
+    }
+
+    TEST_METHOD(TestATargetRemovedByAnEarlierTargetIsNotNotified)
+    {
+        ViewModelCollection<TestViewModel> vmCollection;
+        auto& pItem = vmCollection.Add(1, L"Test1");
+
+        NotifyTargetHarness oSecond;
+        RemovingTarget oFirst(vmCollection, oSecond);
+        vmCollection.AddNotifyTarget(oFirst);
+        vmCollection.AddNotifyTarget(oSecond);
+
+        pItem.SetString(L"Test1a");
+
+        oSecond.AssertNotChanged();
+
+        vmCollection.RemoveNotifyTarget(oFirst);
     }
 
     TEST_METHOD(TestFreeze)
