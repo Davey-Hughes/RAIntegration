@@ -427,6 +427,50 @@ public:
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 
+    TEST_METHOD(TestRemoveNotifyTargetAndWaitWaitsForAnotherThreadsCall)
+    {
+        // A collection binding destroyed on the Qt thread while a worker is inside its handler must not go under it.
+        struct State
+        {
+            ViewModelCollection<TestViewModel> vmCollection;
+            BlockingTarget oTarget;
+        };
+        auto* pState = new State();
+        auto* pItem = &pState->vmCollection.Add(1, L"Test1");
+        pState->vmCollection.AddNotifyTarget(pState->oTarget);
+        auto fEntered = pState->oTarget.oEntered.get_future();
+
+        ra::tests::DetachedCall oNotify([pItem]() { pItem->SetString(L"from a worker"); });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        ra::tests::DetachedCall oRemove([pState]() { pState->vmCollection.RemoveNotifyTargetAndWait(pState->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
+
+        pState->oTarget.oRelease.set_value();
+        const bool bRemovedAfterIt = oRemove.FinishedWithin(std::chrono::seconds(5));
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the notification never started");
+        Assert::IsFalse(bRemovedDuringTheCall, L"RemoveNotifyTargetAndWait returned while another thread was inside the target");
+        Assert::IsTrue(bRemovedAfterIt, L"RemoveNotifyTargetAndWait never returned after the call ended");
+        Assert::IsTrue(bNotifyFinished, L"the notification never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestRemoveNotifyTargetAndWaitRemovesTheTarget)
+    {
+        ViewModelCollection<TestViewModel> vmCollection;
+        auto& pItem = vmCollection.Add(1, L"Test1");
+        NotifyTargetHarness oNotify;
+        vmCollection.AddNotifyTarget(oNotify);
+
+        vmCollection.RemoveNotifyTargetAndWait(oNotify);
+        pItem.SetString(L"Test1a");
+
+        oNotify.AssertNotChanged();
+    }
+
     TEST_METHOD(TestFreeze)
     {
         ViewModelCollection<TestViewModel> vmCollection;

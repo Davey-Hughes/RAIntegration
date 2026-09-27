@@ -62,9 +62,8 @@ public:
 
     /// <summary>
     /// Removes <paramref name="pTarget" />. Never waits: a call to it already running on another thread may still be
-    /// running when this returns (see NotifyTargetSet::Remove). There is no waiting variant yet; add one, as
-    /// ViewModelBase::RemoveNotifyTargetAndWait, once a collection binding can be destroyed while another thread
-    /// notifies it.
+    /// running when this returns (see NotifyTargetSet::Remove). Right for muting a target that stays alive; before
+    /// destroying one that another thread may be notifying, use <see cref="RemoveNotifyTargetAndWait" />.
     /// </summary>
     void RemoveNotifyTarget(NotifyTarget& pTarget) noexcept(false)
     {
@@ -79,6 +78,24 @@ public:
             if (m_vNotifyTargets.IsEmpty())
                 StopWatching();
         }
+    }
+
+    /// <summary>
+    /// Removes <paramref name="pTarget" />, then waits until no other thread is inside one of its handlers - whether or
+    /// not it was still registered. For a target about to be destroyed, such as a Qt combo box binding leaving its
+    /// items. See NotifyTargetSet::RemoveAndWait for the deadlock rules.
+    /// </summary>
+    void RemoveNotifyTargetAndWait(NotifyTarget& pTarget) noexcept(false)
+    {
+#ifdef RA_UTEST
+        Expects(!m_bDisposed);
+#endif
+
+        const bool bWasWatching = !m_vNotifyTargets.IsEmpty();
+        m_vNotifyTargets.RemoveAndWait(pTarget);
+
+        if (bWasWatching && m_vNotifyTargets.IsEmpty())
+            StopWatching();
     }
 
     /// <summary>
