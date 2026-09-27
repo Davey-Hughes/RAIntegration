@@ -25,7 +25,10 @@ namespace services {
 /// memory work (EmulatorContext::DispatchesReadMemory). What keeps InvokeAndWait deadlock-free is that nothing it can
 /// wait on waits back: guarded memory work, and host-thread code holding any such lock, must never call
 /// InvokeAndWait, ShowModal, IClipboard::GetText or anything else that waits on the Qt thread; and Qt bindings must
-/// post property changes and repaints, never block on them.
+/// post property changes and repaints, never block on them. The Qt thread may also wait in
+/// NotifyTargetSet::RemoveAndWait - that is, in a binding's destructor (BindingBase::DetachFromViewModel) - for
+/// another thread's call into that binding to return: so a binding's handler must never wait on the Qt thread, and
+/// the Qt thread must not destroy a binding while holding a lock that binding's handler takes.
 /// </remarks>
 class IQtApplicationHost
 {

@@ -23,17 +23,19 @@ namespace bindings {
 
 std::vector<WindowBinding*> WindowBinding::s_vKnownBindings;
 
-WindowBinding::WindowBinding(WindowViewModelBase& vmWindow) : BindingBase(vmWindow), m_vmWindow(vmWindow)
+WindowBinding::WindowBinding(WindowViewModelBase& vmWindow) : BindingBase(vmWindow, AttachLater{}), m_vmWindow(vmWindow)
 {
+    // Not yet one of the view model's notify targets: see SetWidget.
     s_vKnownBindings.push_back(this);
 }
 
 WindowBinding::~WindowBinding() noexcept
 {
-    // Handlers that arrive from now on drop their change instead of posting to
-    // a window that is going away (the notify-target removal comes last, in
-    // ~BindingBase - see the class comment).
-    m_pWidget.store(nullptr);
+    // First, while every member a change handler reads is still alive: once this
+    // returns, no other thread is inside one of this binding's handlers or can
+    // enter one (RemoveNotifyTargetAndWait waits for a call in progress), so none
+    // can post to the window that is about to go.
+    DetachFromViewModel();
 
     const auto pIter = std::find(s_vKnownBindings.begin(), s_vKnownBindings.end(), this);
     if (pIter != s_vKnownBindings.end())
@@ -73,6 +75,11 @@ void WindowBinding::BindLabel(QLabel& oLabel, const StringModelProperty& pSource
 
 void WindowBinding::SetWidget(QWidget& oWidget)
 {
+    // Join the view model's notify targets only now, when everything a handler
+    // reads is ready, and before the values are read: a change made from here on
+    // either reaches a handler, or is read below.
+    AttachToViewModel();
+
     // Published before the values are read. A change stored on another thread
     // either loads this pointer and posts itself, or loaded nullptr - and then
     // its store came before these reads: the property container's lock orders

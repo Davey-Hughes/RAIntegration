@@ -24,10 +24,10 @@ namespace bindings {
 /// <remarks>
 /// Created, used and destroyed on the Qt thread - except the change handlers, which run on whatever thread set the
 /// property, and so only read what <see cref="SetWidget" /> fixed, and only ever <see cref="Post" />.
-/// The binding joins the view model's notify targets in its constructor (BindingBase) and leaves them only in
-/// ~BindingBase, after this class's members are gone; and a view model's notify targets are not thread-safe. So no
-/// other thread may be changing the view model while a binding is created or destroyed, and the window and every
-/// bound label must outlive the binding - a DialogBase guarantees the latter by owning it.
+/// The binding joins the view model's notify targets in <see cref="SetWidget" />, once everything its handlers read is
+/// ready, and leaves them first thing in its destructor, which returns only when no other thread is inside one of its
+/// handlers. So another thread may change the view model at any time. The window and every bound label must still
+/// outlive the binding - a DialogBase guarantees that by owning it.
 /// </remarks>
 class WindowBinding : protected BindingBase
 {

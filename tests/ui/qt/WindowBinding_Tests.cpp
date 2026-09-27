@@ -195,6 +195,47 @@ public:
         Assert::IsFalse(bOtherFound);
         Assert::IsFalse(bFoundAfterDelete);
     }
+
+    TEST_METHOD(TestABindingCanBeDestroyedWhileAWorkerChangesItsViewModel)
+    {
+        // A worker changes the view model the whole time windows are created and
+        // destroyed on the Qt thread. The binding leaves the notify targets first
+        // in its destructor, which waits for a handler in progress, so no handler
+        // runs in a half-destroyed binding. A regression shows up here as a crash
+        // or, under AddressSanitizer, a use-after-free report - not reliably as an
+        // assertion; the deterministic proofs are ViewModelBase_Tests'
+        // TestRemoveNotifyTargetAndWaitWaitsForAnotherThreadsCall and BindingBase_Tests.
+        TextViewModel vmText;
+        QtTestHost oQt;
+
+        std::atomic<bool> bStop{false};
+        std::atomic<int> nChanges{0};
+        std::thread tWorker([&vmText, &bStop, &nChanges]() {
+            int i = 0;
+            while (!bStop)
+            {
+                vmText.SetText(std::to_wstring(++i));
+                ++nChanges;
+            }
+        });
+
+        int nWindows = 0;
+        for (int nCycle = 0; nCycle < 200; ++nCycle)
+        {
+            oQt.RunOnQt([&vmText, &nWindows]() {
+                auto* pWindow = new BoundWindow(vmText);
+                pWindow->Attach();
+                delete pWindow;
+                ++nWindows;
+            });
+        }
+
+        bStop = true;
+        tWorker.join();
+
+        Assert::AreEqual(200, nWindows);
+        Assert::IsTrue(nChanges > 0, L"the worker never ran");
+    }
 };
 
 } // namespace tests
