@@ -122,6 +122,16 @@ public:
         return nFrameThread != std::thread::id{} && std::this_thread::get_id() == nFrameThread;
     }
 
+    /// <summary>
+    /// Returns <c>true</c> only when frames are known to run on another thread than the caller's - not before the
+    /// first frame, when nothing is known.
+    /// </summary>
+    bool IsOffDoFrameThread() const noexcept
+    {
+        const auto nFrameThread = m_hDoFrameThread.load();
+        return nFrameThread != std::thread::id{} && std::this_thread::get_id() != nFrameThread;
+    }
+
     class Synchronizer
     {
     public:

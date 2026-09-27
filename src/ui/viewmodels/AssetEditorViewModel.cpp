@@ -626,9 +626,19 @@ void AssetEditorViewModel::OnValueChanged(const IntModelProperty::ChangeArgs& ar
 void AssetEditorViewModel::HandleStateChanged(ra::data::models::AssetState nOldState, ra::data::models::AssetState nNewState)
 {
     // make sure to update the hit counts in the frame where the achievement triggers
-    // before it's deactivated, which might remove it from the runtime
+    // before it's deactivated, which might remove it from the runtime. That frame is on
+    // the frame thread, where the runtime reports a trigger. Off it - a view on another
+    // thread choosing Triggered - there are no such hits, and walking the runtime's
+    // conditions there would race the frame thread, or outlive the trigger if it were
+    // deferred. So it is skipped only when frames are known to run elsewhere.
     if (nNewState == ra::data::models::AssetState::Triggered)
-        Trigger().DoFrame();
+    {
+        const bool bOffFrameThread =
+            ra::services::ServiceLocator::Exists<ra::services::AchievementRuntime>() &&
+            ra::services::ServiceLocator::Get<ra::services::AchievementRuntime>().IsOffDoFrameThread();
+        if (!bOffFrameThread)
+            Trigger().DoFrame();
+    }
 
     const bool bIsActive = ra::data::models::AssetModelBase::IsActive(nNewState);
     const bool bWasActive = ra::data::models::AssetModelBase::IsActive(nOldState);
@@ -683,11 +693,19 @@ void AssetEditorViewModel::HandleStateChanged(ra::data::models::AssetState nOldS
         SetValue(WaitingLabelProperty, WaitingLabelProperty.GetDefaultValue());
 
     // if the trigger is active, update the counters in the display list
-    // otherwise, just update the measured value.
-    if (bIsActive)
-        UpdateAssetFrameValues();
-    else
-        UpdateMeasuredValue();
+    // otherwise, just update the measured value. Both read what the frame
+    // thread writes - the emulator's memory, the runtime's trigger - so a
+    // change made from a view on another thread waits for it (see
+    // QueueMemoryRead). The asset may have been unloaded by then.
+    DispatchMemoryRead([this, bIsActive]() {
+        if (m_pAsset == nullptr)
+            return;
+
+        if (bIsActive)
+            UpdateAssetFrameValues();
+        else
+            UpdateMeasuredValue();
+    });
 
     // if the achievement changed between active and inactive, update the active achievements
     if (bIsActive != bWasActive)

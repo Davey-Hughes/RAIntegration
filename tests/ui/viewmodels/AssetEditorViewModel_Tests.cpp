@@ -32,6 +32,7 @@
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockEmulatorContext.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockOverlayManager.hh"
 #include "tests/mocks/MockWindowManager.hh"
 
@@ -2083,6 +2084,64 @@ public:
         // when reloaded, the updated state should be remembered
         Assert::AreEqual(7U, pCondition->GetCurrentHits());
     }
+
+#ifndef _WIN32
+    TEST_METHOD(TestStateChangeOffTheFrameThreadWaitsToReadTheTrigger)
+    {
+        AssetEditorViewModelHarness editor; // has the MockRcClient and MockAchievementRuntime
+        ra::services::mocks::MockHostThread mockHostThread;
+        editor.mockRuntime.ActivateAchievement(1234U, "M:0xH1234=6.11.");
+        editor.mockGameContext.InitializeFromAchievementRuntime();
+        auto* vmAch = editor.mockGameContext.Assets().FindAchievement(1234U);
+        editor.mockRuntime.SyncAssets();
+        vmAch->SetState(AssetState::Inactive);
+        editor.LoadAsset(vmAch);
+        Assert::AreEqual(std::wstring(L"[Not Active]"), editor.GetMeasuredValue());
+
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread(
+            [&editor]() { editor.SetState(AssetState::Waiting); });
+
+        Assert::AreEqual(AssetState::Waiting, vmAch->GetState(), L"the state change itself waited");
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the state change touched the emulator's memory on the view's thread");
+        Assert::AreEqual(std::wstring(L"[Not Active]"), editor.GetMeasuredValue(),
+                         L"the trigger was read off the frame thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual(std::wstring(L"0/11"), editor.GetMeasuredValue());
+    }
+
+    TEST_METHOD(TestTriggeredOffTheFrameThreadSkipsTheHitRefresh)
+    {
+        AssetEditorViewModelHarness editor;
+        editor.mockRuntime.ActivateAchievement(1234U, "0xH1234=1");
+        editor.mockGameContext.InitializeFromAchievementRuntime();
+        auto* vmAch = editor.mockGameContext.Assets().FindAchievement(1234U);
+        editor.mockRuntime.SyncAssets();
+
+        auto* pTrigger = vmAch->GetMutableRuntimeTrigger();
+        Expects(pTrigger != nullptr);
+        pTrigger->requirement->conditions->current_hits = 6U;
+        pTrigger->has_hits = 1;
+        editor.LoadAsset(vmAch);
+        auto* pCondition = editor.Trigger().Conditions().GetItemAt(0);
+        Expects(pCondition != nullptr);
+        Assert::AreEqual(6U, pCondition->GetCurrentHits());
+
+        // frames run on another thread; paused, so DoFrame needs no game state
+        editor.mockRuntime.SetPaused(true);
+        std::thread([&editor]() { editor.mockRuntime.DoFrame(); }).join();
+        editor.mockRuntime.SetPaused(false);
+
+        pTrigger->requirement->conditions->current_hits = 7U;
+        pTrigger->state = RC_TRIGGER_STATE_TRIGGERED;
+        vmAch->SetState(ra::data::models::AssetState::Triggered); // on this thread: not the frame thread
+
+        Assert::AreEqual(6U, pCondition->GetCurrentHits(),
+                         L"the runtime's conditions were walked off the frame thread");
+    }
+#endif
 
     TEST_METHOD(TestCaptureRestoreHitsTriggeredChanged)
     {
