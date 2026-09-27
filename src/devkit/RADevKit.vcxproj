@@ -151,6 +151,7 @@
     <ClInclude Include="util\EnumOps.hh" />
     <ClInclude Include="util\GSL.hh" />
     <ClInclude Include="util\Json.hh" />
+    <ClInclude Include="util\LibraryUiThread.hh" />
     <ClInclude Include="util\Log.hh" />
     <ClInclude Include="util\StringBuilder.hh" />
     <ClInclude Include="util\Strings.hh" />

@@ -1237,6 +1237,64 @@ public:
                 L"++0x0A: [16-bit] Second item"));
     }
 
+#ifndef _WIN32
+    // An offset change queues the field's read (OnFieldOffsetChanged) under the
+    // field's own handle, which PointerInspectorViewModel passes for it: a field
+    // removed before the frame thread runs the read must be skipped.
+    //
+    // With a node selected, an offset change also rewrites the note and queues a
+    // refresh of the pointer chain, whose reads are not the field's. No node is
+    // selected here, so the only memory work queued is the field's own.
+    TEST_METHOD(TestRemovedFieldSkipsItsQueuedRead)
+    {
+        PointerInspectorViewModelHarness inspector;
+        inspector.mockGameContext.SetGameId(1);
+        inspector.mockGameContext.NotifyActiveGameChanged(); // enable note support
+
+        std::array<uint8_t, 64> memory = {};
+        for (uint8_t i = 8; i < memory.size(); i += 4)
+            memory.at(i) = i;
+        inspector.mockEmulatorContext.MockMemory(memory);
+        memory.at(4) = 12;
+
+        inspector.SetCurrentAddress({4U});
+        inspector.mockGameContext.Assets().FindMemoryNotes()->SetNote({4U},
+            L"[32-bit pointer] Player data\r\n"
+            L"+4: [32-bit] Current HP\r\n"
+            L"+8: [32-bit] Max HP");
+        inspector.SetSelectedNode(-2); // SelectedNodeNone: the fields stay, the note is not rewritten
+        Assert::AreEqual({ 2U }, inspector.Fields().Items().Count());
+
+        ra::context::mocks::MockRcClient mockRcClient; // the harness has none; the runtime needs one
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        // Positive control: the counter does see the read this path queues, so its staying flat
+        // below means the removed field's read was skipped - not that it was never reached.
+        auto* pLiveField = inspector.Fields().Items().GetItemAt<PointerInspectorViewModel::StructFieldViewModel>(1);
+        Expects(pLiveField != nullptr);
+        ra::services::mocks::MockHostThread::RunElsewhere([pLiveField]() { pLiveField->SetOffset(L"+000c"); });
+        const auto nReadsBeforeLive = inspector.mockEmulatorContext.ReadCount();
+        mockHostThread.Drain();
+        Assert::IsTrue(inspector.mockEmulatorContext.ReadCount() > nReadsBeforeLive,
+                       L"a live field's queued read did not run");
+        inspector.AssertField(1, 12, 24U, L"+000c", L"Max HP", ra::data::Memory::Size::ThirtyTwoBit, ra::data::Memory::Format::Dec, L"24");
+
+        auto* pRemovedField = inspector.Fields().Items().GetItemAt<PointerInspectorViewModel::StructFieldViewModel>(0);
+        Expects(pRemovedField != nullptr);
+        const auto pHandle = pRemovedField->GetDispatchHandle();
+        ra::services::mocks::MockHostThread::RunElsewhere([pRemovedField]() { pRemovedField->SetOffset(L"+0000"); });
+        Assert::IsTrue(mockHostThread.PendingCount() >= 1U, L"the offset change queued nothing");
+
+        inspector.Fields().Items().RemoveAt(0);
+        Assert::IsTrue(pHandle->IsDestroyed(), L"removing the field did not mark its handle destroyed");
+
+        const auto nReadsBeforeRemoved = inspector.mockEmulatorContext.ReadCount();
+        mockHostThread.Drain();
+        Assert::AreEqual(nReadsBeforeRemoved, inspector.mockEmulatorContext.ReadCount(),
+                         L"the queued read for a removed field ran");
+    }
+#endif
 };
 
 } // namespace tests

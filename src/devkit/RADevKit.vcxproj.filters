@@ -51,6 +51,9 @@
     <ClInclude Include="util\Log.hh">
       <Filter>util</Filter>
     </ClInclude>
+    <ClInclude Include="util\LibraryUiThread.hh">
+      <Filter>util</Filter>
+    </ClInclude>
     <ClInclude Include="util\TypeCasts.hh">
       <Filter>util</Filter>
     </ClInclude>

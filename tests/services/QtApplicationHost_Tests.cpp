@@ -517,7 +517,8 @@ public:
             oOwned.Stop();
         }
 
-        // borrowed: the Qt thread is the emulator's own, where reading memory is fine
+        // borrowed: the Qt thread is the host's own, and not marked - touching memory
+        // there directly is safe only if the host runs its frames on it (see LibraryUiThread.hh)
         bool bBorrowedMarked = true;
         {
             OffscreenArguments oArguments;

@@ -1187,6 +1187,36 @@ public:
         Assert::IsFalse(bThrew, L"a page change queued before the results were cleared threw");
         Assert::AreEqual({ 0U }, search.Results().Count());
     }
+
+    TEST_METHOD(TestFilterQueuedBeforeTheResultsWereClearedIsIgnored)
+    {
+        MemorySearchViewModelHarness search;
+        search.InitializeMemory();
+        search.BeginNewSearch();
+        search.SetComparisonType(ComparisonType::LessThan);
+        search.SetValueType(ra::services::SearchFilterType::Constant);
+        search.SetFilterValue(L"8");
+
+        ra::context::mocks::MockRcClient mockRcClient;
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        ra::services::mocks::MockHostThread::RunElsewhere([&search]() { search.ApplyFilter(); });
+        Assert::AreEqual(size_t(1), mockHostThread.PendingCount(), L"the filter did not wait for the frame thread");
+        search.ClearResults(); // a game change, before the frame thread applied the filter
+
+        bool bThrew = false;
+        try
+        {
+            mockHostThread.Drain();
+        }
+        catch (const std::out_of_range&)
+        {
+            bThrew = true;
+        }
+        Assert::IsFalse(bThrew, L"a filter queued before the results were cleared threw");
+        Assert::AreEqual({ 0U }, search.Results().Count());
+    }
 #endif
 
     TEST_METHOD(TestDoFramePreviousPage)

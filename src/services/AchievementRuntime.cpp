@@ -269,10 +269,8 @@ static void DispatchMemoryRead(struct rc_client_scheduled_callback_data_t* callb
 // Queues fCallback to run in the next rc_client_idle - at the end of the next
 // rc_client_do_frame, or on its own when the runtime is paused - on whichever
 // thread calls it: the frame thread.
-static void ScheduleMemoryReadOnFrameThread(std::function<void()>&& fCallback)
+static void ScheduleMemoryReadOnFrameThread(rc_client_t* pClient, std::function<void()>&& fCallback)
 {
-    auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-
     QueueMemoryReadData* data = new QueueMemoryReadData();
     Expects(data != nullptr);
     data->fCallback = std::move(fCallback);
@@ -372,7 +370,8 @@ void AchievementRuntime::QueueMemoryWork(std::function<void()>&& fCallback, [[ma
             return;
         }
 
-        ScheduleMemoryReadOnFrameThread(std::move(fDeferred));
+        ScheduleMemoryReadOnFrameThread(ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient(),
+                                        std::move(fDeferred));
         return;
     }
 #endif
@@ -390,7 +389,7 @@ void AchievementRuntime::QueueMemoryWork(std::function<void()>&& fCallback, [[ma
         return;
     }
 
-    ScheduleMemoryReadOnFrameThread(std::move(fCallback));
+    ScheduleMemoryReadOnFrameThread(pClient, std::move(fCallback));
 }
 
 static rc_client_achievement_info_t* GetAchievementInfo(rc_client_t* pClient, ra::AchievementID nId) noexcept

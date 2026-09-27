@@ -301,19 +301,22 @@ void MemoryWatchViewModel::EndInitialization()
 bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std::wstring& sError)
 {
     const auto nAddress = m_nAddress;
+    // the value is checked against this size, so it is written with it too,
+    // even if the watch's size changes before the write runs
+    const auto nSize = m_nSize;
     unsigned nValue = 0;
 
-    if (ra::data::Memory::SizeIsFloat(m_nSize))
+    if (ra::data::Memory::SizeIsFloat(nSize))
     {
         float fValue;
         if (!ra::ParseFloat(sValue, fValue, sError))
             return false;
 
-        nValue = ra::data::Memory::FloatToU32(fValue, m_nSize);
+        nValue = ra::data::Memory::FloatToU32(fValue, nSize);
     }
     else
     {
-        const auto nMaximumValue = ra::data::Memory::SizeMax(m_nSize);
+        const auto nMaximumValue = ra::data::Memory::SizeMax(nSize);
 
         if (GetFormat() == ra::data::Memory::Format::Dec)
         {
@@ -331,7 +334,7 @@ bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std
     // watch OnValueChanged's read - so it runs on the frame thread (see
     // QueueMemoryWrite). The watch may be removed before it does; the handle
     // makes the work do nothing then.
-    DispatchMemoryWrite([this, nAddress, nValue]() {
+    DispatchMemoryWrite([this, nAddress, nSize, nValue]() {
         // set m_nValue directly to avoid bookmark behaviors from firing
         m_nValue = nValue;
 
@@ -339,7 +342,7 @@ bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std
         // while we write the memory so it doesn't try to sync the value back here
         const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
         SetValue(IsWritingMemoryProperty, true);
-        pMemoryContext.WriteMemory(nAddress, m_nSize, nValue);
+        pMemoryContext.WriteMemory(nAddress, nSize, nValue);
         SetValue(IsWritingMemoryProperty, false);
 
         // update the fields dependent on m_nValue

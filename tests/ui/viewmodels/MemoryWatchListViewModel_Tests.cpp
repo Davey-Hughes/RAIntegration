@@ -824,6 +824,30 @@ public:
         Assert::AreEqual(std::wstring(L"001c"), pItem2.GetCurrentValue());
     }
 
+    // The value was range-checked for the size the watch had when it was typed:
+    // a size change before the frame thread writes it must not widen the write.
+    TEST_METHOD(TestSetCurrentValueWritesWithTheSizeItWasParsedFor)
+    {
+        MemoryWatchListViewModelHarness watchList;
+        std::array<uint8_t, 64> memory = {};
+        memory.at(2) = 0x55;
+        watchList.mockEmulatorContext.MockMemory(memory);
+        watchList.AddItem(1U, ra::data::Memory::Size::EightBit);
+        auto& pItem = *watchList.Items().GetItemAt(0);
+
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        bool bAccepted = false;
+        std::wstring sError;
+        ra::services::mocks::MockHostThread::RunElsewhere([&]() { bAccepted = pItem.SetCurrentValue(L"1C", sError); });
+        pItem.SetSize(ra::data::Memory::Size::SixteenBit); // before the frame thread wrote the value
+        mockHostThread.Drain();
+
+        Assert::IsTrue(bAccepted, sError.c_str());
+        Assert::AreEqual({ 0x1C }, memory.at(1));
+        Assert::AreEqual({ 0x55 }, memory.at(2), L"the 8-bit value was written as 16 bits");
+    }
+
     TEST_METHOD(TestTextWatchReadsOnTheFrameThread)
     {
         MemoryWatchListViewModelHarness watchList;
