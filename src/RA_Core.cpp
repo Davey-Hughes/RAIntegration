@@ -20,9 +20,9 @@
 
 // Everything from here to the matching #endif is Win32: the module and window
 // handles the win32 views share, DllMain, and the GSL contract handler that
-// src/pch.h routes Expects() to. Only the MSVC projects force-include pch.h, so
-// off Windows GSL's own default applies and nothing calls the handler. The
-// shutdown, reset and load-confirmation exports after the #endif are portable.
+// src/pch.h routes Expects() to. Off Windows, src/devkit/util/GSL.hh routes
+// Expects() to the handler in src/devkit/util/GSL.cpp instead. The shutdown,
+// reset and load-confirmation exports after the #endif are portable.
 //
 // DllMain's DLL_PROCESS_DETACH calls _RA_Shutdown() as a safety net for an
 // emulator that never called RA_Shutdown(). There is deliberately no Linux

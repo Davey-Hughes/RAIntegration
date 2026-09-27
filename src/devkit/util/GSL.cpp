@@ -41,11 +41,19 @@ void __gsl_contract_handler(const char* const file, unsigned int line)
         RA_LOG_ERR(buffer);
     }
 
+#ifdef _WIN32
     if (ra::services::ServiceLocator::Exists<ra::services::IMessageDispatcher>())
     {
         ra::services::ServiceLocator::Get<ra::services::IMessageDispatcher>()
             .ReportErrorMessage(L"Unexpected error", ra::util::String::Widen(buffer));
     }
+#else
+    // No message box off Windows. This runs on whichever thread failed the
+    // check, under whatever that thread holds - rc_client's state mutex inside
+    // DoFrame, a view model's lock - and the Qt views' thread may itself be
+    // waiting on one of those (IQtApplicationHost), so a box that waits for an
+    // answer could deadlock both. The log line above is the report.
+#endif
 
     gsl::details::throw_exception(gsl::fail_fast(buffer));
 }
