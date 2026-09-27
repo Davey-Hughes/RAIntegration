@@ -7,6 +7,7 @@
 
 #include "ui/qt/bindings/WindowBinding.hh"
 #include "ui/qt/FileDialog.hh"
+#include "ui/qt/LoginDialog.hh"
 #include "ui/qt/MessageBoxDialog.hh"
 #include "ui/qt/RichPresenceDialog.hh"
 
@@ -74,6 +75,7 @@ QtDesktop::QtDesktop() : m_pState(std::make_shared<State>())
     m_pState->vPresenters.push_back(std::make_unique<MessageBoxDialog::Presenter>());
     m_pState->vPresenters.push_back(std::make_unique<RichPresenceDialog::Presenter>());
     m_pState->vPresenters.push_back(std::make_unique<FileDialog::Presenter>());
+    m_pState->vPresenters.push_back(std::make_unique<LoginDialog::Presenter>());
 
     // A second _RA_Init restarts the Qt host in place, without Shutdown(): the
     // host's Stop() runs this before its application goes, and before
