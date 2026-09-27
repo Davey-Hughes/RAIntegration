@@ -3,6 +3,8 @@
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/devkit/services/mocks/MockFileSystem.hh"
 
+#include <thread>
+
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 using ra::services::mocks::MockFileSystem;
@@ -288,6 +290,39 @@ public:
         config.SetHost("localhost");
         Assert::AreEqual(std::string("localhost"), config.GetHostName());
         Assert::AreEqual(std::string("http://localhost"), config.GetHostUrl());
+    }
+
+    TEST_METHOD(TestWindowSizesSetOnAnotherThreadWhileSaving)
+    {
+        // The Qt views record a window's size on the Qt thread on every resize,
+        // while Save() runs on whichever thread saves (a login worker, a settings
+        // dialog, shutdown). In a normal build an unlocked map usually survives
+        // this; run it under checks/tsan-notify.sh, which reports the race.
+        MockFileSystem fileSystem;
+        fileSystem.MockFile(sFilename, "{}");
+        JsonFileConfiguration config;
+        Assert::IsTrue(config.Load(sFilename));
+
+        constexpr int nWindows = 200;
+        std::thread tResizer([&config]() {
+            for (int i = 0; i < nWindows; ++i)
+                config.SetWindowSize("Window" + std::to_string(i), ra::ui::Size{ 100 + i, 50 + i });
+        });
+
+        for (int i = 0; i < 50; ++i)
+            config.Save();
+
+        tResizer.join();
+        config.Save();
+
+        JsonFileConfiguration reloaded;
+        Assert::IsTrue(reloaded.Load(sFilename));
+        const auto oFirst = reloaded.GetWindowSize("Window0");
+        Assert::AreEqual(100, oFirst.Width);
+        Assert::AreEqual(50, oFirst.Height);
+        const auto oLast = reloaded.GetWindowSize("Window199");
+        Assert::AreEqual(299, oLast.Width);
+        Assert::AreEqual(249, oLast.Height);
     }
 };
 

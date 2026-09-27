@@ -69,7 +69,10 @@ bool JsonFileConfiguration::Load(const std::wstring& sFilename)
     // default values
     m_sUsername.clear();
     m_sApiToken.clear();
-    m_mWindowPositions.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
+        m_mWindowPositions.clear();
+    }
     m_nBackgroundThreads = 8;
     m_vEnabledFeatures =
         (1 << static_cast<int>(Feature::Hardcore)) |
@@ -130,6 +133,8 @@ bool JsonFileConfiguration::Load(const std::wstring& sFilename)
     {
         std::vector<std::string> vKeys;
         pWindowPositions.GetKeys(vKeys);
+
+        std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
         for (const auto& sKey : vKeys)
         {
             ra::util::Json::Reader::Node pWindowPosition;
@@ -214,17 +219,21 @@ void JsonFileConfiguration::Save() const
         pWriter.SetString("Screenshot Directory", ra::util::String::Narrow(m_sScreenshotDirectory));
 
     ra::util::Json::Writer::Node pWindowPositions = pWriter.SetObject("Window Positions");
-    for (WindowPositionMap::const_iterator iter = m_mWindowPositions.begin(); iter != m_mWindowPositions.end(); ++iter)
     {
-        ra::util::Json::Writer::Node pWindowPosition = pWindowPositions.SetObject(iter->first);
-        if (iter->second.oPosition.X != INT32_MIN)
-            pWindowPosition.SetInteger("X", iter->second.oPosition.X);
-        if (iter->second.oPosition.Y != INT32_MIN)
-            pWindowPosition.SetInteger("Y", iter->second.oPosition.Y);
-        if (iter->second.oSize.Width != INT32_MIN)
-            pWindowPosition.SetInteger("Width", iter->second.oSize.Width);
-        if (iter->second.oSize.Height != INT32_MIN)
-            pWindowPosition.SetInteger("Height", iter->second.oSize.Height);
+        // Held only while the map is copied into the writer, not while the file is written.
+        std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
+        for (WindowPositionMap::const_iterator iter = m_mWindowPositions.begin(); iter != m_mWindowPositions.end(); ++iter)
+        {
+            ra::util::Json::Writer::Node pWindowPosition = pWindowPositions.SetObject(iter->first);
+            if (iter->second.oPosition.X != INT32_MIN)
+                pWindowPosition.SetInteger("X", iter->second.oPosition.X);
+            if (iter->second.oPosition.Y != INT32_MIN)
+                pWindowPosition.SetInteger("Y", iter->second.oPosition.Y);
+            if (iter->second.oSize.Width != INT32_MIN)
+                pWindowPosition.SetInteger("Width", iter->second.oSize.Width);
+            if (iter->second.oSize.Height != INT32_MIN)
+                pWindowPosition.SetInteger("Height", iter->second.oSize.Height);
+        }
     }
 
     auto& pFileSystem = ra::services::ServiceLocator::Get<ra::services::IFileSystem>();
@@ -260,6 +269,7 @@ void JsonFileConfiguration::SetPopupLocation(ra::ui::viewmodels::Popup nPopup, r
 
 ra::ui::Position JsonFileConfiguration::GetWindowPosition(const std::string& sPositionKey) const
 {
+    std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
     const WindowPositionMap::const_iterator iter = m_mWindowPositions.find(sPositionKey);
     if (iter != m_mWindowPositions.end())
         return iter->second.oPosition;
@@ -269,11 +279,13 @@ ra::ui::Position JsonFileConfiguration::GetWindowPosition(const std::string& sPo
 
 void JsonFileConfiguration::SetWindowPosition(const std::string& sPositionKey, const ra::ui::Position & oPosition)
 {
+    std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
     m_mWindowPositions[sPositionKey].oPosition = oPosition;
 }
 
 ra::ui::Size JsonFileConfiguration::GetWindowSize(const std::string & sPositionKey) const
 {
+    std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
     const WindowPositionMap::const_iterator iter = m_mWindowPositions.find(sPositionKey);
     if (iter != m_mWindowPositions.end())
         return iter->second.oSize;
@@ -283,6 +295,7 @@ ra::ui::Size JsonFileConfiguration::GetWindowSize(const std::string & sPositionK
 
 void JsonFileConfiguration::SetWindowSize(const std::string& sPositionKey, const ra::ui::Size& oSize)
 {
+    std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
     m_mWindowPositions[sPositionKey].oSize = oSize;
 }
 

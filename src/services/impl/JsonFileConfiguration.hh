@@ -5,6 +5,8 @@
 #include "services/IConfiguration.hh"
 #include "services/IWindowConfiguration.hh"
 
+#include <mutex>
+
 namespace ra {
 namespace services {
 namespace impl {
@@ -65,6 +67,11 @@ private:
 
     typedef std::map<std::string, WindowPosition> WindowPositionMap;
     WindowPositionMap m_mWindowPositions;
+
+    // Guards m_mWindowPositions only. The Qt views record a window's size on the
+    // Qt thread on every resize, while Save() can run on any thread. The other
+    // settings are written from the threads they always were, and are not guarded.
+    mutable std::mutex m_mtxWindowPositions;
 
     bool m_bCustomHost = false;
     std::string m_sHostName;
