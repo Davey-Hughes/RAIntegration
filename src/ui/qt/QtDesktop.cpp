@@ -438,8 +438,14 @@ void QtDesktop::Shutdown()
         return;
 
     auto pState = m_pState;
-    if (!pHost->InvokeAndWait([pState]() { CloseAll(*pState); }, std::chrono::seconds(5)))
-        RA_LOG_WARN("Windows were not closed for shutdown: the Qt thread did not start the call");
+    if (!pHost->InvokeAndWait([pState]() { CloseAll(*pState); }, m_tShutdownCloseTimeout))
+    {
+        // The Qt thread is busy - a modal's CanAccept, say Login() waiting on the server - and the timed-out call was
+        // dropped. Queue it again, to run the moment the thread is free: a pool worker waiting on that modal holds up
+        // the drain that follows, and nothing else would ever close it.
+        RA_LOG_WARN("Windows were not closed for shutdown: the Qt thread is busy - closing them when it is free");
+        pHost->Invoke([pState]() { CloseAll(*pState); });
+    }
 }
 
 } // namespace qt

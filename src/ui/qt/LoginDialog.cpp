@@ -26,8 +26,7 @@ bool LoginDialog::Presenter::IsSupported(const ra::ui::WindowViewModelBase& vmWi
 void LoginDialog::Presenter::ShowWindow(ra::ui::WindowViewModelBase& vmWindow)
 {
     // As MessageBoxDialog's: a modal nobody waits for would answer a view model that may be gone.
-    RA_LOG_WARN("Login dialog \"%s\" shown without waiting for an answer - not shown; use ShowModal",
-                ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
+    RA_LOG_WARN("Login dialog shown without waiting for an answer - not shown; use ShowModal");
 }
 
 std::unique_ptr<QDialog> LoginDialog::Presenter::CreateModal(ra::ui::WindowViewModelBase& vmWindow)

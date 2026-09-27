@@ -43,7 +43,7 @@ public:
     /// <summary>
     /// On OK, writes pending text-box edits and asks <see cref="CanAccept" />, staying open if it says no. Then, for
     /// OK or not: leaves every notify target, answers the view model (OK or Cancel, unless it answered itself), and
-    /// closes as QDialog does.
+    /// closes as QDialog does. Once the desktop has closed for shutdown, OK cancels instead.
     /// </summary>
     void done(int nResult) override;
 

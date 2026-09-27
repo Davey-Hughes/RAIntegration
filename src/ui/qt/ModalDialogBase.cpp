@@ -1,5 +1,9 @@
 #include "ui/qt/ModalDialogBase.hh"
 
+#include "services/ServiceLocator.hh"
+
+#include "ui/IDesktop.hh"
+#include "ui/qt/QtDesktop.hh"
 #include "ui/qt/bindings/ControlBinding.hh"
 #include "ui/qt/bindings/TextBoxBinding.hh"
 
@@ -8,6 +12,20 @@
 namespace ra {
 namespace ui {
 namespace qt {
+
+namespace {
+
+// Whether the registered desktop has closed its windows for shutdown. Not a QtDesktop - a test's mock - never has.
+bool IsDesktopClosedForShutdown()
+{
+    if (!ra::services::ServiceLocator::Exists<ra::ui::IDesktop>())
+        return false;
+
+    const auto* pDesktop = dynamic_cast<const QtDesktop*>(&ra::services::ServiceLocator::Get<ra::ui::IDesktop>());
+    return pDesktop != nullptr && pDesktop->IsClosedForShutdown();
+}
+
+} // namespace
 
 ModalDialogBase::ModalDialogBase(ra::ui::WindowViewModelBase& vmWindow)
     : QDialog(nullptr), m_bindWindow(vmWindow), m_pViewModel(&vmWindow)
@@ -51,6 +69,13 @@ void ModalDialogBase::done(int nResult)
         if (nResult != QDialog::Accepted)
             m_bRejectPending = true;
         return;
+    }
+
+    if (nResult == QDialog::Accepted && IsDesktopClosedForShutdown())
+    {
+        // Shutting down: OK must not start CanAccept's work - Login's server call, which the thread pool may refuse
+        // and never answer - while a caller waits to be released. It answers Cancel, as CloseAll's reject would.
+        nResult = QDialog::Rejected;
     }
 
     if (nResult == QDialog::Accepted)

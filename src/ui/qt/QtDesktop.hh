@@ -52,6 +52,15 @@ public:
     /// </summary>
     void SetModalStartTimeout(std::chrono::milliseconds tTimeout) noexcept { m_tModalStartTimeout = tTimeout; }
 
+    /// <summary>How long Shutdown waits for the Qt thread to start closing the windows before queuing it instead.</summary>
+    void SetShutdownCloseTimeout(std::chrono::milliseconds tTimeout) noexcept { m_tShutdownCloseTimeout = tTimeout; }
+
+    /// <summary>
+    /// Whether Shutdown (or CloseAll) has closed the windows: from then on no dialog opens, and a modal dialog's OK
+    /// cancels instead of starting its work. Any thread.
+    /// </summary>
+    bool IsClosedForShutdown() const noexcept { return m_pState->bClosed.load(); }
+
     // RA_LOG_* is a no-op under RA_UTEST, so each logged outcome is counted too.
     size_t NoViewLayerCount() const noexcept { return m_pState->nNoViewLayer.load(); }
     size_t ModalNotStartedCount() const noexcept { return m_pState->nModalNotStarted.load(); }
@@ -93,6 +102,7 @@ private:
 
     std::shared_ptr<State> m_pState;
     std::chrono::milliseconds m_tModalStartTimeout{std::chrono::seconds(10)};
+    std::chrono::milliseconds m_tShutdownCloseTimeout{std::chrono::seconds(5)};
 };
 
 } // namespace qt

@@ -1,6 +1,7 @@
 #ifndef _WIN32
 
 #include "ui/qt/LoginDialog.hh"
+#include "ui/qt/QtDesktop.hh"
 
 #include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/context/mocks/MockUserContext.hh"
@@ -8,12 +9,17 @@
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockLoginService.hh"
 #include "tests/ui/UIAsserts.hh"
+#include "tests/ui/qt/ModalCaller.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QLineEdit>
 
+#include <chrono>
+
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
+using namespace std::chrono_literals;
 
 namespace ra {
 namespace ui {
@@ -75,6 +81,31 @@ void Fill(LoginDialog& oDialog, const QString& sUsername, const QString& sPasswo
     auto* pRemember = oDialog.findChild<QCheckBox*>(QStringLiteral("RememberMe"));
     if (pRemember->isChecked() != bRemember)
         pRemember->click();
+}
+
+// The visible LoginDialog, or nullptr. Qt thread.
+LoginDialog* FindLoginDialog()
+{
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        auto* pDialog = dynamic_cast<LoginDialog*>(pWidget);
+        if (pDialog != nullptr && pDialog->isVisible())
+            return pDialog;
+    }
+
+    return nullptr;
+}
+
+// Rejects every visible LoginDialog. Qt thread. A test calls it before asserting, so a failure fails instead of
+// leaving its caller waiting on a dialog.
+void RejectAll()
+{
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        auto* pDialog = dynamic_cast<LoginDialog*>(pWidget);
+        if (pDialog != nullptr && pDialog->isVisible())
+            pDialog->reject();
+    }
 }
 
 } // namespace
@@ -142,6 +173,8 @@ public:
 
         Assert::IsTrue(bVisible, L"closed after a failed login");
         Assert::IsFalse(oServices.mockLoginService.IsLoggedIn());
+        Assert::AreEqual(std::wstring(), oServices.sLastMessage, L"a validation message: the login service was never asked");
+        Assert::AreEqual(DialogResult::None, vmLogin.GetDialogResult());
     }
 
     TEST_METHOD(TestASuccessfulLoginClosesItAndRemembersTheToken)
@@ -169,6 +202,7 @@ public:
     {
         LoginServices oServices;
         LoginViewModel vmLogin;
+        vmLogin.SetPasswordRemembered(true); // the box starts checked: unchecking it is a user click the binding writes
         QtTestHost oQt;
         auto* pDialog = Open(oQt, vmLogin);
 
@@ -201,6 +235,28 @@ public:
         Assert::IsTrue(bSupportsLogin);
         Assert::IsFalse(bSupportsMessage);
         Assert::IsTrue(bCreated);
+    }
+
+    TEST_METHOD(TestTheDesktopShowsItForALoginViewModel)
+    {
+        // QtDesktop registers the Login presenter; without it, ShowModal answers without a dialog.
+        LoginServices oServices;
+        LoginViewModel vmLogin;
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        // from a worker, as the token login's failure callback calls it
+        ModalCaller oCaller(oDesktop, vmLogin);
+        const bool bShown = oQt.WaitOnQt([]() { return FindLoginDialog() != nullptr; });
+        if (bShown)
+            oQt.RunOnQt([]() { FindLoginDialog()->reject(); });
+        const bool bReturned = oCaller.Returned(2s);
+        if (!bReturned)
+            oQt.RunOnQt(RejectAll);
+
+        Assert::IsTrue(bShown, L"the desktop showed no Login dialog");
+        Assert::IsTrue(bReturned, L"rejecting the dialog did not release the caller");
+        Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
     }
 };
 

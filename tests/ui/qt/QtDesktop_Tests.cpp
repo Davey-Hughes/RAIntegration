@@ -493,6 +493,44 @@ public:
         Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
     }
 
+    TEST_METHOD(TestShutdownClosesAModalOnceABusyQtThreadIsFree)
+    {
+        // The Qt thread is busy when Shutdown asks it to close the windows - in a modal's CanAccept, say Login()
+        // waiting on the server - so that call times out. The dialog must still close once the thread is free: the
+        // worker waiting on it would otherwise hold up the thread pool's drain for good.
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+
+        ModalCaller oCaller(oDesktop, vmWindow);
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        oDesktop.SetShutdownCloseTimeout(200ms);
+
+        std::promise<void> oRelease;
+        std::shared_future<void> fRelease = oRelease.get_future().share();
+        std::atomic<bool> bHeld{false};
+        oQt.Host().Invoke([&bHeld, fRelease]() {
+            bHeld = true;
+            fRelease.wait_for(5s);
+        });
+        const bool bWasHeld = QtTestHost::WaitFor([&bHeld]() { return bHeld.load(); });
+
+        oDesktop.Shutdown(); // times out: the Qt thread is held
+        const bool bReleasedWhileHeld = oCaller.Returned(0ms);
+        oRelease.set_value();
+        const bool bReleased = oCaller.Returned(2s);
+        if (!bReleased)
+            oQt.RunOnQt(RejectAll);
+
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::IsTrue(bWasHeld, L"the Qt thread was never held");
+        Assert::IsFalse(bReleasedWhileHeld, L"the caller was released while the Qt thread was held");
+        Assert::IsTrue(bReleased, L"the dialog was not closed once the Qt thread was free");
+        Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
+        Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
+    }
+
     TEST_METHOD(TestADialogDestroyedUnansweredReleasesItsCaller)
     {
         TestViewModel vmWindow(L"A");

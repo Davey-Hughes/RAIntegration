@@ -2,6 +2,10 @@
 
 #include "ui/qt/ModalDialogBase.hh"
 
+#include "services/ServiceLocator.hh"
+
+#include "ui/IDesktop.hh"
+#include "ui/qt/QtDesktop.hh"
 #include "ui/qt/bindings/TextBoxBinding.hh"
 
 #include "tests/ui/UIAsserts.hh"
@@ -286,6 +290,35 @@ public:
         Assert::AreEqual(0, nFinishedInside, L"finished while CanAccept was still running");
         Assert::AreEqual(1, nFinishedAfter);
         Assert::AreEqual(DialogResult::Cancel, vmForm.GetDialogResult());
+    }
+
+    TEST_METHOD(TestOkCancelsOnceTheDesktopHasClosedForShutdown)
+    {
+        // Once QtDesktop::Shutdown has begun, OK must not start CanAccept's work - Login's server call, which the
+        // thread pool may refuse and never answer - while a caller waits to be released. The desktop and its
+        // registration outlive the Qt host.
+        FormViewModel vmForm;
+        QtDesktop oDesktop;
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::IDesktop> oOverride(&oDesktop);
+        QtTestHost oQt;
+        oDesktop.Shutdown();
+        auto* pDialog = Open(oQt, vmForm); // only now: Shutdown deletes the bound non-modal windows
+
+        int nCanAccept = 0;
+        int nFinished = -1;
+        oQt.RunOnQt([pDialog, &nCanAccept, &nFinished]() {
+            pDialog->fCanAccept = [&nCanAccept]() {
+                ++nCanAccept;
+                return true;
+            };
+            pDialog->accept();
+            nFinished = pDialog->nFinished;
+        });
+        Delete(oQt, pDialog);
+
+        Assert::AreEqual(0, nCanAccept, L"OK started CanAccept's work after shutdown");
+        Assert::AreEqual(DialogResult::Cancel, vmForm.GetDialogResult());
+        Assert::AreEqual(1, nFinished, L"finished() emitted a wrong number of times");
     }
 };
 
