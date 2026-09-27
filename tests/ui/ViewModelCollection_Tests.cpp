@@ -2,6 +2,11 @@
 
 #include "../RA_UnitTestHelpers.h"
 
+#include "tests/devkit/testutil/DetachedCall.hh"
+
+#include <chrono>
+#include <future>
+
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace ra {
@@ -183,6 +188,21 @@ TEST_CLASS(ViewModelCollection_Tests)
     private:
         ViewModelCollectionBase& m_vmCollection;
         ViewModelCollectionBase::NotifyTarget& m_oVictim;
+    };
+
+    // Stays inside its string-change handler until released.
+    class BlockingTarget : public ViewModelCollectionBase::NotifyTarget
+    {
+    public:
+        void OnViewModelStringValueChanged(gsl::index, const StringModelProperty::ChangeArgs&) override
+        {
+            oEntered.set_value();
+            fRelease.wait();
+        }
+
+        std::promise<void> oEntered;
+        std::promise<void> oRelease;
+        std::shared_future<void> fRelease = oRelease.get_future().share();
     };
 
 public:
@@ -375,6 +395,36 @@ public:
         oSecond.AssertNotChanged();
 
         vmCollection.RemoveNotifyTarget(oFirst);
+    }
+
+    TEST_METHOD(TestRemoveNotifyTargetDoesNotWaitForAnotherThreadsCall)
+    {
+        // As ViewModelBase's, RemoveNotifyTarget is how a target is muted, so it
+        // must never wait for another thread's call into that target.
+        struct State
+        {
+            ViewModelCollection<TestViewModel> vmCollection;
+            BlockingTarget oTarget;
+        };
+        auto* pState = new State();
+        auto* pItem = &pState->vmCollection.Add(1, L"Test1");
+        pState->vmCollection.AddNotifyTarget(pState->oTarget);
+        auto fEntered = pState->oTarget.oEntered.get_future();
+
+        ra::tests::DetachedCall oNotify([pItem]() { pItem->SetString(L"from a worker"); });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        ra::tests::DetachedCall oRemove([pState]() { pState->vmCollection.RemoveNotifyTarget(pState->oTarget); });
+        const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::seconds(5));
+
+        pState->oTarget.oRelease.set_value();
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the notification never started");
+        Assert::IsTrue(bRemovedDuringTheCall, L"RemoveNotifyTarget waited for another thread's call");
+        Assert::IsTrue(bNotifyFinished, L"the notification never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 
     TEST_METHOD(TestFreeze)

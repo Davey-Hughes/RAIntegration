@@ -133,6 +133,9 @@
     <ClInclude Include="testutil\CppUnitTest.hh">
       <Filter>testutil</Filter>
     </ClInclude>
+    <ClInclude Include="testutil\DetachedCall.hh">
+      <Filter>testutil</Filter>
+    </ClInclude>
     <ClInclude Include="services\mocks\MockThreadPool.hh">
       <Filter>services\mocks</Filter>
     </ClInclude>

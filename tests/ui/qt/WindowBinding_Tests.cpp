@@ -2,6 +2,7 @@
 
 #include "ui/qt/bindings/WindowBinding.hh"
 
+#include "tests/devkit/testutil/DetachedCall.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
 #include <QLabel>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -203,38 +205,60 @@ public:
         // in its destructor, which waits for a handler in progress, so no handler
         // runs in a half-destroyed binding. A regression shows up here as a crash
         // or, under AddressSanitizer, a use-after-free report - not reliably as an
-        // assertion; the deterministic proofs are ViewModelBase_Tests'
+        // assertion (measured: 10 of 10 runs caught the destructor half reverted
+        // under ASan); the deterministic proofs are ViewModelBase_Tests'
         // TestRemoveNotifyTargetAndWaitWaitsForAnotherThreadsCall and BindingBase_Tests.
-        TextViewModel vmText;
+        //
+        // A destructor that deadlocks instead fails the test rather than hanging
+        // or killing the run: every cycle and the worker are waited for with a
+        // timeout, both are stopped before anything asserts, and what they use is
+        // on the heap, leaked on a failure. The cycles are posted, not run with
+        // InvokeAndWait, which waits without limit for a call that has started.
+        // Checked with a handler made to wait on the Qt thread: the run ended
+        // with this test's FAIL line, where the RunOnQt version hung.
+        struct State
+        {
+            TextViewModel vmText;
+            std::atomic<bool> bStop{false};
+            std::atomic<int> nChanges{0};
+            std::atomic<int> nWindows{0};
+        };
+        auto* pState = new State();
         QtTestHost oQt;
 
-        std::atomic<bool> bStop{false};
-        std::atomic<int> nChanges{0};
-        std::thread tWorker([&vmText, &bStop, &nChanges]() {
+        ra::tests::DetachedCall oWorker([pState]() {
             int i = 0;
-            while (!bStop)
+            while (!pState->bStop)
             {
-                vmText.SetText(std::to_wstring(++i));
-                ++nChanges;
+                pState->vmText.SetText(std::to_wstring(++i));
+                ++pState->nChanges;
             }
         });
 
-        int nWindows = 0;
-        for (int nCycle = 0; nCycle < 200; ++nCycle)
+        bool bCycleFinished = true;
+        for (int nCycle = 0; nCycle < 200 && bCycleFinished; ++nCycle)
         {
-            oQt.RunOnQt([&vmText, &nWindows]() {
-                auto* pWindow = new BoundWindow(vmText);
+            auto pDone = std::make_shared<std::promise<void>>();
+            auto fDone = pDone->get_future();
+            oQt.Host().Invoke([pState, pDone]() {
+                auto* pWindow = new BoundWindow(pState->vmText);
                 pWindow->Attach();
                 delete pWindow;
-                ++nWindows;
+                ++pState->nWindows;
+                pDone->set_value();
             });
+            bCycleFinished = (fDone.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
         }
 
-        bStop = true;
-        tWorker.join();
+        pState->bStop = true;
+        const bool bWorkerFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
 
-        Assert::AreEqual(200, nWindows);
-        Assert::IsTrue(nChanges > 0, L"the worker never ran");
+        Assert::IsTrue(bCycleFinished, L"a window was not created and destroyed within 5 s: is a destructor stuck?");
+        Assert::IsTrue(bWorkerFinished, L"the worker did not stop: is a SetText stuck?");
+        Assert::AreEqual(200, pState->nWindows.load());
+        Assert::IsTrue(pState->nChanges > 0, L"the worker never ran");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 };
 

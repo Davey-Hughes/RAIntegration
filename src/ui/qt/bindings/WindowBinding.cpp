@@ -76,8 +76,10 @@ void WindowBinding::BindLabel(QLabel& oLabel, const StringModelProperty& pSource
 void WindowBinding::SetWidget(QWidget& oWidget)
 {
     // Join the view model's notify targets only now, when everything a handler
-    // reads is ready, and before the values are read: a change made from here on
-    // either reaches a handler, or is read below.
+    // reads is ready, and before the values are read: a change to the title or a
+    // bound label made from here on either reaches a handler, or is read below.
+    // A DialogResult set before the pointer below is published is dropped, as
+    // Win32 drops one set before its dialog exists.
     AttachToViewModel();
 
     // Published before the values are read. A change stored on another thread
@@ -97,7 +99,9 @@ void WindowBinding::SetWidget(QWidget& oWidget)
 
 void WindowBinding::OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs& args)
 {
-    // Any thread. Before SetWidget there is nothing to update: SetWidget reads the value itself.
+    // Any thread. Handlers run only once SetWidget has attached the binding; a
+    // null widget means the change came between attaching and publishing the
+    // pointer, and SetWidget reads that value itself.
     QWidget* pWidget = m_pWidget.load();
     if (pWidget == nullptr)
         return;

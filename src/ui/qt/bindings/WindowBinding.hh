@@ -27,7 +27,9 @@ namespace bindings {
 /// The binding joins the view model's notify targets in <see cref="SetWidget" />, once everything its handlers read is
 /// ready, and leaves them first thing in its destructor, which returns only when no other thread is inside one of its
 /// handlers. So another thread may change the view model at any time. The window and every bound label must still
-/// outlive the binding - a DialogBase guarantees that by owning it.
+/// outlive the binding. A DialogBase guarantees that for itself - it is the window, and owns the binding - and for
+/// labels that are its Qt children; but a label held by value in a derived dialog is destroyed before the binding
+/// detaches.
 /// </remarks>
 class WindowBinding : protected BindingBase
 {

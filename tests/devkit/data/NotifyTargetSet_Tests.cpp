@@ -288,7 +288,7 @@ public:
         // workers (notifying) do. Uses only the API that predates ForEachTarget.
         // In a normal build a race here usually goes unnoticed; run it under
         // checks/tsan-notify.sh, which reports one. The run is inside a
-        // DetachedCall so a stuck Remove fails the test instead of hanging ctest.
+        // DetachedCall so a stuck pass fails the test instead of hanging ctest.
         struct State
         {
             NotifyTargetSet<Counter> set;
@@ -338,7 +338,7 @@ public:
         const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
         pState->bStop = true;
 
-        Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
+        Assert::IsTrue(bFinished, L"the stress run did not finish: a pass is stuck");
 
         Assert::IsTrue(pState->oPermanent.nCalls > 0, L"no pass ever ran");
 
@@ -352,9 +352,10 @@ public:
 
     TEST_METHOD(TestConcurrentChangesDuringForEachTargetPasses)
     {
-        // As above, through ForEachTarget. A Remove here also waits for any
-        // walker inside the target it removed. The run is inside a DetachedCall
-        // so a stuck Remove fails the test instead of hanging ctest.
+        // As above, through ForEachTarget, and the mutators remove with
+        // RemoveAndWait, which also waits for any walker inside the target it
+        // removed. The run is inside a DetachedCall so a stuck RemoveAndWait
+        // fails the test instead of hanging ctest.
         struct State
         {
             NotifyTargetSet<Counter> set;
@@ -399,10 +400,84 @@ public:
         const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
         pState->bStop = true;
 
-        Assert::IsTrue(bFinished, L"the stress run did not finish: a Remove or a pass is stuck");
+        Assert::IsTrue(bFinished, L"the stress run did not finish: a RemoveAndWait or a pass is stuck");
 
         Assert::IsTrue(pState->oPermanent.nCalls > 0, L"no pass ever ran");
         Assert::IsFalse(pState->set.IsEmpty());
+
+        delete pState; // reached only when the run finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestNoCallStartsAfterRemoveAndWaitReturns)
+    {
+        // Once RemoveAndWait returns, its caller may destroy the target, so no
+        // pass may call it afterwards - not even one that took its list before
+        // the removal. That holds because ForEachTarget checks that the target
+        // is still listed and records the call in one critical section. Split
+        // them, and a walker can pass the check, RemoveAndWait can find no call
+        // to wait for and return, and the walker then calls the target. Here
+        // one mutator adds each target, removes it with RemoveAndWait and then
+        // retires it; a walker handed a retired target counts a violation.
+        // Measured with the two split: 20 of 20 runs failed, each with 1,600 to
+        // 2,500 violations in its 40,000 removals. The run is inside a
+        // DetachedCall so a stuck RemoveAndWait fails the test instead of
+        // hanging ctest.
+        struct Target
+        {
+            std::atomic<bool> bRetired{ false };
+        };
+        struct State
+        {
+            NotifyTargetSet<Target> set;
+            std::array<Target, 8> vTargets;
+            std::atomic<bool> bStop{ false };
+            std::atomic<int> nCalls{ 0 };
+            std::atomic<int> nViolations{ 0 };
+        };
+        auto* pState = new State();
+
+        ra::tests::DetachedCall oRun([pState]() {
+            std::vector<std::thread> vWalkers;
+            for (int nThread = 0; nThread < 2; ++nThread)
+            {
+                vWalkers.emplace_back([pState]() {
+                    do
+                    {
+                        pState->set.ForEachTarget([pState](Target& oTarget) noexcept {
+                            ++pState->nCalls;
+                            if (oTarget.bRetired)
+                                ++pState->nViolations;
+                        });
+                    } while (!pState->bStop);
+                });
+            }
+
+            std::thread tMutator([pState]() noexcept {
+                for (int i = 0; i < 5000; ++i)
+                {
+                    for (auto& oTarget : pState->vTargets)
+                    {
+                        oTarget.bRetired = false;
+                        pState->set.Add(oTarget);
+                        std::this_thread::yield();
+                        pState->set.RemoveAndWait(oTarget);
+                        oTarget.bRetired = true;
+                    }
+                }
+            });
+
+            tMutator.join();
+            pState->bStop = true;
+            for (auto& tWalker : vWalkers)
+                tWalker.join();
+        });
+        const bool bFinished = oRun.FinishedWithin(std::chrono::seconds(30));
+        pState->bStop = true;
+
+        Assert::IsTrue(bFinished, L"the stress run did not finish: a RemoveAndWait or a pass is stuck");
+
+        Assert::IsTrue(pState->nCalls > 0, L"no target was ever called");
+        Assert::AreEqual(0, pState->nViolations.load(), L"a target was called after RemoveAndWait returned");
 
         delete pState; // reached only when the run finished: on a failure above it is leaked on purpose
     }
@@ -516,10 +591,11 @@ public:
 
     TEST_METHOD(TestAThrowingHandlerStillEndsItsCall)
     {
-        // The throwing pass runs on this thread, which stays alive, so the Remove
-        // below runs on a thread whose id cannot be a recycled copy of it: on
-        // glibc a new thread often reuses an exited thread's id, and a leaked call
-        // record would then look like Remove's own call and hide the bug.
+        // The throwing pass runs on this thread, which stays alive, so the
+        // RemoveAndWait below runs on a thread whose id cannot be a recycled copy
+        // of it: on glibc a new thread often reuses an exited thread's id, and a
+        // leaked call record would then look like RemoveAndWait's own call and
+        // hide the bug.
         struct State
         {
             NotifyTargetSet<Counter> set;

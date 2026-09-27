@@ -16,8 +16,11 @@ TEST_CLASS(BindingBase_Tests)
     class ViewModelHarness : public ViewModelBase
     {
     public:
-        StringModelProperty StringProperty{ "BindingBaseHarness", "String", L"" };
+        static const StringModelProperty StringProperty;
         void SetString(const std::wstring& sValue) { SetValue(StringProperty, sValue); }
+
+        // A second property: a binding sets it while a worker is inside its handler for the first.
+        static const StringModelProperty OtherStringProperty;
     };
 
     // Counts the string changes it is told about.
@@ -62,6 +65,11 @@ TEST_CLASS(BindingBase_Tests)
         explicit BlockingBindingHarness(ViewModelBase& vmViewModel) : BindingBase(vmViewModel) {}
 
         using BindingBase::DetachFromViewModel;
+
+        void SetString(const StringModelProperty& pProperty, const std::wstring& sValue)
+        {
+            SetValue(pProperty, sValue);
+        }
 
         std::promise<void> oEntered;
         std::promise<void> oRelease;
@@ -110,7 +118,7 @@ public:
         ViewModelHarness vmViewModel;
         BindingHarness oBinding(vmViewModel);
 
-        oBinding.SetString(vmViewModel.StringProperty, L"from the view");
+        oBinding.SetString(ViewModelHarness::StringProperty, L"from the view");
         Assert::AreEqual(0, oBinding.nChanges);
 
         vmViewModel.SetString(L"from elsewhere");
@@ -122,7 +130,7 @@ public:
         ViewModelHarness vmViewModel;
         DeferredBindingHarness oBinding(vmViewModel);
 
-        oBinding.SetString(vmViewModel.StringProperty, L"from the view");
+        oBinding.SetString(ViewModelHarness::StringProperty, L"from the view");
         vmViewModel.SetString(L"from elsewhere");
 
         Assert::AreEqual(0, oBinding.nChanges);
@@ -157,7 +165,46 @@ public:
 
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
+
+    TEST_METHOD(TestSetValueDoesNotWaitForAnotherThreadsCall)
+    {
+        // SetValue leaves the notify targets around its change, so the change
+        // does not echo back into the view. That removal only mutes the binding,
+        // as TriggerViewModel::DoFrame mutes its monitor, sometimes while holding
+        // a lock the handler takes: it must not wait for a worker inside one of
+        // the binding's handlers.
+        struct State
+        {
+            ViewModelHarness vmViewModel;
+            BlockingBindingHarness oBinding{ vmViewModel };
+        };
+        auto* pState = new State();
+        auto fEntered = pState->oBinding.oEntered.get_future();
+
+        ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
+        const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+
+        ra::tests::DetachedCall oSet([pState]() {
+            pState->oBinding.SetString(ViewModelHarness::OtherStringProperty, L"from the view");
+        });
+        const bool bSetDuringTheCall = oSet.FinishedWithin(std::chrono::seconds(5));
+
+        pState->oBinding.oRelease.set_value();
+        const bool bSetAfterIt = oSet.FinishedWithin(std::chrono::seconds(5));
+        const bool bNotifyFinished = oNotify.FinishedWithin(std::chrono::seconds(5));
+
+        Assert::IsTrue(bEntered, L"the notification never started");
+        Assert::IsTrue(bSetDuringTheCall, L"SetValue waited for another thread's call into the binding");
+        Assert::IsTrue(bSetAfterIt, L"SetValue never returned");
+        Assert::IsTrue(bNotifyFinished, L"the notification never finished");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
 };
+
+const StringModelProperty BindingBase_Tests::ViewModelHarness::StringProperty("BindingBaseHarness", "String", L"");
+const StringModelProperty BindingBase_Tests::ViewModelHarness::OtherStringProperty(
+    "BindingBaseHarness", "OtherString", L"");
 
 } // namespace tests
 } // namespace ui

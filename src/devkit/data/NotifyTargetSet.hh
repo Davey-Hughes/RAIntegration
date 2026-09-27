@@ -21,10 +21,10 @@ namespace data {
 /// These are not allocated objects and do not need to be free'd.
 /// This behaves like a set of references, which isn't allowed.
 ///
-/// Safe to use from several threads at once. The targets are kept in an immutable list: Add, Remove and Clear
-/// publish a new one, and a pass over the targets - <see cref="Targets" /> or <see cref="ForEachTarget" /> - walks
-/// the list that was current when it began. So a change made during a pass, on any thread, is seen by the next pass,
-/// not by this one.
+/// Safe to use from several threads at once. The targets are kept in an immutable list: Add, Remove, RemoveAndWait
+/// and Clear publish a new one, and a pass over the targets - <see cref="Targets" /> or <see cref="ForEachTarget" /> -
+/// walks the list that was current when it began. So a change made during a pass, on any thread, is seen by the next
+/// pass, not by this one.
 ///
 /// <see cref="ForEachTarget" /> also records which target each thread is calling, so that
 /// <see cref="RemoveAndWait" /> can wait until no OTHER thread is inside a call to the target it removes: once it
@@ -136,8 +136,8 @@ public:
     /// </summary>
     /// <remarks>
     /// The result owns the list that was current when it was taken, so changes made after that - on any thread - do
-    /// not affect it. Unlike <see cref="ForEachTarget" />, it does not make <see cref="RemoveAndWait" /> wait for a target
-    /// it yielded that is still being called.
+    /// not affect it. Unlike <see cref="ForEachTarget" />, it does not make <see cref="RemoveAndWait" /> wait for a
+    /// target it yielded that is still being called.
     /// </remarks>
     GSL_SUPPRESS_F6 const ValidTargets Targets() const noexcept
     {
@@ -147,8 +147,8 @@ public:
 
     /// <summary>
     /// Calls <paramref name="fCall" /> with each object in the collection, as <see cref="Targets" /> would yield
-    /// them - except that an object removed since the pass began is skipped, and <see cref="RemoveAndWait" /> on another
-    /// thread waits for a call in progress to return.
+    /// them - except that an object removed since the pass began is skipped, and <see cref="RemoveAndWait" /> on
+    /// another thread waits for a call in progress to return.
     /// </summary>
     template<typename TCall>
     void ForEachTarget(TCall&& fCall)
