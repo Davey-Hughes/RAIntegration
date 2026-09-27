@@ -159,7 +159,8 @@ public:
         bool bShown = true;
         oQt.RunOnQt([pBound, &bShown]() {
             bShown = pBound->oCheckBox.isChecked();
-            pBound->oCheckBox.click(); // unchecks the control; must not write
+            pBound->oCheckBox.setChecked(true); // as the view model holds - setChecked emits no clicked
+            pBound->oCheckBox.click();          // unchecks the control: a leaked write would store false
         });
         Delete(oQt, pBound);
 

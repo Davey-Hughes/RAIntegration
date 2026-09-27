@@ -7,8 +7,10 @@
 #include <QLineEdit>
 #include <QString>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cwctype>
 #include <future>
 #include <string>
 #include <thread>
@@ -38,6 +40,9 @@ public:
     // When set, a change of TextProperty makes the view model read-only: a property it derives, on the same thread.
     std::atomic<bool> bDeriveReadOnly{false};
 
+    // When set, a change of TextProperty is re-set upper-cased, inside the set: a view model normalising its input.
+    std::atomic<bool> bUpperCase{false};
+
 protected:
     using ViewModelBase::OnValueChanged;
 
@@ -46,6 +51,14 @@ protected:
         ViewModelBase::OnValueChanged(args);
         if (bDeriveReadOnly && args.Property == TextProperty)
             SetValue(ReadOnlyProperty, true);
+
+        if (bUpperCase && args.Property == TextProperty)
+        {
+            std::wstring sUpper = args.tNewValue;
+            std::transform(sUpper.begin(), sUpper.end(), sUpper.begin(), [](wchar_t c) { return towupper(c); });
+            if (sUpper != args.tNewValue)
+                SetValue(TextProperty, sUpper);
+        }
     }
 };
 
@@ -92,10 +105,12 @@ void Delete(QtTestHost& oQt, BoundLineEdit* pBound)
     oQt.RunOnQt([pBound]() { delete pBound; });
 }
 
-// What a user does: Qt emits textEdited for the user's edits only, never for setText.
+// What a user does: an edit marks the text modified, then Qt emits textEdited - for the user's edits only, never for
+// setText, which clears the mark.
 void Type(QLineEdit& oLineEdit, const QString& sText)
 {
     oLineEdit.setText(sText);
+    oLineEdit.setModified(true);
     Q_EMIT oLineEdit.textEdited(sText);
 }
 
@@ -202,8 +217,7 @@ public:
             Type(pBound->oLineEdit, QStringLiteral("typed"));
             sAtOnce = vmText.CopyText();
         });
-        const bool bWritten =
-            QtTestHost::WaitFor([&vmText]() { return vmText.CopyText() == L"typed"; }, std::chrono::seconds(2));
+        const bool bWritten = QtTestHost::WaitFor([&vmText]() { return vmText.CopyText() == L"typed"; });
         Delete(oQt, pBound);
 
         Assert::AreEqual(std::wstring(), sAtOnce, L"written at once, not after the pause");
@@ -296,6 +310,102 @@ public:
         Delete(oQt, pBound);
 
         Assert::AreEqual(std::wstring(L"typed"), sAfter);
+    }
+
+    TEST_METHOD(TestANormalisingViewModelsReSetIsSuppressedAsOnWin32)
+    {
+        // The view model re-sets the text upper-cased inside the set. On the owner thread that re-set is part of the
+        // binding's own change, so it is suppressed, as Win32's remove/re-add suppresses it: the control keeps what the
+        // user typed, and the view model holds its normalised form.
+        TextViewModel vmText;
+        vmText.bUpperCase = true;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::KeyPress);
+
+        QString sShown;
+        oQt.RunOnQt([pBound, &sShown]() {
+            Type(pBound->oLineEdit, QStringLiteral("typed"));
+            sShown = pBound->oLineEdit.text();
+        });
+        Delete(oQt, pBound);
+
+        Assert::AreEqual(std::wstring(L"TYPED"), vmText.CopyText());
+        Assert::AreEqual(std::wstring(L"typed"), sShown.toStdWString(), L"the binding's own change echoed back");
+    }
+
+    TEST_METHOD(TestFlushPendingEditWritesAnEditNotYetWritten)
+    {
+        TextViewModel vmText;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::LostFocus);
+
+        std::wstring sAfter;
+        oQt.RunOnQt([pBound, &vmText, &sAfter]() {
+            Type(pBound->oLineEdit, QStringLiteral("typed")); // the user has not left the field
+            pBound->oBinding.FlushPendingEdit();
+            sAfter = vmText.CopyText();
+        });
+        Delete(oQt, pBound);
+
+        Assert::AreEqual(std::wstring(L"typed"), sAfter);
+    }
+
+    TEST_METHOD(TestFlushPendingEditNeverWritesInNoneMode)
+    {
+        TextViewModel vmText;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::None);
+
+        std::wstring sAfter;
+        oQt.RunOnQt([pBound, &vmText, &sAfter]() {
+            Type(pBound->oLineEdit, QStringLiteral("typed"));
+            pBound->oBinding.FlushPendingEdit();
+            sAfter = vmText.CopyText();
+        });
+        Delete(oQt, pBound);
+
+        Assert::AreEqual(std::wstring(), sAfter);
+    }
+
+    TEST_METHOD(TestFlushPendingEditLeavesAQueuedChangeAlone)
+    {
+        // A worker's change is queued behind a held Qt thread, and OK is pressed before it lands. The user never
+        // edited, so writing the text the control still shows would overwrite the worker's change.
+        TextViewModel vmText;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::LostFocus);
+
+        const bool bWasHeld = oQt.HoldQtWhile(
+            []() {}, [&vmText]() { vmText.SetText(L"newer"); }, [pBound]() { pBound->oBinding.FlushPendingEdit(); });
+
+        QString sShown;
+        oQt.RunOnQt([pBound, &sShown]() { sShown = pBound->oLineEdit.text(); });
+        Delete(oQt, pBound);
+
+        Assert::IsTrue(bWasHeld, L"the Qt thread was never held");
+        Assert::AreEqual(std::wstring(L"newer"), vmText.CopyText(), L"the flush overwrote a queued change");
+        Assert::AreEqual(std::wstring(L"newer"), sShown.toStdWString());
+    }
+
+    TEST_METHOD(TestAWrittenEditIsNoLongerPending)
+    {
+        // KeyPress writes the edit as it is typed. A worker's later change is queued behind a held Qt thread, and OK
+        // is pressed before it lands: the edit was already written, so the flush must not write it again.
+        TextViewModel vmText;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::KeyPress);
+
+        const bool bWasHeld = oQt.HoldQtWhile([pBound]() { Type(pBound->oLineEdit, QStringLiteral("typed")); },
+                                              [&vmText]() { vmText.SetText(L"newer"); },
+                                              [pBound]() { pBound->oBinding.FlushPendingEdit(); });
+
+        QString sShown;
+        oQt.RunOnQt([pBound, &sShown]() { sShown = pBound->oLineEdit.text(); });
+        Delete(oQt, pBound);
+
+        Assert::IsTrue(bWasHeld, L"the Qt thread was never held");
+        Assert::AreEqual(std::wstring(L"newer"), vmText.CopyText(), L"the flush wrote an edit that was already written");
+        Assert::AreEqual(std::wstring(L"newer"), sShown.toStdWString());
     }
 
     TEST_METHOD(TestDetachStopsBothDirections)

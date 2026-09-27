@@ -11,8 +11,10 @@
 
 #include <QWidget>
 
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <future>
 #include <thread>
 
 namespace ra {
@@ -101,6 +103,31 @@ public:
         }
 
         return true;
+    }
+
+    // Holds the Qt thread - after running fFirst there - while fMeanwhile runs on a thread of its own, so whatever
+    // fMeanwhile posts is queued. Then runs fThen on the Qt thread, still ahead of those posts, and returns once they
+    // have run too: the user acting on what the control shows before a worker's change reaches it. Returns whether
+    // the Qt thread was held. Never assert inside fFirst or fThen: they run on the Qt thread.
+    bool HoldQtWhile(const std::function<void()>& fFirst, const std::function<void()>& fMeanwhile,
+                     const std::function<void()>& fThen)
+    {
+        std::promise<void> oRelease;
+        std::shared_future<void> fRelease = oRelease.get_future().share();
+        std::atomic<bool> bHeld{false};
+        m_oHost.Invoke([&bHeld, fRelease, fFirst, fThen]() {
+            fFirst();
+            bHeld = true;
+            fRelease.wait_for(std::chrono::seconds(5));
+            fThen();
+        });
+        const bool bWasHeld = WaitFor([&bHeld]() { return bHeld.load(); });
+
+        std::thread(fMeanwhile).join();
+        oRelease.set_value();
+
+        RunOnQt([]() {}); // queued behind the held call, and so behind everything fMeanwhile posted
+        return bWasHeld;
     }
 
 private:

@@ -6,6 +6,7 @@
 #include <QString>
 #include <QTimer>
 
+#include <cassert>
 #include <chrono>
 
 namespace ra {
@@ -21,17 +22,21 @@ TextBoxBinding::~TextBoxBinding() noexcept
 
 void TextBoxBinding::BindText(const StringModelProperty& pProperty, UpdateMode nMode) noexcept
 {
+    assert(m_pLineEdit.load() == nullptr); // before SetControl: the handlers read it
     m_pTextProperty = &pProperty;
     m_nUpdateMode = nMode;
 }
 
 void TextBoxBinding::BindReadOnly(const BoolModelProperty& pProperty) noexcept
 {
+    assert(m_pLineEdit.load() == nullptr); // before SetControl: the handlers read it
     m_pReadOnlyProperty = &pProperty;
 }
 
 void TextBoxBinding::SetControl(QLineEdit& oLineEdit)
 {
+    assert(m_pLineEdit.load() == nullptr); // once
+
     // Joined first, then published, then read - WindowBinding::SetWidget's order: a change from here on either
     // reaches a handler or is read below.
     Attach();
@@ -89,6 +94,14 @@ void TextBoxBinding::UpdateSource()
         m_pTypingTimer->stop(); // written now: nothing left to delay
 
     SetValueFromControl(*m_pTextProperty, pLineEdit->text().toStdWString());
+    pLineEdit->setModified(false); // written: no longer pending
+}
+
+void TextBoxBinding::FlushPendingEdit()
+{
+    const auto* pLineEdit = m_pLineEdit.load();
+    if (pLineEdit != nullptr && m_nUpdateMode != UpdateMode::None && pLineEdit->isModified())
+        UpdateSource();
 }
 
 void TextBoxBinding::Detach() noexcept

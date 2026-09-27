@@ -4,6 +4,8 @@
 
 #include <QCheckBox>
 
+#include <cassert>
+
 namespace ra {
 namespace ui {
 namespace qt {
@@ -14,8 +16,15 @@ CheckBoxBinding::~CheckBoxBinding() noexcept
     Detach();
 }
 
+void CheckBoxBinding::BindCheck(const BoolModelProperty& pProperty) noexcept
+{
+    assert(m_pCheckBox.load() == nullptr); // before SetControl: the handlers read it
+    m_pCheckedProperty = &pProperty;
+}
+
 void CheckBoxBinding::SetControl(QCheckBox& oCheckBox)
 {
+    assert(m_pCheckBox.load() == nullptr); // once
     Attach();
     m_pCheckBox.store(&oCheckBox);
 

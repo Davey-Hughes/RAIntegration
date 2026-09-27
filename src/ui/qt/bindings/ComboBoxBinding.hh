@@ -8,9 +8,11 @@
 #include "ui/viewmodels/LookupItemViewModel.hh"
 
 #include <QMetaObject>
-#include <QStringList>
+#include <QString>
 
 #include <atomic>
+#include <utility>
+#include <vector>
 
 class QComboBox;
 
@@ -23,6 +25,11 @@ namespace bindings {
 /// Binds a QComboBox to a list of items and an int property holding the selected item's id: the Qt counterpart of
 /// ui/win32/bindings/ComboBoxBinding.
 /// </summary>
+/// <remarks>
+/// The control holds each item's id beside its label, and the id to select. So a refresh posted from another thread
+/// re-selects the latest id when it runs, and a choice writes the id of the item the user saw. Neither reads the
+/// items or the view model on the Qt thread.
+/// </remarks>
 class ComboBoxBinding : public ControlBinding, protected ViewModelCollectionBase::NotifyTarget
 {
 public:
@@ -41,8 +48,10 @@ public:
     void BindItems(const ra::ui::viewmodels::LookupItemViewModelCollection& vmItems) noexcept;
 
     /// <summary>
-    /// The same, tracked unless frozen: an item added, removed or relabelled on any thread reaches the control.
-    /// Call before SetControl.
+    /// The same, tracked unless frozen: an item added, removed, moved, relabelled or given a new id, on any thread,
+    /// reaches the control. Call before SetControl. Collections have no lock and SetControl reads the items, so
+    /// nothing may change them on another thread while it runs. The collection must outlive the binding, or the
+    /// binding be detached first.
     /// </summary>
     void BindItems(ra::ui::viewmodels::LookupItemViewModelCollection& vmItems) noexcept;
 
@@ -50,11 +59,12 @@ public:
     /// Selects the item whose id <paramref name="pProperty" /> holds, and writes the user's choice back. Call before
     /// SetControl.
     /// </summary>
-    void BindSelectedItem(const IntModelProperty& pProperty) noexcept { m_pSelectedProperty = &pProperty; }
+    void BindSelectedItem(const IntModelProperty& pProperty) noexcept;
 
     /// <summary>
     /// Attaches the control: joins the notify targets (and the items', if tracked), fills it, selects, and connects
-    /// the user's choice. Qt thread, once, last.
+    /// the user's choice. Qt thread, once, last. The control must outlive the binding, or the binding be detached
+    /// first.
     /// </summary>
     void SetControl(QComboBox& oComboBox);
 
@@ -65,18 +75,25 @@ protected:
     void OnViewModelIntValueChanged(const IntModelProperty::ChangeArgs& args) override;
 
     // the items, if tracked
+    void OnViewModelIntValueChanged(gsl::index nIndex, const IntModelProperty::ChangeArgs& args) override;
     void OnViewModelStringValueChanged(gsl::index nIndex, const StringModelProperty::ChangeArgs& args) override;
     void OnViewModelAdded(gsl::index nIndex) override;
     void OnViewModelRemoved(gsl::index nIndex) override;
+    void OnViewModelChanged(gsl::index nIndex) override;
     void OnEndViewModelCollectionUpdate() override;
 
 private:
+    using Items = std::vector<std::pair<QString, int>>; // label, id
+
     void OnActivated(int nIndex);
 
-    // Any thread, while attached: what the control shows.
-    QStringList ReadLabels() const;
-    int FindIndex(int nId) const;
+    // The thread changing the items, or the Qt thread in SetControl: what the control shows.
+    Items ReadItems() const;
     void PostRefresh();
+
+    // Qt thread. Static, so posted work can call them without the binding, which may be gone by then.
+    static void Fill(QComboBox& oComboBox, const Items& vItems);
+    static void SelectStoredId(QComboBox& oComboBox);
 
     std::atomic<QComboBox*> m_pComboBox{nullptr}; // written once, by SetControl
 

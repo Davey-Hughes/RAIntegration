@@ -30,9 +30,12 @@ public:
     CheckBoxBinding& operator=(CheckBoxBinding&&) noexcept = delete;
 
     /// <summary>Binds the checked state. Call before <see cref="SetControl" />.</summary>
-    void BindCheck(const BoolModelProperty& pProperty) noexcept { m_pCheckedProperty = &pProperty; }
+    void BindCheck(const BoolModelProperty& pProperty) noexcept;
 
-    /// <summary>Attaches the control: joins the notify targets, shows the value, connects clicks. Qt thread, once, last.</summary>
+    /// <summary>
+    /// Attaches the control: joins the notify targets, shows the value, connects clicks. Qt thread, once, last. The
+    /// control must outlive the binding, or the binding be detached first.
+    /// </summary>
     void SetControl(QCheckBox& oCheckBox);
 
     void Detach() noexcept override;
