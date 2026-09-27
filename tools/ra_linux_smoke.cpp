@@ -903,7 +903,8 @@ static void RunChecks()
             const int nConfirmClean = _RA_ConfirmLoadNewRom(1);
             Check(nConfirmClean == 1, "confirm-load with no edits", "returned " + std::to_string(nConfirmClean));
 
-            // An unsaved edit makes it ask, and NullDesktop answers No. No
+            // An unsaved edit makes it ask, and the desktop answers No (this
+            // harness borrows a QGuiApplication, which cannot host widgets). No
             // keeps the edit, which is what Windows does when the user clicks
             // No. Undoing the edit has to bring the answer back to 1, which
             // shows the 0 came from the edit and from nothing else.

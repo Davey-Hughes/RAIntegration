@@ -14,8 +14,8 @@
 #include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
-#include "ui/null/LinuxDesktop.hh"
 #include "ui/null/NullImageRepository.hh"
+#include "ui/qt/QtDesktop.hh"
 
 namespace ra {
 namespace services {
@@ -53,7 +53,7 @@ std::unique_ptr<ra::services::IDebuggerDetector> CreatePlatformDebuggerDetector(
 
 std::unique_ptr<ra::ui::IDesktop> CreatePlatformDesktop()
 {
-    return std::make_unique<ra::ui::null::LinuxDesktop>();
+    return std::make_unique<ra::ui::qt::QtDesktop>();
 }
 
 std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
