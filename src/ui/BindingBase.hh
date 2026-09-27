@@ -65,6 +65,16 @@ protected:
     }
 
     /// <summary>
+    /// Gets a copy of the requested string property from the view-model, safe to take while another thread sets it.
+    /// </summary>
+    /// <param name="pProperty">The property to query.</param>
+    /// <returns>A copy of the current value of the property for the bound view model.</returns>
+    std::wstring CopyValue(const StringModelProperty& pProperty) const
+    {
+        return m_vmViewModel.CopyValue(pProperty);
+    }
+
+    /// <summary>
     /// Sets the specified string property of the view-model to the specified value.
     /// </summary>
     /// <param name="pProperty">The property to set.</param>

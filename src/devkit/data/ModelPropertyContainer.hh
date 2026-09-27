@@ -68,6 +68,17 @@ public:
     }
 
     /// <summary>
+    /// Gets a copy of a string property's value, taken under the lock that
+    /// <see cref="SetValue(const StringModelProperty&amp;, const std::wstring&amp;)" /> holds.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="GetValue(const StringModelProperty&amp;)" /> returns a reference into the slot that a
+    /// <c>SetValue</c> on another thread may be overwriting at that moment. A reader on a thread of its own - a
+    /// binding on the Qt views' thread - copies instead.
+    /// </remarks>
+    std::wstring CopyValue(const StringModelProperty& pProperty) const;
+
+    /// <summary>
     /// Sets the specified string property to the specified value.
     /// </summary>
     /// <param name="pProperty">The property to set.</param>

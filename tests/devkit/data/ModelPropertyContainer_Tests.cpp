@@ -14,6 +14,11 @@ TEST_CLASS(ModelPropertyContainer_Tests)
         StringModelProperty StringProperty{ "ModelPropertyContainerHarness", "String", L"" };
         const std::wstring& GetString() const { return GetValue(StringProperty); }
         void SetString(const std::wstring& sValue) { SetValue(StringProperty, sValue); }
+        std::wstring CopyString() const { return CopyValue(StringProperty); }
+
+        StringModelProperty DefaultedStringProperty{ "ModelPropertyContainerHarness", "DefaultedString", L"Default" };
+        void SetDefaultedString(const std::wstring& sValue) { SetValue(DefaultedStringProperty, sValue); }
+        std::wstring CopyDefaultedString() const { return CopyValue(DefaultedStringProperty); }
 
         IntModelProperty IntProperty{ "ModelPropertyContainerHarness", "Int", 0 };
         int GetInt() const { return GetValue(IntProperty); }
@@ -38,6 +43,37 @@ public:
 
         container.SetString(container.StringProperty.GetDefaultValue());
         Assert::AreEqual(std::wstring(), container.GetString());
+    }
+
+    TEST_METHOD(TestCopyStringProperty)
+    {
+        ModelPropertyContainerHarness container;
+        Assert::AreEqual(std::wstring(), container.CopyString());
+
+        container.SetString(L"Test");
+        Assert::AreEqual(std::wstring(L"Test"), container.CopyString());
+
+        container.SetString(L"Test2");
+        Assert::AreEqual(std::wstring(L"Test2"), container.CopyString());
+
+        container.SetString(container.StringProperty.GetDefaultValue());
+        Assert::AreEqual(std::wstring(), container.CopyString());
+    }
+
+    TEST_METHOD(TestCopyStringPropertyWithADefault)
+    {
+        ModelPropertyContainerHarness container;
+        Assert::AreEqual(std::wstring(L"Default"), container.CopyDefaultedString());
+
+        // an empty value under a non-empty default is stored as slot -1
+        container.SetDefaultedString(L"");
+        Assert::AreEqual(std::wstring(), container.CopyDefaultedString());
+
+        container.SetDefaultedString(L"Other");
+        Assert::AreEqual(std::wstring(L"Other"), container.CopyDefaultedString());
+
+        container.SetDefaultedString(L"Default");
+        Assert::AreEqual(std::wstring(L"Default"), container.CopyDefaultedString());
     }
 
     TEST_METHOD(TestIntProperty)

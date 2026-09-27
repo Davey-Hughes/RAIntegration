@@ -21,6 +21,18 @@ const int* ModelPropertyContainer::FindValue(int nKey) const
     return &iter->nValue;
 }
 
+std::wstring ModelPropertyContainer::CopyValue(const StringModelProperty& pProperty) const
+{
+    // FindValue's lookup, repeated: the copy has to be made before the lock is released
+    std::lock_guard<std::mutex> pLock(m_mtxData);
+
+    const auto iter = std::lower_bound(m_vValues.begin(), m_vValues.end(), pProperty.GetKey(), CompareModelPropertyKey);
+    if (iter == m_vValues.end() || iter->nKey != pProperty.GetKey())
+        return pProperty.GetDefaultValue();
+
+    return GetString(iter->nValue);
+}
+
 void ModelPropertyContainer::SetValue(const BoolModelProperty& pProperty, bool bValue)
 {
     const int nValue = bValue ? 1 : 0;
