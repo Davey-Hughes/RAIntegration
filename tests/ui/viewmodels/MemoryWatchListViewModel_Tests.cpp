@@ -792,6 +792,69 @@ public:
         Assert::AreEqual(nReadsBeforeRemoved, watchList.mockEmulatorContext.ReadCount(),
                          L"the queued read for a removed watch ran");
     }
+
+    TEST_METHOD(TestSetCurrentValueOffTheFrameThreadWaitsForTheHostThread)
+    {
+        MemoryWatchListViewModelHarness watchList;
+        std::array<uint8_t, 64> memory = {};
+        watchList.mockEmulatorContext.MockMemory(memory);
+        watchList.AddItem(1U, ra::data::Memory::Size::EightBit);
+        watchList.AddItem(1U, ra::data::Memory::Size::SixteenBit);
+        auto& pItem1 = *watchList.Items().GetItemAt(0);
+        auto& pItem2 = *watchList.Items().GetItemAt(1);
+
+        ra::services::mocks::MockHostThread mockHostThread;
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+
+        bool bAccepted = false;
+        std::wstring sError;
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread(
+            [&]() { bAccepted = pItem1.SetCurrentValue(L"1C", sError); });
+
+        Assert::IsTrue(bAccepted, sError.c_str());
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"the edit touched the emulator's memory on the view's thread");
+        Assert::AreEqual({ 0x00 }, memory.at(1), L"the write reached the emulator before the frame thread ran");
+
+        mockHostThread.Drain();
+        Assert::AreEqual({ 0x1C }, memory.at(1));
+        Assert::AreEqual(std::wstring(L"1c"), pItem1.GetCurrentValue());
+        Assert::AreEqual(std::wstring(L"00"), pItem1.GetPreviousValue(),
+                         L"the write was echoed back into the watch that made it");
+        Assert::AreEqual(std::wstring(L"001c"), pItem2.GetCurrentValue());
+    }
+
+    TEST_METHOD(TestTextWatchReadsOnTheFrameThread)
+    {
+        MemoryWatchListViewModelHarness watchList;
+        std::array<uint8_t, 64> memory = {};
+        memcpy(&memory.at(1), "Hi", 3);
+        watchList.mockEmulatorContext.MockMemory(memory);
+
+        ra::services::mocks::MockHostThread mockHostThread;
+        const uint32_t nUiAccessesBefore = ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount();
+
+        // added from a view
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread(
+            [&watchList]() { watchList.AddItem(1U, ra::data::Memory::Size::Text); });
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"adding a text watch read the emulator's memory on the view's thread");
+
+        auto& pItem = *watchList.Items().GetItemAt(0);
+        mockHostThread.Drain();
+        Assert::AreEqual(std::wstring(L"Hi"), pItem.GetCurrentValue());
+        Assert::AreEqual(std::wstring(L"Hi"), pItem.GetPreviousValue());
+
+        // its format changed from a view
+        memcpy(&memory.at(1), "Yo", 3);
+        ra::services::mocks::MockHostThread::RunOnLibraryUiThread(
+            [&pItem]() { pItem.SetFormat(ra::data::Memory::Format::Dec); });
+        Assert::AreEqual(nUiAccessesBefore, ra::context::impl::EmulatorMemoryContext::LibraryUiThreadAccessCount(),
+                         L"a text watch's format change read the emulator's memory on the view's thread");
+
+        mockHostThread.Drain();
+        Assert::AreEqual(std::wstring(L"Yo"), pItem.GetCurrentValue());
+    }
 #endif
 };
 

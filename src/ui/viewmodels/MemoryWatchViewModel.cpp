@@ -60,7 +60,18 @@ void MemoryWatchViewModel::OnValueChanged(const IntModelProperty::ChangeArgs& ar
         if (m_bInitialized)
         {
             m_bModified = true;
-            SetValue(CurrentValueProperty, BuildCurrentValue());
+
+            if (m_nSize == ra::data::Memory::Size::Text)
+            {
+                // a text watch reads the emulator's memory to format itself, so
+                // on the frame thread (see QueueMemoryRead)
+                DispatchMemoryRead([this]() { SetValue(CurrentValueProperty, BuildCurrentValue()); },
+                                   m_pDispatchHandle);
+            }
+            else
+            {
+                SetValue(CurrentValueProperty, BuildCurrentValue());
+            }
         }
     }
     else if (args.Property == MemoryWatchViewModel::SizeProperty)
@@ -266,9 +277,17 @@ uint32_t MemoryWatchViewModel::ReadValue()
 void MemoryWatchViewModel::EndInitialization()
 {
     m_nValue = 0;
-    SetPreviousValue(BuildCurrentValue());
 
-    ra::data::context::EmulatorContext::DispatchesReadMemory::DispatchMemoryRead([this]() {
+    // A text watch's value is text read from the emulator's memory, so its
+    // previous value is taken with the current one, on the frame thread (see
+    // QueueMemoryRead). Inline, the result is what it always was.
+    if (m_nSize != ra::data::Memory::Size::Text)
+        SetPreviousValue(BuildCurrentValue());
+
+    DispatchMemoryRead([this]() {
+        if (m_nSize == ra::data::Memory::Size::Text)
+            SetPreviousValue(BuildCurrentValue());
+
         m_nValue = ReadValue();
         SetValue(CurrentValueProperty, BuildCurrentValue());
     }, m_pDispatchHandle);
@@ -281,7 +300,6 @@ void MemoryWatchViewModel::EndInitialization()
 
 bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std::wstring& sError)
 {
-    const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
     const auto nAddress = m_nAddress;
     unsigned nValue = 0;
 
@@ -309,24 +327,31 @@ bool MemoryWatchViewModel::SetCurrentValue(const std::wstring& sValue, _Out_ std
         }
     }
 
-    // set m_nValue directly to avoid bookmark behaviors from firing
-    m_nValue = nValue;
+    // Everything from here reaches the emulator - the write, and for a text
+    // watch OnValueChanged's read - so it runs on the frame thread (see
+    // QueueMemoryRead). The watch may be removed before it does; the handle
+    // makes the work do nothing then.
+    DispatchMemoryRead([this, nAddress, nValue]() {
+        // set m_nValue directly to avoid bookmark behaviors from firing
+        m_nValue = nValue;
 
-    // use the IsWritingMemoryProperty to disable the event handler in the list
-    // while we write the memory so it doesn't try to sync the value back here
-    SetValue(IsWritingMemoryProperty, true);
-    pMemoryContext.WriteMemory(nAddress, m_nSize, nValue);
-    SetValue(IsWritingMemoryProperty, false);
+        // use the IsWritingMemoryProperty to disable the event handler in the list
+        // while we write the memory so it doesn't try to sync the value back here
+        const auto& pMemoryContext = ra::services::ServiceLocator::Get<ra::context::IEmulatorMemoryContext>();
+        SetValue(IsWritingMemoryProperty, true);
+        pMemoryContext.WriteMemory(nAddress, m_nSize, nValue);
+        SetValue(IsWritingMemoryProperty, false);
 
-    // update the fields dependent on m_nValue
-    OnValueChanged();
+        // update the fields dependent on m_nValue
+        OnValueChanged();
 
 #ifndef RA_UTEST
-    // memory inspector does not automatically redraw if the emulator is paused. force it to redraw.
-    // will be a no-op if the modified memory is not in the visible addresses.
-    auto& vmMemoryInspector = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>().MemoryInspector;
-    vmMemoryInspector.Viewer().Redraw();
+        // memory inspector does not automatically redraw if the emulator is paused. force it to redraw.
+        // will be a no-op if the modified memory is not in the visible addresses.
+        auto& vmMemoryInspector = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>().MemoryInspector;
+        vmMemoryInspector.Viewer().Redraw();
 #endif
+    }, m_pDispatchHandle);
 
     return true;
 }
