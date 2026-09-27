@@ -9,6 +9,7 @@
 #include "context/IRcClient.hh"
 #include "context/UserContext.hh"
 
+#include "data/AsyncObject.hh"
 #include "data/context/GameContext.hh"
 
 #include "services/AchievementRuntime.hh"
@@ -31,6 +32,7 @@
 #include <rcheevos/src/rapi/rc_api_common.h>
 
 #include <atomic>
+#include <thread>
 
 namespace ra {
 namespace data {
@@ -697,13 +699,19 @@ void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<voi
 void EmulatorContext::DispatchesReadMemory::DispatchMemoryRead(std::function<void()>&& fFunction,
                                                                std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle)
 {
-    // Set as soon as the call below returns: from then on a run is a deferred
-    // one. A deferred run that starts before it is set runs unguarded, which is
-    // safe for the reason inline work is - the caller has not yet returned from
-    // the object's method. (The guard pattern is WindowBinding::InvokeOnUIThread's.)
+    // A run is unguarded only when it is genuinely inline: still on the caller's thread, before this
+    // call has returned. That is the same run the caller is already inside, so the object cannot have
+    // been destroyed out from under it yet. A run on any other thread is guarded even if it starts
+    // before this call returns - HostThreadDispatcher::Invoke, and a concurrent drain, can both start
+    // the posted work before their own post call comes back, so "before pReturned is set" alone does
+    // not imply "still inside this call". Guarding every cross-thread run cannot self-deadlock: a
+    // dispatch nested inside guarded work either runs on that same thread (inline, unguarded, as
+    // above) or on another thread, which holds none of the caller's locks.
+    const auto nCaller = std::this_thread::get_id();
     auto pReturned = std::make_shared<std::atomic<bool>>(false);
-    DispatchMemoryRead([fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned]() {
-        if (!pReturned->load())
+    DispatchMemoryRead([fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned,
+                        nCaller]() {
+        if (!pReturned->load() && std::this_thread::get_id() == nCaller)
         {
             fFunction();
             return;

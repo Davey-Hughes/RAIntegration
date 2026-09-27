@@ -762,20 +762,35 @@ public:
         MemoryWatchListViewModelHarness watchList;
         std::array<uint8_t, 64> memory = {};
         watchList.mockEmulatorContext.MockMemory(memory);
-        watchList.AddItem(1U, ra::data::Memory::Size::EightBit);
-        auto* pItem = watchList.Items().GetItemAt(0);
-        const auto pHandle = pItem->GetDispatchHandle();
-
         ra::services::mocks::MockHostThread mockHostThread;
+
+        watchList.AddItem(1U, ra::data::Memory::Size::EightBit); // stays alive: the positive control
+        watchList.AddItem(2U, ra::data::Memory::Size::EightBit); // removed before its read runs
+        auto* pLiveItem = watchList.Items().GetItemAt(0);
+        auto* pRemovedItem = watchList.Items().GetItemAt(1);
+        const auto pHandle = pRemovedItem->GetDispatchHandle();
+
+        // Positive control: the counter does see a read that runs through this exact path, so its
+        // staying flat below means the removed watch's read was skipped - not that ReadMemoryHelper
+        // was never going to be reached at all.
         ra::services::mocks::MockHostThread::RunElsewhere(
-            [pItem]() { pItem->SetSize(ra::data::Memory::Size::SixteenBit); }); // OnSizeChanged queues a read
+            [pLiveItem]() { pLiveItem->SetSize(ra::data::Memory::Size::SixteenBit); }); // OnSizeChanged queues a read
+        const auto nReadsBeforeLive = watchList.mockEmulatorContext.ReadCount();
+        mockHostThread.Drain();
+        Assert::IsTrue(watchList.mockEmulatorContext.ReadCount() > nReadsBeforeLive,
+                       L"a live watch's queued read did not run");
+
+        ra::services::mocks::MockHostThread::RunElsewhere(
+            [pRemovedItem]() { pRemovedItem->SetSize(ra::data::Memory::Size::SixteenBit); }); // OnSizeChanged queues a read
         Assert::IsTrue(mockHostThread.PendingCount() >= 1U, L"the size change queued nothing");
 
-        watchList.Items().RemoveAt(0);
+        watchList.Items().RemoveAt(1);
         Assert::IsTrue(pHandle->IsDestroyed(), L"removing the watch did not mark its handle destroyed");
 
-        // skipped: before the guard, this read through a freed MemoryWatchViewModel
+        const auto nReadsBeforeRemoved = watchList.mockEmulatorContext.ReadCount();
         mockHostThread.Drain();
+        Assert::AreEqual(nReadsBeforeRemoved, watchList.mockEmulatorContext.ReadCount(),
+                         L"the queued read for a removed watch ran");
     }
 #endif
 };

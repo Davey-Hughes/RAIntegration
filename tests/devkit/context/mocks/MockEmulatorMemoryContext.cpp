@@ -46,6 +46,8 @@ uint8_t MockEmulatorMemoryContext::ReadMemoryHelper(uint32_t nAddress)
     if (!mockEmulator)
         return 0;
 
+    ++mockEmulator->m_nReadCount;
+
     if (!mockEmulator->m_mMemoryValues.empty())
     {
         auto iter = mockEmulator->m_mMemoryValues.lower_bound(nAddress);

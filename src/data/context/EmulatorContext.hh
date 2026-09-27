@@ -4,7 +4,6 @@
 
 #include "RAInterface/RA_Emulators.h"
 
-#include "data/AsyncObject.hh"
 #include "data/Types.hh"
 
 #include <memory>
@@ -15,6 +14,9 @@
 
 namespace ra {
 namespace data {
+
+class AsyncHandle;
+
 namespace context {
 
 class EmulatorContext
@@ -188,9 +190,10 @@ public:
         /// <summary>
         /// As the overload above, for work on an object that can be destroyed before deferred work runs - a
         /// bookmark the user removes. Deferred work runs only if the object behind <paramref name="pAsyncHandle" />
-        /// still exists, and keeps it from being destroyed while it runs. Work that runs inline, inside this call,
-        /// is not guarded: the caller is still in one of the object's methods, and taking the guard there would
-        /// deadlock work that dispatches again for the same object.
+        /// still exists, and keeps it from being destroyed while it runs. Work that runs inline - on the caller's
+        /// thread, before this call returns - is not guarded: the caller is still in one of the object's methods,
+        /// and taking the guard there would deadlock work that dispatches again for the same object. Work that
+        /// starts on another thread is always guarded, even if it starts before this call returns.
         /// </summary>
         /// <remarks>
         /// Guarded work must never destroy its own object (the destructor would wait on the guard it holds), and

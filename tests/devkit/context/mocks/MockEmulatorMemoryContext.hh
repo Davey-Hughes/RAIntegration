@@ -11,6 +11,7 @@
 #include <gsl/span>
 #pragma warning(pop)
 
+#include <atomic>
 #include <map>
 
 namespace ra {
@@ -58,6 +59,12 @@ public:
     void MockMemoryInsecure(bool bValue) noexcept { m_bMemoryInsecure = bValue; }
     bool IsMemoryInsecure() const noexcept override { return m_bMemoryInsecure; }
 
+    /// <summary>
+    /// Gets the number of bytes read through <see cref="ReadMemoryHelper" /> so far, so a test can tell
+    /// whether a read it expected not to happen actually ran.
+    /// </summary>
+    uint32_t ReadCount() const noexcept { return m_nReadCount; }
+
     static uint32_t Peek(uint32_t nAddress, uint8_t* buffer, uint32_t num_bytes, void*)
     {
         const auto& pEmulatorMemoryContext = ra::services::ServiceLocator::Get<IEmulatorMemoryContext>();
@@ -72,6 +79,7 @@ private:
     uint8_t* m_pMemory = nullptr;
 
     std::map<uint32_t, uint32_t> m_mMemoryValues;
+    mutable std::atomic<uint32_t> m_nReadCount{0};
 };
 
 } // namespace mocks
