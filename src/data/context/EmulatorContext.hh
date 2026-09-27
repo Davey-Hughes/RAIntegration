@@ -196,8 +196,10 @@ public:
         /// starts on another thread is always guarded, even if it starts before this call returns.
         /// </summary>
         /// <remarks>
-        /// Guarded work must never destroy its own object (the destructor would wait on the guard it holds), and
-        /// must never wait on the library's UI thread (a view destroying the object waits for it).
+        /// Guarded work must never destroy its own object (the destructor would wait on the guard it holds). The
+        /// library's UI thread may be waiting on it - a view destroying the object waits for guarded work already
+        /// running - so guarded work must never wait on that thread either: no InvokeAndWait, ShowModal,
+        /// IClipboard::GetText or anything else that waits on the Qt thread (see IQtApplicationHost).
         /// </remarks>
         static void DispatchMemoryRead(std::function<void()>&& fFunction,
                                        std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle);
@@ -212,6 +214,7 @@ public:
         /// <summary>
         /// As the guarded <see cref="DispatchMemoryRead" /> overload, for work that writes the emulator's memory.
         /// </summary>
+        /// <remarks>The same rules bind it: never destroy its own object, never wait on the Qt thread.</remarks>
         static void DispatchMemoryWrite(std::function<void()>&& fFunction,
                                         std::shared_ptr<ra::data::AsyncHandle> pAsyncHandle);
     };

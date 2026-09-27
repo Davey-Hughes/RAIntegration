@@ -713,6 +713,12 @@ static void DispatchGuardedMemoryWork(QueueMemoryFunction fQueue, std::function<
     // not imply "still inside this call". Guarding every cross-thread run cannot self-deadlock: a
     // dispatch nested inside guarded work either runs on that same thread (inline, unguarded, as
     // above) or on another thread, which holds none of the caller's locks.
+    //
+    // It can deadlock with the thread that destroys the object, which waits in
+    // AsyncHandle::SetDestroyed for guarded work already running: off Windows that is often the
+    // library's Qt thread. So guarded work must never wait on another thread - no InvokeAndWait,
+    // ShowModal, IClipboard::GetText or anything else that waits on the Qt thread (see
+    // IQtApplicationHost, which relies on it).
     const auto nCaller = std::this_thread::get_id();
     auto pReturned = std::make_shared<std::atomic<bool>>(false);
     DispatchMemoryWork(fQueue, [fFunction = std::move(fFunction), pAsyncHandle = std::move(pAsyncHandle), pReturned,

@@ -17,7 +17,13 @@ namespace services {
 /// Owned: the host has no Qt application, so the library created a QApplication on a private thread.
 /// Borrowed: the host already had a GUI application; it is used where it is and never created, quit or destroyed.
 /// Unavailable: no display, or the host has only a non-GUI QCoreApplication; every call below is then a no-op.
-/// The Qt thread never waits on any other thread, which is what keeps InvokeAndWait deadlock-free.
+/// The Qt thread waits on another thread only for the host thread's memory work, and only in two ways: a view
+/// destroying a watch waits in AsyncHandle::SetDestroyed for that watch's guarded memory work already running
+/// (EmulatorContext::DispatchesReadMemory), and a view may wait for PointerInspectorViewModel::m_mtxLoadNote or
+/// MemorySearchViewModel::m_oMutex, which memory work on the host thread holds. What keeps InvokeAndWait
+/// deadlock-free is that nothing it can wait on waits back: guarded memory work, and host-thread code holding
+/// those mutexes, must never call InvokeAndWait, ShowModal, IClipboard::GetText or anything else that waits on the
+/// Qt thread; and Qt bindings must post property changes and repaints, never block on them.
 /// </remarks>
 class IQtApplicationHost
 {
