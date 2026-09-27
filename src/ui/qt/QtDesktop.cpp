@@ -1,5 +1,6 @@
 #include "ui/qt/QtDesktop.hh"
 
+#include "services/ILogger.hh"
 #include "services/IQtApplicationHost.hh"
 #include "services/ServiceLocator.hh"
 #include "services/impl/HostThreadDispatcher.hh"
@@ -33,6 +34,7 @@ struct ModalWait
     std::mutex oMutex;
     std::condition_variable cvDone;
     bool bDone = false;
+    bool bRefused = false;
 
     void SetDone()
     {
@@ -108,6 +110,12 @@ void QtDesktop::ShowWindow(WindowViewModelBase& vmWindow) const
         return;
     }
 
+    if (m_pState->bClosed.load())
+    {
+        ++m_pState->nRefusedAfterShutdown;
+        return;
+    }
+
     // The view model outlives the queued call, as with Win32's queued
     // ShowWindow: every caller's is a WindowManager member.
     pHost->Invoke([pState = m_pState, pPresenter, &vmWindow]() {
@@ -141,6 +149,14 @@ ra::ui::DialogResult QtDesktop::DoShowModal(WindowViewModelBase& vmWindow) const
         return NullDesktop::ShowModal(vmWindow);
     }
 
+    if (m_pState->bClosed.load())
+    {
+        ++m_pState->nRefusedAfterShutdown;
+        RA_LOG_WARN("Dialog \"%s\" not shown: the windows are closed for shutdown - returning No",
+                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
+        return ra::ui::DialogResult::No;
+    }
+
     if (pHost->IsOnQtThread())
         return ShowModalOnQtThread(*pPresenter, vmWindow);
 
@@ -149,15 +165,22 @@ ra::ui::DialogResult QtDesktop::DoShowModal(WindowViewModelBase& vmWindow) const
 
 ra::ui::DialogResult QtDesktop::ShowModalOnQtThread(IDialogPresenter& oPresenter, WindowViewModelBase& vmWindow) const
 {
+    auto pState = m_pState;
+    if (pState->bClosed.load())
+    {
+        ++pState->nRefusedAfterShutdown;
+        return ra::ui::DialogResult::No;
+    }
+
     // A caller on the Qt thread can only be answered from a nested event loop.
     auto pDialog = oPresenter.CreateModal(vmWindow);
     if (pDialog == nullptr)
         return vmWindow.GetDialogResult();
 
     pDialog->setWindowModality(Qt::ApplicationModal);
-    m_pState->vOpenModals.emplace_back(pDialog.get());
+    pState->vOpenModals.emplace_back(pDialog.get());
     pDialog->exec();
-    ForgetModal(*m_pState, pDialog.get());
+    ForgetModal(*pState, pDialog.get());
 
     return vmWindow.GetDialogResult();
 }
@@ -166,7 +189,7 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                                                          IDialogPresenter& oPresenter,
                                                          WindowViewModelBase& vmWindow) const
 {
-    // Opened, not exec()'d: this thread waits, and the Qt thread goes back to
+    // Shown, not exec()'d: this thread waits, and the Qt thread goes back to
     // its own loop. Two modals from two threads are then answered
     // independently; nested exec() loops would hold the first caller until the
     // second dialog closed.
@@ -174,6 +197,18 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
     auto pState = m_pState;
     const bool bOpened = oHost.InvokeAndWait(
         [pState, pWait, &oPresenter, &vmWindow]() {
+            if (pState->bClosed.load())
+            {
+                // CloseAll ran between the caller's check and this call
+                ++pState->nRefusedAfterShutdown;
+                {
+                    std::lock_guard<std::mutex> oLock(pWait->oMutex);
+                    pWait->bRefused = true;
+                }
+                pWait->SetDone();
+                return;
+            }
+
             auto pDialog = oPresenter.CreateModal(vmWindow);
             if (pDialog == nullptr)
             {
@@ -191,8 +226,11 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                 pWait->SetDone();
             });
 
+            // show(), not open(): open() forces Qt::WindowModal (measured, Qt
+            // 6.11), and a window-modal dialog with no parent blocks nothing.
+            // finished() still comes from done().
             pOpened->setWindowModality(Qt::ApplicationModal);
-            pOpened->open();
+            pOpened->show();
         },
         m_tModalStartTimeout);
 
@@ -206,6 +244,8 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
 
     std::unique_lock<std::mutex> oLock(pWait->oMutex);
     pWait->cvDone.wait(oLock, [&pWait]() { return pWait->bDone; });
+    if (pWait->bRefused)
+        return ra::ui::DialogResult::No;
     return vmWindow.GetDialogResult();
 }
 
@@ -221,6 +261,10 @@ void QtDesktop::ForgetModal(State& oState, const QDialog* pDialog)
 
 void QtDesktop::CloseAll(State& oState)
 {
+    // From here on nothing opens: a pool task still running during the drain
+    // could otherwise open a dialog and hold the drain up waiting for an answer.
+    oState.bClosed = true;
+
     // Modal dialogs first. Rejecting one answers it - each dialog maps "no
     // button" to its escape answer - and releases its caller, so a pool worker
     // waiting in ShowModal cannot hold up the thread pool's drain. A copy,
@@ -232,7 +276,8 @@ void QtDesktop::CloseAll(State& oState)
             continue;
 
         ++oState.nClosedForShutdown;
-        RA_LOG_INFO("Closing dialog \"%s\" for shutdown", pDialog->windowTitle().toStdString().c_str());
+        if (ra::services::ServiceLocator::Exists<ra::services::ILogger>())
+            RA_LOG_INFO("Closing dialog \"%s\" for shutdown", pDialog->windowTitle().toStdString().c_str());
         pDialog->reject();
     }
 
@@ -249,7 +294,8 @@ void QtDesktop::CloseAll(State& oState)
             continue;
 
         ++oState.nClosedForShutdown;
-        RA_LOG_INFO("Closing window \"%s\" for shutdown", pWindow->windowTitle().toStdString().c_str());
+        if (ra::services::ServiceLocator::Exists<ra::services::ILogger>())
+            RA_LOG_INFO("Closing window \"%s\" for shutdown", pWindow->windowTitle().toStdString().c_str());
         pWindow->close();      // IsVisible false, as when the user closes it
         delete pWindow.data(); // WA_DeleteOnClose only schedules the delete
     }
@@ -320,8 +366,10 @@ void QtDesktop::Shutdown()
 {
     // Runs first in Initialization::Shutdown, before the thread pool drains: a
     // worker waiting in ShowModal has to be answered before the drain can end.
+    // No widgets, no windows: nothing to close, and no reason to wait on the
+    // Qt thread - which, borrowed, may be blocked on this very thread.
     auto* pHost = GetHost();
-    if (pHost == nullptr || !pHost->IsAvailable())
+    if (!CanHostWidgets(pHost))
         return;
 
     auto pState = m_pState;

@@ -53,6 +53,7 @@ public:
     size_t NoViewLayerCount() const noexcept { return m_pState->nNoViewLayer.load(); }
     size_t ModalNotStartedCount() const noexcept { return m_pState->nModalNotStarted.load(); }
     size_t ClosedForShutdownCount() const noexcept { return m_pState->nClosedForShutdown.load(); }
+    size_t RefusedAfterShutdownCount() const noexcept { return m_pState->nRefusedAfterShutdown.load(); }
 
 private:
     // Shared with the stop hook, which may run after this object is gone (a
@@ -64,6 +65,8 @@ private:
         std::atomic<size_t> nNoViewLayer{0};
         std::atomic<size_t> nModalNotStarted{0};
         std::atomic<size_t> nClosedForShutdown{0};
+        std::atomic<size_t> nRefusedAfterShutdown{0};
+        std::atomic<bool> bClosed{false}; // set by CloseAll: from then on nothing opens
     };
 
     static ra::services::IQtApplicationHost* GetHost();

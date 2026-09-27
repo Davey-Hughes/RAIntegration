@@ -226,6 +226,28 @@ public:
             Assert::IsTrue(bMatches, L"wrong icon");
         }
     }
+
+    TEST_METHOD(TestShowWindowOpensNothing)
+    {
+        MessageBoxViewModel vmMessageBox(L"message");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        oDesktop.ShowWindow(vmMessageBox);
+        oQt.RunOnQt([]() {}); // the queued ShowWindow has run
+
+        int nBoxes = -1;
+        oQt.RunOnQt([&nBoxes]() {
+            nBoxes = 0;
+            for (auto* pWidget : QApplication::topLevelWidgets())
+            {
+                if (dynamic_cast<MessageBoxDialog*>(pWidget) != nullptr)
+                    ++nBoxes;
+            }
+        });
+
+        Assert::AreEqual(0, nBoxes);
+    }
 };
 
 } // namespace tests

@@ -1,5 +1,8 @@
 #include "ui/qt/MessageBoxDialog.hh"
 
+#include "util/Log.hh"
+#include "util/Strings.hh"
+
 #include <QAbstractButton>
 #include <QString>
 
@@ -16,14 +19,12 @@ bool MessageBoxDialog::Presenter::IsSupported(const ra::ui::WindowViewModelBase&
 
 void MessageBoxDialog::Presenter::ShowWindow(ra::ui::WindowViewModelBase& vmWindow)
 {
-    // Win32 shows a message box modally even from ShowWindow. No caller does
-    // this (checked 2026-09-27). Opened without holding the Qt thread; the
-    // answer still goes to the view model, which the caller must keep alive,
-    // as it must on Win32, where ShowWindow is queued too.
-    auto* pBox = new MessageBoxDialog(dynamic_cast<MessageBoxViewModel&>(vmWindow));
-    pBox->setAttribute(Qt::WA_DeleteOnClose);
-    pBox->setWindowModality(Qt::ApplicationModal);
-    pBox->open();
+    // Win32 shows a message box modally even from ShowWindow. Here it would be
+    // a window nobody waits for: shutdown could not find it, and its answer
+    // would go to a view model that may be gone. No caller does this (checked
+    // 2026-09-27), so it is refused visibly rather than opened.
+    RA_LOG_WARN("Message box \"%s\" shown without waiting for an answer - not shown; use ShowModal",
+                ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
 }
 
 std::unique_ptr<QDialog> MessageBoxDialog::Presenter::CreateModal(ra::ui::WindowViewModelBase& vmWindow)

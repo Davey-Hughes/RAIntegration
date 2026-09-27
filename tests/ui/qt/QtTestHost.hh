@@ -7,6 +7,10 @@
 #include "services/ServiceLocator.hh"
 #include "services/impl/QtApplicationHost.hh"
 
+#include "ui/qt/bindings/WindowBinding.hh"
+
+#include <QWidget>
+
 #include <chrono>
 #include <functional>
 #include <thread>
@@ -30,7 +34,25 @@ public:
                                                                       L"no offscreen QApplication");
     }
 
-    ~QtTestHost() noexcept { m_oHost.Stop(); }
+    ~QtTestHost() noexcept
+    {
+        // A test that failed can leave a bound window behind. Delete it here,
+        // while its view model - declared before this host - still exists, so
+        // its binding leaves the view model and the process-wide binding list;
+        // the next test's shutdown would otherwise find it. Only self-deleting
+        // top-level windows (DialogBase): a test's own stack widgets are not
+        // this helper's to delete.
+        m_oHost.InvokeAndWait(
+            []() {
+                for (auto* pWidget : ra::ui::qt::bindings::WindowBinding::GetBoundWidgets())
+                {
+                    if (pWidget->testAttribute(Qt::WA_DeleteOnClose))
+                        delete pWidget;
+                }
+            },
+            std::chrono::seconds(5));
+        m_oHost.Stop();
+    }
 
     QtTestHost(const QtTestHost&) noexcept = delete;
     QtTestHost& operator=(const QtTestHost&) noexcept = delete;

@@ -138,6 +138,7 @@ public:
     void Invoke(std::function<void()> fAction) const override { m_vInvoked.push_back(std::move(fAction)); }
     bool InvokeAndWait(std::function<void()> fAction, std::chrono::milliseconds) const override
     {
+        ++m_nInvokeAndWait;
         fAction();
         return true;
     }
@@ -148,6 +149,7 @@ public:
     bool m_bHasWidgets = false; // a borrowed QGuiApplication
     bool m_bOnQtThread = false;
     mutable std::vector<std::function<void()>> m_vInvoked;
+    mutable int m_nInvokeAndWait = 0;
 
 private:
     ra::services::ServiceLocator::ServiceOverride<ra::services::IQtApplicationHost> m_Override;
@@ -256,6 +258,16 @@ public:
         Assert::AreEqual(0, oPresenter.nShowWindow.load());
     }
 
+    TEST_METHOD(TestShutdownWithoutWidgetsDoesNotWaitOnTheQtThread)
+    {
+        FakeQtApplicationHost oHost; // a borrowed QGuiApplication: available, no widgets
+        QtDesktop oDesktop;
+
+        oDesktop.Shutdown();
+
+        Assert::AreEqual(0, oHost.m_nInvokeAndWait);
+    }
+
     // --- windows ---
 
     TEST_METHOD(TestShowWindowGoesToThePresenterOnTheQtThread)
@@ -315,6 +327,28 @@ public:
         Assert::AreEqual(DialogResult::OK, oCaller.Result());
     }
 
+    TEST_METHOD(TestAModalFromAWorkerIsApplicationModal)
+    {
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+
+        ModalCaller oCaller(oDesktop, vmWindow);
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        bool bApplicationModal = false;
+        oQt.RunOnQt([&bApplicationModal]() {
+            auto* pDialog = FindDialog(QStringLiteral("A"));
+            bApplicationModal = (pDialog != nullptr && pDialog->windowModality() == Qt::ApplicationModal);
+        });
+        oQt.RunOnQt(RejectAll);
+        const bool bReturned = oCaller.Returned(2s);
+
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::IsTrue(bApplicationModal, L"the dialog does not block the other windows");
+        Assert::IsTrue(bReturned);
+    }
+
     TEST_METHOD(TestModalsFromTwoWorkersAreAnsweredIndependently)
     {
         TestViewModel vmFirst(L"First");
@@ -355,17 +389,25 @@ public:
         std::atomic<int> nResult{-1};
         oQt.Host().Invoke([&oDesktop, &vmWindow, &nResult]() { nResult = ra::etoi(oDesktop.ShowModal(vmWindow)); });
         const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
-        oQt.RunOnQt([bShown]() {
+        bool bApplicationModal = false;
+        oQt.RunOnQt([bShown, &bApplicationModal]() {
             if (bShown)
-                FindDialog(QStringLiteral("A"))->accept();
+            {
+                auto* pDialog = FindDialog(QStringLiteral("A"));
+                bApplicationModal = (pDialog->windowModality() == Qt::ApplicationModal);
+                pDialog->accept();
+            }
             else
+            {
                 RejectAll();
+            }
         });
         const bool bReturned = oQt.WaitOnQt([&nResult]() { return nResult.load() != -1; });
 
         Assert::IsTrue(bShown, L"the dialog never appeared");
         Assert::IsTrue(bReturned, L"the nested ShowModal never returned");
         Assert::AreEqual(DialogResult::OK, ra::itoe<DialogResult>(nResult.load()));
+        Assert::IsTrue(bApplicationModal, L"the nested dialog does not block the other windows");
     }
 
     TEST_METHOD(TestAViewModelWithNoModalFormReturnsAtOnce)
@@ -431,6 +473,29 @@ public:
         Assert::IsTrue(bReleased, L"Shutdown left the worker waiting on its dialog");
         Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
         Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
+    }
+
+    TEST_METHOD(TestAModalAfterShutdownAnswersNo)
+    {
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        auto pPresenter = std::make_unique<TestPresenter>();
+        auto& oPresenter = *pPresenter;
+        oDesktop.AddPresenter(std::move(pPresenter));
+
+        oDesktop.Shutdown();
+
+        // from a worker, as a pool task still running during the drain calls it
+        ModalCaller oCaller(oDesktop, vmWindow);
+        const bool bReturned = oCaller.Returned(2s);
+        if (!bReturned)
+            oQt.RunOnQt(RejectAll);
+
+        Assert::IsTrue(bReturned, L"a modal opened after Shutdown and waited for an answer");
+        Assert::AreEqual(DialogResult::No, oCaller.Result());
+        Assert::AreEqual(size_t(1), oDesktop.RefusedAfterShutdownCount());
+        Assert::AreEqual(0, oPresenter.nCreateModal.load());
     }
 
     TEST_METHOD(TestShutdownClosesAndDeletesBoundWindows)
