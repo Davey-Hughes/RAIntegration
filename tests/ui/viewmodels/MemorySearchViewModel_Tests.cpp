@@ -8,13 +8,16 @@
 
 #include "tests/devkit/context/mocks/MockConsoleContext.hh"
 #include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
+#include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/context/mocks/MockUserContext.hh"
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/devkit/services/mocks/MockConfiguration.hh"
 #include "tests/devkit/services/mocks/MockFileSystem.hh"
 #include "tests/devkit/testutil/MemoryAsserts.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockHostThread.hh"
 #include "tests/mocks/MockWindowManager.hh"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -1112,6 +1115,79 @@ public:
         Assert::IsTrue(search.CanGoToPreviousPage());
         Assert::IsFalse(search.CanGoToNextPage());
     }
+
+#ifndef _WIN32
+    // two filters applied, then back to the first page: pages 0 (the search),
+    // 1 and 2, with 1 selected
+    static void SetUpThreePagesOnTheFirstFilter(MemorySearchViewModelHarness& search)
+    {
+        search.InitializeMemory();
+        search.BeginNewSearch();
+        search.SetComparisonType(ComparisonType::LessThan);
+        search.SetValueType(ra::services::SearchFilterType::Constant);
+        search.SetFilterValue(L"8");
+        search.ApplyFilter();
+        search.SetComparisonType(ComparisonType::GreaterThan);
+        search.SetFilterValue(L"3");
+        search.ApplyFilter();
+        search.PreviousPage();
+        Assert::AreEqual(std::wstring(L"1/2"), search.GetSelectedPage());
+    }
+
+    TEST_METHOD(TestPageChangesQueuedPastTheLastPageAreIgnored)
+    {
+        MemorySearchViewModelHarness search;
+        SetUpThreePagesOnTheFirstFilter(search);
+
+        ra::context::mocks::MockRcClient mockRcClient; // the harness has none; the runtime needs one
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        // a double click: both pass NextPage's check before either has run
+        ra::services::mocks::MockHostThread::RunElsewhere([&search]() {
+            search.NextPage();
+            search.NextPage();
+        });
+        Assert::AreEqual(size_t(2), mockHostThread.PendingCount());
+
+        bool bThrew = false;
+        try
+        {
+            mockHostThread.Drain();
+        }
+        catch (const std::out_of_range&)
+        {
+            bThrew = true;
+        }
+        Assert::IsFalse(bThrew, L"a page change queued past the last page threw");
+        Assert::AreEqual(std::wstring(L"2/2"), search.GetSelectedPage());
+    }
+
+    TEST_METHOD(TestPageChangeQueuedBeforeTheResultsWereClearedIsIgnored)
+    {
+        MemorySearchViewModelHarness search;
+        SetUpThreePagesOnTheFirstFilter(search);
+
+        ra::context::mocks::MockRcClient mockRcClient;
+        ra::services::mocks::MockAchievementRuntime mockRuntime;
+        ra::services::mocks::MockHostThread mockHostThread;
+
+        ra::services::mocks::MockHostThread::RunElsewhere([&search]() { search.NextPage(); });
+        search.ClearResults(); // a game change, before the frame thread ran the page change
+
+        bool bThrew = false;
+        try
+        {
+            mockHostThread.Drain();
+        }
+        catch (const std::out_of_range&)
+        {
+            bThrew = true;
+        }
+        Assert::IsFalse(bThrew, L"a page change queued before the results were cleared threw");
+        Assert::AreEqual({ 0U }, search.Results().Count());
+    }
+#endif
 
     TEST_METHOD(TestDoFramePreviousPage)
     {

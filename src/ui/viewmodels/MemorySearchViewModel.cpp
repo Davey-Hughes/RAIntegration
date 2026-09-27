@@ -574,6 +574,15 @@ void MemorySearchViewModel::ApplyFilter()
 
 void MemorySearchViewModel::DoApplyFilter()
 {
+    {
+        std::lock_guard lock(m_oMutex);
+
+        // ApplyFilter checked for results when it queued this; they may have
+        // been cleared since (see ChangePage)
+        if (m_nSelectedSearchResult >= m_vSearchResults.size())
+            return;
+    }
+
     const std::wstring sEmptyString;
     const auto* sValue = GetValue(CanEditFilterValueProperty) ? &GetFilterValue() : &sEmptyString;
 
@@ -743,6 +752,14 @@ void MemorySearchViewModel::ChangePage(size_t nNewPage)
     //       by using DispatchMemoryRead().
     {
         std::lock_guard lock(m_oMutex);
+
+        // Asked for before this ran - perhaps on another thread, and queued
+        // (see DispatchMemoryRead). The results may have been cleared since (a
+        // game change), or the page may be gone (two page changes queued before
+        // either ran).
+        if (nNewPage >= m_vSearchResults.size())
+            return;
+
         m_nSelectedSearchResult = nNewPage;
     }
     SetValue(SelectedPageProperty, ra::util::String::Printf(L"%u/%u", m_nSelectedSearchResult, m_vSearchResults.size() - 1));
@@ -1125,7 +1142,11 @@ void MemorySearchViewModel::PreviousPage()
         if (m_bIsContinuousFiltering)
             ToggleContinuousFilter();
 
-        DispatchMemoryRead([this]() { ChangePage(m_nSelectedSearchResult - 1); });
+        DispatchMemoryRead([this]() {
+            // re-checked: another page change may have run since this was queued
+            if (m_nSelectedSearchResult > 1)
+                ChangePage(m_nSelectedSearchResult - 1);
+        });
     }
 }
 
