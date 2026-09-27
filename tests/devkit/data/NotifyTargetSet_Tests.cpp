@@ -68,7 +68,7 @@ TEST_CLASS(NotifyTargetSet_Tests)
 
         fPrepare(pHeld->set, pHeld->oOther);
 
-        ra::tests::DetachedCall oRemove([pHeld]() { pHeld->set.RemoveAndWait(pHeld->oTarget); });
+        ra::tests::DetachedCall oRemove([pHeld]() noexcept { pHeld->set.RemoveAndWait(pHeld->oTarget); });
         const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
 
         pHeld->Release();
@@ -306,8 +306,8 @@ public:
                 vMutators.emplace_back([pState, nThread]() {
                     for (int i = 0; i < 2000; ++i)
                     {
-                        pState->set.Add(pState->vTransient.at((i + nThread) % 8));
-                        pState->set.Remove(pState->vTransient.at((i + nThread + 3) % 8));
+                        pState->set.Add(pState->vTransient.at(gsl::narrow_cast<size_t>((i + nThread) % 8)));
+                        pState->set.Remove(pState->vTransient.at(gsl::narrow_cast<size_t>((i + nThread + 3) % 8)));
                     }
                 });
             }
@@ -315,7 +315,7 @@ public:
             std::vector<std::thread> vWalkers;
             for (int nThread = 0; nThread < 2; ++nThread)
             {
-                vWalkers.emplace_back([pState]() {
+                vWalkers.emplace_back([pState]() noexcept {
                     do
                     {
                         if (pState->set.LockIfNotEmpty())
@@ -372,8 +372,9 @@ public:
                 vMutators.emplace_back([pState, nThread]() {
                     for (int i = 0; i < 2000; ++i)
                     {
-                        pState->set.Add(pState->vTransient.at((i + nThread) % 8));
-                        pState->set.RemoveAndWait(pState->vTransient.at((i + nThread + 3) % 8));
+                        pState->set.Add(pState->vTransient.at(gsl::narrow_cast<size_t>((i + nThread) % 8)));
+                        pState->set.RemoveAndWait(
+                            pState->vTransient.at(gsl::narrow_cast<size_t>((i + nThread + 3) % 8)));
                     }
                 });
             }
@@ -384,7 +385,7 @@ public:
                 vWalkers.emplace_back([pState]() {
                     do
                     {
-                        pState->set.ForEachTarget([](Counter& oTarget) { ++oTarget.nCalls; });
+                        pState->set.ForEachTarget([](Counter& oTarget) noexcept { ++oTarget.nCalls; });
                     } while (!pState->bStop);
                 });
             }
@@ -408,20 +409,20 @@ public:
 
     TEST_METHOD(TestRemoveAndWaitWaitsForAnotherThreadsCallToThatTarget)
     {
-        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>&, Counter&) {});
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>&, Counter&) noexcept {});
     }
 
     TEST_METHOD(TestRemoveAndWaitAfterClearStillWaitsForAnotherThreadsCall)
     {
         // Clear() drops every target without waiting, and leaves no list at all.
-        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter&) { set.Clear(); });
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter&) noexcept { set.Clear(); });
     }
 
     TEST_METHOD(TestRemoveAndWaitForATargetNoLongerListedStillWaits)
     {
         // The list exists but no longer holds the target: returning early on
         // "not found" would skip the wait.
-        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter& oOther) {
+        AssertRemoveAndWaitWaitsForTheCall([](NotifyTargetSet<Counter>& set, Counter& oOther) noexcept {
             set.Clear();
             set.Add(oOther);
         });
@@ -437,7 +438,7 @@ public:
         pHeld->Start();
         const bool bEntered = pHeld->WaitUntilEntered();
 
-        ra::tests::DetachedCall oRemove([pHeld]() { pHeld->set.Remove(pHeld->oTarget); });
+        ra::tests::DetachedCall oRemove([pHeld]() noexcept { pHeld->set.Remove(pHeld->oTarget); });
         const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::seconds(5));
 
         pHeld->Release();
@@ -462,7 +463,7 @@ public:
         pState->set.Add(pState->oTarget);
 
         ra::tests::DetachedCall oNotify([pState]() {
-            pState->set.ForEachTarget([pState](Counter& oTarget) {
+            pState->set.ForEachTarget([pState](Counter& oTarget) noexcept {
                 ++oTarget.nCalls;
                 pState->set.RemoveAndWait(oTarget); // must not wait for its own call
             });
@@ -485,7 +486,7 @@ public:
 
         // A handler that removes (and, in real code, may then destroy) a target
         // later in the same pass: the pass must not call it.
-        set.ForEachTarget([&set, &oFirst, &oSecond](Counter& oTarget) {
+        set.ForEachTarget([&set, &oFirst, &oSecond](Counter& oTarget) noexcept {
             ++oTarget.nCalls;
             if (&oTarget == &oFirst)
                 set.Remove(oSecond);
@@ -501,14 +502,14 @@ public:
         Counter oFirst, oSecond;
         set.Add(oFirst);
 
-        set.ForEachTarget([&set, &oSecond](Counter& oTarget) {
+        set.ForEachTarget([&set, &oSecond](Counter& oTarget) noexcept {
             ++oTarget.nCalls;
             set.Add(oSecond);
         });
         Assert::AreEqual(1, oFirst.nCalls.load());
         Assert::AreEqual(0, oSecond.nCalls.load());
 
-        set.ForEachTarget([](Counter& oTarget) { ++oTarget.nCalls; });
+        set.ForEachTarget([](Counter& oTarget) noexcept { ++oTarget.nCalls; });
         Assert::AreEqual(2, oFirst.nCalls.load());
         Assert::AreEqual(1, oSecond.nCalls.load());
     }
@@ -538,7 +539,7 @@ public:
         }
 
         // Another thread's RemoveAndWait must not wait for a call that ended in an exception.
-        ra::tests::DetachedCall oRemove([pState]() { pState->set.RemoveAndWait(pState->oTarget); });
+        ra::tests::DetachedCall oRemove([pState]() noexcept { pState->set.RemoveAndWait(pState->oTarget); });
         const bool bRemoved = oRemove.FinishedWithin(std::chrono::seconds(5));
 
         Assert::IsTrue(bThrew, L"the handler's exception did not reach the caller");

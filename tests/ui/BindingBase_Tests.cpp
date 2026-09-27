@@ -59,7 +59,7 @@ TEST_CLASS(BindingBase_Tests)
     class BlockingBindingHarness : public BindingBase
     {
     public:
-        explicit BlockingBindingHarness(ViewModelBase& vmViewModel) noexcept : BindingBase(vmViewModel) {}
+        explicit BlockingBindingHarness(ViewModelBase& vmViewModel) : BindingBase(vmViewModel) {}
 
         using BindingBase::DetachFromViewModel;
 
@@ -143,7 +143,7 @@ public:
         ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
         const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
 
-        ra::tests::DetachedCall oDetach([pState]() { pState->oBinding.DetachFromViewModel(); });
+        ra::tests::DetachedCall oDetach([pState]() noexcept { pState->oBinding.DetachFromViewModel(); });
         const bool bDetachedDuringTheCall = oDetach.FinishedWithin(std::chrono::milliseconds(200));
 
         pState->oBinding.oRelease.set_value();

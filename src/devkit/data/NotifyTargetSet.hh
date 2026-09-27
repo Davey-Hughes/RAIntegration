@@ -42,7 +42,9 @@ private:
     using SharedTargetList = std::shared_ptr<const TargetList>;
 
 public:
-    NotifyTargetSet() noexcept = default;
+    // std::condition_variable's constructor is not noexcept, but IGameContext and IEmulatorMemoryContext declare
+    // noexcept default constructors around a set.
+    GSL_SUPPRESS_F6 NotifyTargetSet() noexcept = default;
     ~NotifyTargetSet() noexcept = default;
 
     NotifyTargetSet(const NotifyTargetSet&) = delete;
@@ -124,7 +126,8 @@ public:
         size_t size() const noexcept { return m_pTargets->size(); }
 
     private:
-        // Owned, so the list stays alive - and unchanged - for as long as this object does. Never null.
+        // Owned, so the list stays alive - and unchanged - for as long as this object does. Never null, except in a
+        // moved-from object.
         SharedTargetList m_pTargets;
     };
 
@@ -160,7 +163,8 @@ public:
         }
 
         const auto nThreadId = std::this_thread::get_id();
-        for (TNotifyTarget* pTarget : *pTargets)
+        // Never null: Add takes a reference, so nothing else is ever listed.
+        GSL_SUPPRESS_F23 for (TNotifyTarget* pTarget : *pTargets)
         {
             {
                 std::lock_guard<std::mutex> lock(m_mtxTargets);
@@ -205,6 +209,7 @@ public:
     /// destroying a target, use <see cref="RemoveAndWait" />.
     /// </remarks>
     GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
+    GSL_SUPPRESS_CON3 // non-const, as Add's is: a const one would only move the warning into every caller's wrapper
     void Remove(TNotifyTarget& pTarget) noexcept
     {
         std::lock_guard<std::mutex> lock(m_mtxTargets);
@@ -224,6 +229,7 @@ public:
     /// thread may be inside a derived override.
     /// </remarks>
     GSL_SUPPRESS_F6 // only a mutex or an allocation failure can throw here
+    GSL_SUPPRESS_CON3 // non-const, as Add's is: a const one would only move the warning into every caller's wrapper
     void RemoveAndWait(TNotifyTarget& pTarget) noexcept
     {
         std::unique_lock<std::mutex> lock(m_mtxTargets);
@@ -270,7 +276,7 @@ public:
 private:
     struct CallRecord
     {
-        TNotifyTarget* pTarget;
+        const TNotifyTarget* pTarget = nullptr;
         std::thread::id nThreadId;
     };
 
@@ -278,7 +284,7 @@ private:
     class CallInProgress
     {
     public:
-        CallInProgress(NotifyTargetSet& pOwner, TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
+        CallInProgress(NotifyTargetSet& pOwner, const TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
             : m_pOwner(pOwner), m_pTarget(pTarget), m_nThreadId(nThreadId)
         {
         }
@@ -291,11 +297,11 @@ private:
 
     private:
         NotifyTargetSet& m_pOwner;
-        TNotifyTarget* m_pTarget;
+        const TNotifyTarget* m_pTarget;
         std::thread::id m_nThreadId;
     };
 
-    GSL_SUPPRESS_F6 void EndCall(TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
+    GSL_SUPPRESS_F6 void EndCall(const TNotifyTarget* pTarget, std::thread::id nThreadId) noexcept
     {
         {
             std::lock_guard<std::mutex> lock(m_mtxTargets);

@@ -238,7 +238,8 @@ public:
         ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
         const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
 
-        ra::tests::DetachedCall oRemove([pState]() { pState->vmViewModel.RemoveNotifyTargetAndWait(pState->oTarget); });
+        ra::tests::DetachedCall oRemove(
+            [pState]() noexcept { pState->vmViewModel.RemoveNotifyTargetAndWait(pState->oTarget); });
         const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::milliseconds(200));
 
         pState->oTarget.oRelease.set_value();
@@ -269,7 +270,8 @@ public:
         ra::tests::DetachedCall oNotify([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
         const bool bEntered = (fEntered.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
 
-        ra::tests::DetachedCall oRemove([pState]() { pState->vmViewModel.RemoveNotifyTarget(pState->oTarget); });
+        ra::tests::DetachedCall oRemove(
+            [pState]() noexcept { pState->vmViewModel.RemoveNotifyTarget(pState->oTarget); });
         const bool bRemovedDuringTheCall = oRemove.FinishedWithin(std::chrono::seconds(5));
 
         pState->oTarget.oRelease.set_value();
