@@ -2,7 +2,9 @@
 
 #include "tests/devkit/testutil/DetachedCall.hh"
 
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <future>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -18,6 +20,7 @@ TEST_CLASS(BindingBase_Tests)
     public:
         static const StringModelProperty StringProperty;
         void SetString(const std::wstring& sValue) { SetValue(StringProperty, sValue); }
+        const std::wstring& GetString() const { return GetValue(StringProperty); }
 
         // A second property: a binding sets it while a worker is inside its handler for the first.
         static const StringModelProperty OtherStringProperty;
@@ -80,6 +83,64 @@ TEST_CLASS(BindingBase_Tests)
         {
             oEntered.set_value();
             fRelease.wait();
+        }
+    };
+
+    // Derives OtherStringProperty whenever StringProperty changes, and runs a hook once - on the setting thread,
+    // inside the notification - the next time StringProperty changes.
+    class DerivingViewModel : public ViewModelHarness
+    {
+    public:
+        std::function<void()> fOnStringChanged;
+
+    protected:
+        using ViewModelHarness::OnValueChanged;
+
+        void OnValueChanged(const StringModelProperty::ChangeArgs& args) override
+        {
+            ViewModelHarness::OnValueChanged(args); // tells the notify targets
+
+            if (args.Property == StringProperty)
+            {
+                SetValue(OtherStringProperty, L"derived");
+
+                if (fOnStringChanged)
+                {
+                    // once: a change the hook makes on another thread comes through here too
+                    auto fHook = std::move(fOnStringChanged);
+                    fOnStringChanged = nullptr;
+                    fHook();
+                }
+            }
+        }
+    };
+
+    // Counts each string property's changes, leaving out its own echoes as a Qt control binding does.
+    class RecordingBindingHarness : public BindingBase
+    {
+    public:
+        explicit RecordingBindingHarness(ViewModelBase& vmViewModel) noexcept : BindingBase(vmViewModel) {}
+
+        using BindingBase::IsEchoOfOwnChange;
+
+        void SetStringFromControl(const StringModelProperty& pProperty, const std::wstring& sValue)
+        {
+            SetValueFromControl(pProperty, sValue);
+        }
+
+        std::atomic<int> nStringChanges{0};
+        std::atomic<int> nOtherStringChanges{0};
+
+    protected:
+        void OnViewModelStringValueChanged(const StringModelProperty::ChangeArgs& args) noexcept override
+        {
+            if (IsEchoOfOwnChange(args.Property))
+                return;
+
+            if (args.Property == ViewModelHarness::StringProperty)
+                ++nStringChanges;
+            else if (args.Property == ViewModelHarness::OtherStringProperty)
+                ++nOtherStringChanges;
         }
     };
 
@@ -199,6 +260,86 @@ public:
         Assert::IsTrue(bNotifyFinished, L"the notification never finished");
 
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestSetValueFromControlDoesNotEchoItsOwnProperty)
+    {
+        ViewModelHarness vmViewModel;
+        RecordingBindingHarness oBinding(vmViewModel);
+
+        oBinding.SetStringFromControl(ViewModelHarness::StringProperty, L"typed");
+        Assert::AreEqual(0, oBinding.nStringChanges.load());
+        Assert::AreEqual(std::wstring(L"typed"), vmViewModel.GetString());
+
+        // outside the call, a change on the same thread arrives as usual
+        vmViewModel.SetString(L"elsewhere");
+        Assert::AreEqual(1, oBinding.nStringChanges.load());
+    }
+
+    TEST_METHOD(TestSetValueFromControlStaysAttachedForAPropertyTheViewModelDerives)
+    {
+        // SetValue's remove/re-add would miss this: the binding is unregistered while the view model derives it.
+        DerivingViewModel vmViewModel;
+        RecordingBindingHarness oBinding(vmViewModel);
+
+        oBinding.SetStringFromControl(ViewModelHarness::StringProperty, L"typed");
+
+        Assert::AreEqual(0, oBinding.nStringChanges.load());
+        Assert::AreEqual(1, oBinding.nOtherStringChanges.load());
+    }
+
+    TEST_METHOD(TestSetValueFromControlStillDeliversAnotherThreadsChangeToTheSameProperty)
+    {
+        struct State
+        {
+            DerivingViewModel vmViewModel;
+            RecordingBindingHarness oBinding{ vmViewModel };
+            bool bWorkerFinished = false;
+        };
+        auto* pState = new State();
+
+        // Inside the binding's own set, on this thread, a worker sets the same property and is waited for.
+        pState->vmViewModel.fOnStringChanged = [pState]() {
+            ra::tests::DetachedCall oWorker([pState]() { pState->vmViewModel.SetString(L"from a worker"); });
+            pState->bWorkerFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
+        };
+
+        pState->oBinding.SetStringFromControl(ViewModelHarness::StringProperty, L"typed");
+
+        Assert::IsTrue(pState->bWorkerFinished, L"the worker's change never finished");
+        Assert::AreEqual(1, pState->oBinding.nStringChanges.load(), L"the worker's change was dropped, or the echo was not");
+
+        delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
+    }
+
+    TEST_METHOD(TestIsEchoOfOwnChangeHoldsOnlyOnTheOwnerThreadDuringTheSet)
+    {
+        struct State
+        {
+            DerivingViewModel vmViewModel;
+            RecordingBindingHarness oBinding{ vmViewModel };
+            bool bEchoHere = false;
+            bool bEchoElsewhere = true;
+            bool bWorkerFinished = false;
+        };
+        auto* pState = new State();
+
+        pState->vmViewModel.fOnStringChanged = [pState]() {
+            pState->bEchoHere = pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty);
+            ra::tests::DetachedCall oWorker([pState]() {
+                pState->bEchoElsewhere = pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty);
+            });
+            pState->bWorkerFinished = oWorker.FinishedWithin(std::chrono::seconds(5));
+        };
+
+        pState->oBinding.SetStringFromControl(ViewModelHarness::StringProperty, L"typed");
+
+        Assert::IsTrue(pState->bWorkerFinished, L"the worker never finished");
+        Assert::IsTrue(pState->bEchoHere, L"not an echo on the owner thread inside its own set");
+        Assert::IsFalse(pState->bEchoElsewhere, L"an echo on another thread");
+        Assert::IsFalse(pState->oBinding.IsEchoOfOwnChange(ViewModelHarness::StringProperty), L"an echo after the set");
+
+        delete pState;
     }
 };
 

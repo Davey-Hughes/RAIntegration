@@ -5,6 +5,8 @@
 #include "services/ServiceLocator.hh"
 #include "ui/ViewModelBase.hh"
 
+#include <thread>
+
 namespace ra {
 namespace ui {
 
@@ -71,6 +73,49 @@ protected:
             if (ra::services::ServiceLocator::IsInitialized())
                 m_vmViewModel.RemoveNotifyTargetAndWait(*this);
         }
+    }
+
+    /// <summary>
+    /// Sets <paramref name="pProperty" /> from the control this binding drives, without the change echoing back into
+    /// the control: while it runs, <see cref="IsEchoOfOwnChange" /> is true for this property, on this thread only.
+    /// Unlike <see cref="SetValue" />, the binding stays among the view model's notify targets, so a change another
+    /// thread makes meanwhile - to this property or any other - still reaches it, as does a property the view model
+    /// derives from this one.
+    /// </summary>
+    /// <remarks>Call it on the thread that constructed the binding: on any other, nothing is suppressed.</remarks>
+    void SetValueFromControl(const BoolModelProperty& pProperty, bool bValue)
+    {
+        const EchoScope oScope(*this, pProperty);
+        m_vmViewModel.SetValue(pProperty, bValue);
+    }
+
+    /// <summary>The string form of <see cref="SetValueFromControl(const BoolModelProperty&amp;, bool)" />.</summary>
+    void SetValueFromControl(const StringModelProperty& pProperty, const std::wstring& sValue)
+    {
+        const EchoScope oScope(*this, pProperty);
+        m_vmViewModel.SetValue(pProperty, sValue);
+    }
+
+    /// <summary>The integer form of <see cref="SetValueFromControl(const BoolModelProperty&amp;, bool)" />.</summary>
+    void SetValueFromControl(const IntModelProperty& pProperty, int nValue)
+    {
+        const EchoScope oScope(*this, pProperty);
+        m_vmViewModel.SetValue(pProperty, nValue);
+    }
+
+    /// <summary>
+    /// Whether a change of <paramref name="pProperty" /> is this binding's own <see cref="SetValueFromControl" />
+    /// coming back: true only on the thread that constructed the binding, while that call is setting this property.
+    /// A view model that sets the same property again from inside that call - normalising it - is suppressed too, as
+    /// <see cref="SetValue" />'s remove/re-add suppresses it.
+    /// </summary>
+    bool IsEchoOfOwnChange(const ra::data::ModelPropertyBase& pProperty) const noexcept
+    {
+        // Checked first, so no other thread ever reads m_pSettingProperty: only the owner thread touches it.
+        if (std::this_thread::get_id() != m_nOwnerThread)
+            return false;
+
+        return m_pSettingProperty != nullptr && *m_pSettingProperty == pProperty;
     }
 
     /// <summary>
@@ -174,6 +219,34 @@ private:
     // Whether the binding is (meant to be) one of the view model's notify targets. Changed only on the thread that
     // owns the binding - the UI thread - so not atomic.
     bool m_bAttached = false;
+
+    // Marks a property as being set from the control until destroyed, then restores the previous mark, so a nested
+    // SetValueFromControl - a handler setting another property - unwinds correctly.
+    class EchoScope
+    {
+    public:
+        EchoScope(BindingBase& oBinding, const ra::data::ModelPropertyBase& pProperty) noexcept
+            : m_oBinding(oBinding), m_pPrevious(oBinding.m_pSettingProperty)
+        {
+            m_oBinding.m_pSettingProperty = &pProperty;
+        }
+        ~EchoScope() noexcept { m_oBinding.m_pSettingProperty = m_pPrevious; }
+
+        EchoScope(const EchoScope&) noexcept = delete;
+        EchoScope& operator=(const EchoScope&) noexcept = delete;
+        EchoScope(EchoScope&&) noexcept = delete;
+        EchoScope& operator=(EchoScope&&) noexcept = delete;
+
+    private:
+        BindingBase& m_oBinding;
+        const ra::data::ModelPropertyBase* m_pPrevious;
+    };
+
+    // The thread that constructed the binding: the only one on which an echo is suppressed.
+    const std::thread::id m_nOwnerThread = std::this_thread::get_id();
+
+    // The property SetValueFromControl is setting, or null. Owner thread only (see IsEchoOfOwnChange).
+    const ra::data::ModelPropertyBase* m_pSettingProperty = nullptr;
 };
 
 } // namespace ui
