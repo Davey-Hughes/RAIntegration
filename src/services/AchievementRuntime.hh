@@ -240,7 +240,7 @@ public:
         /// </summary>
         static void CompleteShared(void* pUserdata, int nResult, const char* sErrorMessage)
         {
-            auto* pShared = static_cast<std::shared_ptr<Synchronizer>*>(pUserdata);
+            const auto* pShared = static_cast<const std::shared_ptr<Synchronizer>*>(pUserdata);
             Expects(pShared != nullptr && *pShared != nullptr);
 
             (*pShared)->Complete(nResult, sErrorMessage);

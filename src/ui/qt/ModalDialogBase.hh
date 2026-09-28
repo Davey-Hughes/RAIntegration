@@ -66,7 +66,7 @@ protected:
     /// <remarks>
     /// A modal dialog must never route closeEvent, showEvent or resizeEvent to its OnClosed, OnShown or OnResized,
     /// as V1's DialogBase does: closeEvent leads to reject(), and finished() lets the caller destroy the view model
-    /// first. A known difference from Win32: so modal dialogs do not report IsVisible or save their size.
+    /// first. A known difference from Win32: modal dialogs do not report IsVisible or save their size.
     /// </remarks>
     ra::ui::qt::bindings::WindowBinding m_bindWindow;
 

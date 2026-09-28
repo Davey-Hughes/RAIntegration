@@ -16,22 +16,21 @@ namespace qt {
 
 namespace {
 
-// Whether shutdown has begun: the thread pool has stopped taking work, or the registered desktop has closed its
-// windows. RA_Core.cpp's DoShutdown stops the pool first, well before the desktop closes. Not a QtDesktop - a test's
-// mock - never closes.
+// Whether shutdown has begun: the registered desktop has closed its windows, or the thread pool has stopped taking
+// work. RA_Core.cpp's DoShutdown stops the pool first, well before the desktop closes. The desktop is asked first: its
+// flag is atomic, and once it is set the pool's slot is never read - so this cannot meet Initialization::Shutdown's
+// later Provide<IThreadPool>(nullptr), which writes that slot unlocked. Not a QtDesktop - a test's mock - never closes.
 bool IsShuttingDown()
 {
-    if (ra::services::ServiceLocator::Exists<ra::services::IThreadPool>() &&
-        ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested())
+    if (ra::services::ServiceLocator::Exists<ra::ui::IDesktop>())
     {
-        return true;
+        const auto* pDesktop = dynamic_cast<const QtDesktop*>(&ra::services::ServiceLocator::Get<ra::ui::IDesktop>());
+        if (pDesktop != nullptr && pDesktop->IsClosedForShutdown())
+            return true;
     }
 
-    if (!ra::services::ServiceLocator::Exists<ra::ui::IDesktop>())
-        return false;
-
-    const auto* pDesktop = dynamic_cast<const QtDesktop*>(&ra::services::ServiceLocator::Get<ra::ui::IDesktop>());
-    return pDesktop != nullptr && pDesktop->IsClosedForShutdown();
+    return ra::services::ServiceLocator::Exists<ra::services::IThreadPool>() &&
+           ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested();
 }
 
 } // namespace
