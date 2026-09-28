@@ -1,5 +1,6 @@
 #include "ui/qt/ModalDialogBase.hh"
 
+#include "services/IThreadPool.hh"
 #include "services/ServiceLocator.hh"
 
 #include "ui/IDesktop.hh"
@@ -15,9 +16,17 @@ namespace qt {
 
 namespace {
 
-// Whether the registered desktop has closed its windows for shutdown. Not a QtDesktop - a test's mock - never has.
-bool IsDesktopClosedForShutdown()
+// Whether shutdown has begun: the thread pool has stopped taking work, or the registered desktop has closed its
+// windows. RA_Core.cpp's DoShutdown stops the pool first, well before the desktop closes. Not a QtDesktop - a test's
+// mock - never closes.
+bool IsShuttingDown()
 {
+    if (ra::services::ServiceLocator::Exists<ra::services::IThreadPool>() &&
+        ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested())
+    {
+        return true;
+    }
+
     if (!ra::services::ServiceLocator::Exists<ra::ui::IDesktop>())
         return false;
 
@@ -61,33 +70,39 @@ void ModalDialogBase::done(int nResult)
         return;
     }
 
-    if (m_bInCanAccept)
+    if (m_bAccepting)
     {
-        // A reject while CanAccept runs - QtDesktop::CloseAll at shutdown, while CanAccept is inside a nested modal -
-        // must not finish now: that releases the caller, who may destroy the view model while CanAccept, a view model
-        // method, is still on the stack. It finishes when CanAccept returns.
+        // A reject while the pending edits are written, or CanAccept runs - QtDesktop::CloseAll at shutdown, while a
+        // view-model handler or CanAccept is inside a nested modal - must not finish now: that releases the caller,
+        // who may destroy the view model while its method is still on the stack. It finishes when they return. An
+        // accept is ignored: this OK is being handled already.
         if (nResult != QDialog::Accepted)
             m_bRejectPending = true;
         return;
     }
 
-    if (nResult == QDialog::Accepted && IsDesktopClosedForShutdown())
+    if (nResult == QDialog::Accepted && IsShuttingDown())
     {
-        // Shutting down: OK must not start CanAccept's work - Login's server call, which the thread pool may refuse
-        // and never answer - while a caller waits to be released. It answers Cancel, as CloseAll's reject would.
+        // Once shutdown has begun - the thread pool stops taking work well before the desktop closes - OK must not
+        // start CanAccept's work: Login's server call, which the pool may refuse and never answer, while a caller
+        // waits to be released. It answers Cancel, as CloseAll's reject would.
         nResult = QDialog::Rejected;
     }
 
     if (nResult == QDialog::Accepted)
     {
+        // Raised before the edits are written: writing one runs the view model's handlers on this thread, and one
+        // that opens a nested modal may see this dialog rejected there, which must wait as it does during CanAccept.
+        m_bAccepting = true;
+
         // An edit made without leaving its field (LostFocus), or still waiting for the typing pause, has not been
         // written yet. Only such an edit: an unedited box would overwrite a view-model change still queued for it.
         for (auto* pTextBox : m_vTextBoxes)
             pTextBox->FlushPendingEdit();
 
-        m_bInCanAccept = true;
-        const bool bCanAccept = CanAccept();
-        m_bInCanAccept = false;
+        // A reject during the writes cancels: CanAccept's work must not start.
+        const bool bCanAccept = !m_bRejectPending && CanAccept();
+        m_bAccepting = false;
 
         if (m_bRejectPending)
             nResult = QDialog::Rejected;

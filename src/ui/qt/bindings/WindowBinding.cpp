@@ -89,11 +89,11 @@ void WindowBinding::SetWidget(QWidget& oWidget)
     // below would have happened before that thread's load.
     m_pWidget.store(&oWidget);
 
-    // An untouched title leaves the window's own: Win32 takes some from the dialog resource (Login's caption).
-    // WindowTitleProperty's own default is "Window", not "" - compared against the property's default rather than
-    // an empty string, so a view model that never called SetWindowTitle is the case this catches.
+    // An untouched or an explicitly empty title leaves the window's own: Win32 takes some from the dialog resource
+    // (Login's caption). WindowTitleProperty's own default is "Window", not "" - so a view model that never called
+    // SetWindowTitle is caught by comparing against the property's default, and one that set "" by the empty check.
     const auto sTitle = CopyValue(WindowViewModelBase::WindowTitleProperty);
-    if (sTitle != WindowViewModelBase::WindowTitleProperty.GetDefaultValue())
+    if (!sTitle.empty() && sTitle != WindowViewModelBase::WindowTitleProperty.GetDefaultValue())
         oWidget.setWindowTitle(QString::fromStdWString(sTitle));
 
     for (const auto& pLabel : m_vLabels)

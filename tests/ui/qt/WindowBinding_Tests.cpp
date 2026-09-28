@@ -261,10 +261,28 @@ public:
         delete pState; // reached only when every call finished: on a failure above it is leaked on purpose
     }
 
-    TEST_METHOD(TestAnEmptyTitleLeavesTheWindowsOwn)
+    TEST_METHOD(TestAnUntouchedTitleLeavesTheWindowsOwn)
     {
         // Win32 takes some titles from the dialog resource (Login's caption), not from the view model.
-        TextViewModel vmText; // its title is empty
+        TextViewModel vmText; // SetWindowTitle never called: its title is the property's default, "Window"
+        QtTestHost oQt;
+
+        std::wstring sTitle;
+        oQt.RunOnQt([&vmText, &sTitle]() {
+            BoundWindow oWindow(vmText);
+            oWindow.oWidget.setWindowTitle(QStringLiteral("Its own"));
+            oWindow.Attach();
+            sTitle = oWindow.oWidget.windowTitle().toStdWString();
+        });
+
+        Assert::AreEqual(std::wstring(L"Its own"), sTitle);
+    }
+
+    TEST_METHOD(TestAnEmptyTitleLeavesTheWindowsOwn)
+    {
+        // A view model that sets its title to "" has none of its own to show.
+        TextViewModel vmText;
+        vmText.SetWindowTitle(L"");
         QtTestHost oQt;
 
         std::wstring sTitle;

@@ -5,10 +5,9 @@
 #include "ui/qt/bindings/WindowBinding.hh"
 
 #include <QDialog>
+#include <QDialogButtonBox>
 
 #include <vector>
-
-class QDialogButtonBox;
 
 namespace ra {
 namespace ui {
@@ -43,7 +42,7 @@ public:
     /// <summary>
     /// On OK, writes pending text-box edits and asks <see cref="CanAccept" />, staying open if it says no. Then, for
     /// OK or not: leaves every notify target, answers the view model (OK or Cancel, unless it answered itself), and
-    /// closes as QDialog does. Once the desktop has closed for shutdown, OK cancels instead.
+    /// closes as QDialog does. Once shutdown has begun, OK cancels instead.
     /// </summary>
     void done(int nResult) override;
 
@@ -63,6 +62,12 @@ protected:
     /// </summary>
     void RegisterTextBox(ra::ui::qt::bindings::TextBoxBinding& oBinding);
 
+    /// <summary>The title, the bound labels, and the close a DialogResult set by the view model queues.</summary>
+    /// <remarks>
+    /// A modal dialog must never route closeEvent, showEvent or resizeEvent to its OnClosed, OnShown or OnResized,
+    /// as V1's DialogBase does: closeEvent leads to reject(), and finished() lets the caller destroy the view model
+    /// first. A known difference from Win32: so modal dialogs do not report IsVisible or save their size.
+    /// </remarks>
     ra::ui::qt::bindings::WindowBinding m_bindWindow;
 
 private:
@@ -71,7 +76,7 @@ private:
     ra::ui::WindowViewModelBase* m_pViewModel; // cleared once answered: the caller may destroy it then
     std::vector<ra::ui::qt::bindings::ControlBinding*> m_vBindings;
     std::vector<ra::ui::qt::bindings::TextBoxBinding*> m_vTextBoxes;
-    bool m_bInCanAccept = false;
+    bool m_bAccepting = false; // while OK writes the pending edits and runs CanAccept
     bool m_bRejectPending = false;
 };
 

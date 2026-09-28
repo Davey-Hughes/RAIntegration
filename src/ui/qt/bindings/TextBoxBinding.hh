@@ -53,14 +53,18 @@ public:
     /// </summary>
     void SetControl(QLineEdit& oLineEdit);
 
-    /// <summary>Writes the control's text to the view model now, whatever the mode, and marks it written. Qt thread.</summary>
+    /// <summary>
+    /// Writes the control's text to the view model now, whatever the mode and whether or not it was edited, and marks
+    /// it written. Qt thread.
+    /// </summary>
     void UpdateSource();
 
     /// <summary>
     /// Writes an edit the mode has not written yet: text typed without leaving the control, or still waiting for the
     /// typing pause. Nothing else - an unedited control, or one whose edit was written, leaves the view model alone,
-    /// so a change still queued for the control is not overwritten with what it showed before. Never in None mode. A
-    /// modal dialog calls it on OK. Qt thread.
+    /// so a change still queued for the control is not overwritten with what it showed before. Never in None mode.
+    /// LostFocus writes through it when editing finishes, Typing after the pause, and a modal dialog calls it on OK.
+    /// Qt thread.
     /// </summary>
     void FlushPendingEdit();
 

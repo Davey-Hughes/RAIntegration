@@ -51,12 +51,15 @@ void TextBoxBinding::SetControl(QLineEdit& oLineEdit)
     oLineEdit.setText(QString::fromStdWString(CopyValue(*m_pTextProperty)));
 
     // Only the user's edits: textEdited and editingFinished, never textChanged, which setText - a posted update from
-    // the view model - emits too. The control is each connection's context, so none outlives it.
+    // the view model - emits too. The control is each connection's context, so none outlives it. LostFocus and Typing
+    // write only a real edit (FlushPendingEdit): editingFinished fires on Return with nothing edited, and a view-model
+    // change shown during the typing pause replaced the edit - an unconditional write would put back what the control
+    // showed before over a change still queued for it.
     switch (m_nUpdateMode)
     {
         case UpdateMode::LostFocus:
-            m_vConnections.push_back(
-                QObject::connect(&oLineEdit, &QLineEdit::editingFinished, &oLineEdit, [this]() { UpdateSource(); }));
+            m_vConnections.push_back(QObject::connect(&oLineEdit, &QLineEdit::editingFinished, &oLineEdit,
+                                                      [this]() { FlushPendingEdit(); }));
             break;
 
         case UpdateMode::KeyPress:
@@ -73,7 +76,7 @@ void TextBoxBinding::SetControl(QLineEdit& oLineEdit)
             pTimer->setInterval(std::chrono::milliseconds(300));
             m_pTypingTimer = pTimer;
             m_vConnections.push_back(
-                QObject::connect(pTimer, &QTimer::timeout, &oLineEdit, [this]() { UpdateSource(); }));
+                QObject::connect(pTimer, &QTimer::timeout, &oLineEdit, [this]() { FlushPendingEdit(); }));
             m_vConnections.push_back(
                 QObject::connect(&oLineEdit, &QLineEdit::textEdited, pTimer, [pTimer]() { pTimer->start(); }));
             break;

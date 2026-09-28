@@ -8,6 +8,7 @@
 #include "ui/qt/QtDesktop.hh"
 #include "ui/qt/bindings/TextBoxBinding.hh"
 
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
 #include "tests/ui/UIAsserts.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
@@ -38,6 +39,19 @@ public:
 
     std::wstring CopyText() const { return CopyValue(TextProperty); }
     void SetText(const std::wstring& sValue) { SetValue(TextProperty, sValue); }
+
+    // When set, called after TextProperty changes, inside the set: a handler of the view model's own. Qt thread only.
+    std::function<void()> fOnTextChanged;
+
+protected:
+    using WindowViewModelBase::OnValueChanged;
+
+    void OnValueChanged(const StringModelProperty::ChangeArgs& args) override
+    {
+        WindowViewModelBase::OnValueChanged(args);
+        if (fOnTextChanged && args.Property == TextProperty)
+            fOnTextChanged();
+    }
 };
 
 const StringModelProperty FormViewModel::TextProperty("ModalDialogBaseTests", "Text", L"");
@@ -319,6 +333,92 @@ public:
         Assert::AreEqual(0, nCanAccept, L"OK started CanAccept's work after shutdown");
         Assert::AreEqual(DialogResult::Cancel, vmForm.GetDialogResult());
         Assert::AreEqual(1, nFinished, L"finished() emitted a wrong number of times");
+    }
+
+    TEST_METHOD(TestOkCancelsOnceThePoolIsShuttingDown)
+    {
+        // Shutdown stops the thread pool well before QtDesktop closes its windows. OK in between must not start
+        // CanAccept's work either: Login's server call, which the pool may refuse and never answer.
+        FormViewModel vmForm;
+        ra::services::mocks::MockThreadPool mockThreadPool;
+        mockThreadPool.SetShutdownRequested(true);
+        QtTestHost oQt;
+        auto* pDialog = Open(oQt, vmForm);
+
+        int nCanAccept = 0;
+        int nFinished = -1;
+        oQt.RunOnQt([pDialog, &nCanAccept, &nFinished]() {
+            pDialog->fCanAccept = [&nCanAccept]() {
+                ++nCanAccept;
+                return true;
+            };
+            pDialog->accept();
+            nFinished = pDialog->nFinished;
+        });
+        Delete(oQt, pDialog);
+
+        Assert::AreEqual(0, nCanAccept, L"OK started CanAccept's work once the pool was shutting down");
+        Assert::AreEqual(DialogResult::Cancel, vmForm.GetDialogResult());
+        Assert::AreEqual(1, nFinished, L"finished() emitted a wrong number of times");
+    }
+
+    TEST_METHOD(TestARejectWhileFlushingAnEditFinishesAsCancel)
+    {
+        // OK writes the pending edit, which runs the view model's handlers on the Qt thread. One that opens a nested
+        // modal may see this dialog rejected there - CloseAll at shutdown. Finishing then would release the caller
+        // while the handler is on the stack, and the outer OK would then answer a view model that may be gone.
+        FormViewModel vmForm;
+        QtTestHost oQt;
+        auto* pDialog = Open(oQt, vmForm);
+
+        int nCanAccept = 0;
+        int nFinished = -1;
+        oQt.RunOnQt([pDialog, &vmForm, &nCanAccept, &nFinished]() {
+            pDialog->fCanAccept = [&nCanAccept]() {
+                ++nCanAccept;
+                return true;
+            };
+            vmForm.fOnTextChanged = [pDialog]() { pDialog->reject(); };
+            pDialog->pLineEdit->setText(QStringLiteral("typed")); // not left the field: not written yet
+            pDialog->pLineEdit->setModified(true);                // as a user's edit marks it
+            pDialog->accept();
+            vmForm.fOnTextChanged = nullptr;
+            nFinished = pDialog->nFinished;
+        });
+        Delete(oQt, pDialog);
+
+        Assert::AreEqual(0, nCanAccept, L"CanAccept ran although the dialog was rejected while the edit was written");
+        Assert::AreEqual(1, nFinished, L"finished() emitted a wrong number of times");
+        Assert::AreEqual(DialogResult::Cancel, vmForm.GetDialogResult());
+    }
+
+    TEST_METHOD(TestAnAcceptWhileAcceptingIsIgnored)
+    {
+        // An OK that arrives while CanAccept runs - inside its nested modal - is the one being handled already. Taken
+        // again, the inner one would finish and release the caller, and the outer one would answer a view model that
+        // may be gone.
+        FormViewModel vmForm;
+        QtTestHost oQt;
+        auto* pDialog = Open(oQt, vmForm);
+
+        int nCanAccept = 0;
+        int nFinished = -1;
+        oQt.RunOnQt([pDialog, &nCanAccept, &nFinished]() {
+            pDialog->fCanAccept = [pDialog, &nCanAccept]() {
+                // Only on its first run: were the inner OK taken, a CanAccept that accepted every time would recurse
+                // without end instead of failing the test.
+                if (++nCanAccept == 1)
+                    pDialog->accept();
+                return true;
+            };
+            pDialog->accept();
+            nFinished = pDialog->nFinished;
+        });
+        Delete(oQt, pDialog);
+
+        Assert::AreEqual(1, nCanAccept, L"CanAccept ran again for an OK while accepting");
+        Assert::AreEqual(1, nFinished, L"finished() emitted a wrong number of times");
+        Assert::AreEqual(DialogResult::OK, vmForm.GetDialogResult());
     }
 };
 

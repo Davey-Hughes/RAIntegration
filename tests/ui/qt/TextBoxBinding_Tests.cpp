@@ -387,6 +387,26 @@ public:
         Assert::AreEqual(std::wstring(L"newer"), sShown.toStdWString());
     }
 
+    TEST_METHOD(TestReturnWithoutAnEditLeavesAQueuedChangeAlone)
+    {
+        // Return emits editingFinished even when nothing was edited. A worker's change is queued behind a held Qt
+        // thread, and Return is pressed before it lands: writing the text the control still shows would overwrite it.
+        TextViewModel vmText;
+        QtTestHost oQt;
+        auto* pBound = Create(oQt, vmText, TextBoxBinding::UpdateMode::LostFocus);
+
+        const bool bWasHeld = oQt.HoldQtWhile([]() {}, [&vmText]() { vmText.SetText(L"newer"); },
+                                              [pBound]() { Q_EMIT pBound->oLineEdit.editingFinished(); });
+
+        QString sShown;
+        oQt.RunOnQt([pBound, &sShown]() { sShown = pBound->oLineEdit.text(); });
+        Delete(oQt, pBound);
+
+        Assert::IsTrue(bWasHeld, L"the Qt thread was never held");
+        Assert::AreEqual(std::wstring(L"newer"), vmText.CopyText(), L"Return wrote an unedited text over a queued change");
+        Assert::AreEqual(std::wstring(L"newer"), sShown.toStdWString());
+    }
+
     TEST_METHOD(TestAWrittenEditIsNoLongerPending)
     {
         // KeyPress writes the edit as it is typed. A worker's later change is queued behind a held Qt thread, and OK
