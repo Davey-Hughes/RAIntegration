@@ -8,6 +8,8 @@
 
 #include "util/GSL.hh"
 
+#include <atomic>
+
 namespace ra {
 namespace services {
 namespace impl {
@@ -107,7 +109,7 @@ private:
 
     std::vector<std::thread> m_vThreads;
     size_t m_nThreads{0U};
-    bool m_bShutdownInitiated{false};
+    std::atomic<bool> m_bShutdownInitiated{false};
 
     struct DelayedTask
     {

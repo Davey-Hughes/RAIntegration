@@ -387,6 +387,9 @@
     <ClCompile Include="services\LoginService_Tests.cpp">
       <Filter>Tests\Services</Filter>
     </ClCompile>
+    <ClCompile Include="services\Synchronizer_Tests.cpp">
+      <Filter>Tests\Services</Filter>
+    </ClCompile>
     <ClCompile Include="devkit\context\mocks\MockEmulatorMemoryContext.cpp">
       <Filter>Code</Filter>
     </ClCompile>

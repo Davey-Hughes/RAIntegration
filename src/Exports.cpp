@@ -431,22 +431,18 @@ API void CCONV _RA_AttemptLogin(int bBlocking)
 
         if (bBlocking)
         {
-            ra::services::AchievementRuntime::Synchronizer pSynchronizer;
+            const auto pSynchronizer = std::make_shared<ra::services::AchievementRuntime::Synchronizer>();
 
             pRuntime.BeginLoginWithToken(pConfiguration.GetUsername(), pConfiguration.GetApiToken(),
                 [](int nResult, const char* sErrorMessage, rc_client_t*, void* pUserdata) {
-                    auto* pSynchronizer = static_cast<ra::services::AchievementRuntime::Synchronizer*>(pUserdata);
-                    Expects(pSynchronizer != nullptr);
-
-                    pSynchronizer->CaptureResult(nResult, sErrorMessage);
-                    pSynchronizer->Notify();
+                    ra::services::AchievementRuntime::Synchronizer::CompleteShared(pUserdata, nResult, sErrorMessage);
                 },
-                &pSynchronizer);
+                ra::services::AchievementRuntime::Synchronizer::Share(pSynchronizer));
 
-            pSynchronizer.Wait();
+            pSynchronizer->Wait();
 
             auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-            HandleLoginResponse(pSynchronizer.GetResult(), pSynchronizer.GetErrorMessage().c_str(),
+            HandleLoginResponse(pSynchronizer->GetResult(), pSynchronizer->GetErrorMessage().c_str(),
                                 pClient, nullptr);
         }
         else

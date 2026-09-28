@@ -162,6 +162,7 @@
     <ClCompile Include="services\FileLogger_Tests.cpp" />
     <ClCompile Include="services\JsonFileConfiguration_Tests.cpp" />
     <ClCompile Include="services\SearchResults_Tests.cpp" />
+    <ClCompile Include="services\Synchronizer_Tests.cpp" />
     <ClCompile Include="..\src\RA_Defs.cpp" />
     <ClCompile Include="ui\ViewModelCollection_Tests.cpp" />
     <ClCompile Include="ui\viewmodels\AssetEditorViewModel_Tests.cpp" />

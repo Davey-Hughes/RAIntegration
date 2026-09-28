@@ -6,7 +6,15 @@
 #include "data/context/EmulatorContext.hh"
 #include "data/models/AchievementModel.hh"
 
+#include "services/IThreadPool.hh"
+#include "services/ServiceLocator.hh"
+
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -139,38 +147,101 @@ public:
         return nFrameThread != std::thread::id{} && std::this_thread::get_id() != nFrameThread;
     }
 
+    /// <summary>
+    /// Waits on a thread of its own for an rc_client callback. Create it with std::make_shared, and hand the callback
+    /// the userdata <see cref="Share" /> returns: the wait gives up at shutdown, and a callback that arrives after
+    /// that must still find the object alive.
+    /// </summary>
     class Synchronizer
     {
     public:
+        /// <summary>
+        /// Waits for <see cref="Complete" /> - or, once shutdown has started, gives up with RC_ABORTED: rc_client_destroy
+        /// drops a pending callback, and the thread pool drops a request it has not started, so it might never come.
+        /// </summary>
         void Wait()
         {
 #ifdef RA_UTEST
-            // unit tests are single-threaded. if m_bWaiting is true, it would wait indefinitely.
-            if (m_bWaiting)
+            // unit tests are single-threaded. if it has not completed yet, it would wait indefinitely.
+            if (!m_bDone)
                 Microsoft::VisualStudio::CppUnitTestFramework::Assert::Fail(L"Sycnhronous request was not handled.");
 #else
-            std::unique_lock<std::mutex> lock(m_pMutex);
-            if (m_bWaiting)
-                m_pCondVar.wait(lock);
+            WaitUntil([]() { return ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested(); },
+                      std::chrono::milliseconds(100));
 #endif
         }
 
-        void Notify() noexcept
+        /// <summary>
+        /// Waits until <see cref="Complete" /> runs, or until <paramref name="fGiveUp" /> - asked every
+        /// <paramref name="tPoll" />, under this object's lock, so it must not call Complete - says to stop. On giving
+        /// up, the result is RC_ABORTED, "Shutting down", and a later Complete is ignored. Returns whether it
+        /// completed. In every build: the tests drive it from two threads.
+        /// </summary>
+        bool WaitUntil(const std::function<bool()>& fGiveUp, std::chrono::milliseconds tPoll)
         {
-            m_bWaiting = false;
-            m_pCondVar.notify_all();
+            std::unique_lock<std::mutex> lock(m_pMutex);
+            while (!m_bDone)
+            {
+                // a predicate, so a spurious wake-up is not taken for a completion
+                if (m_pCondVar.wait_for(lock, tPoll, [this]() noexcept { return m_bDone; }))
+                    break;
+
+                if (fGiveUp())
+                {
+                    m_nResult = RC_ABORTED;
+                    m_sErrorMessage = "Shutting down";
+                    m_bDone = true;
+                    return false;
+                }
+            }
+
+            return true;
         }
 
-        void CaptureResult(int nResult, const char* sErrorMessage)
+        /// <summary>
+        /// The callback's side: records the result and wakes the waiter - unless the waiter has given up, when the
+        /// result is dropped: nobody reads it any more. Any thread.
+        /// </summary>
+        void Complete(int nResult, const char* sErrorMessage)
         {
-            m_nResult = nResult;
+            std::lock_guard<std::mutex> lock(m_pMutex);
+            if (m_bDone)
+                return;
 
+            m_nResult = nResult;
             if (sErrorMessage)
                 m_sErrorMessage = sErrorMessage;
             else
                 m_sErrorMessage.clear();
+
+            m_bDone = true;
+            m_pCondVar.notify_all();
         }
 
+        /// <summary>
+        /// Userdata for an rc_client callback: a heap copy of <paramref name="pSynchronizer" />, which
+        /// <see cref="CompleteShared" /> releases. A callback that never comes - dropped at shutdown - leaks it: the
+        /// process is ending.
+        /// </summary>
+        static void* Share(const std::shared_ptr<Synchronizer>& pSynchronizer)
+        {
+            return new std::shared_ptr<Synchronizer>(pSynchronizer);
+        }
+
+        /// <summary>
+        /// The callback: completes the synchronizer <paramref name="pUserdata" /> (from <see cref="Share" />) holds,
+        /// and releases the copy.
+        /// </summary>
+        static void CompleteShared(void* pUserdata, int nResult, const char* sErrorMessage)
+        {
+            const std::unique_ptr<std::shared_ptr<Synchronizer>> pShared(
+                static_cast<std::shared_ptr<Synchronizer>*>(pUserdata));
+            Expects(pShared != nullptr && *pShared != nullptr);
+            (*pShared)->Complete(nResult, sErrorMessage);
+        }
+
+        // Read after Wait returns: Complete wrote them under the lock before waking it, and a later Complete is
+        // ignored.
         int GetResult() const noexcept { return m_nResult; }
 
         const std::string& GetErrorMessage() const noexcept { return m_sErrorMessage; }
@@ -180,7 +251,7 @@ public:
         std::condition_variable m_pCondVar;
         std::string m_sErrorMessage;
         int m_nResult = 0;
-        bool m_bWaiting = true;
+        bool m_bDone = false;
     };
 
 protected:

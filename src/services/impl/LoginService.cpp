@@ -31,25 +31,21 @@ bool LoginService::IsLoggedIn() const
 
 bool LoginService::Login(const std::string& sUsername, const std::string& sPassword)
 {
-    ra::services::AchievementRuntime::Synchronizer pSynchronizer;
+    const auto pSynchronizer = std::make_shared<ra::services::AchievementRuntime::Synchronizer>();
 
     auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
     pRuntime.BeginLoginWithPassword(sUsername, sPassword,
         [](int nResult, const char* sErrorMessage, rc_client_t*, void* pUserdata) {
-            auto* pSynchronizer = static_cast<ra::services::AchievementRuntime::Synchronizer*>(pUserdata);
-            Expects(pSynchronizer != nullptr);
-
-            pSynchronizer->CaptureResult(nResult, sErrorMessage);
-            pSynchronizer->Notify();
+            ra::services::AchievementRuntime::Synchronizer::CompleteShared(pUserdata, nResult, sErrorMessage);
         },
-        &pSynchronizer);
+        ra::services::AchievementRuntime::Synchronizer::Share(pSynchronizer));
 
-    pSynchronizer.Wait();
+    pSynchronizer->Wait();
 
-    if (pSynchronizer.GetResult() != RC_OK)
+    if (pSynchronizer->GetResult() != RC_OK)
     {
         ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(L"Failed to login",
-            ra::util::String::Widen(pSynchronizer.GetErrorMessage()));
+            ra::util::String::Widen(pSynchronizer->GetErrorMessage()));
         return false;
     }
 
