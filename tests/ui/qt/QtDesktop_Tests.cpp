@@ -10,6 +10,7 @@
 
 #include "tests/RA_UnitTestHelpers.h"
 #include "tests/ui/UIAsserts.hh"
+#include "tests/ui/qt/BorrowedQtApplication.hh"
 #include "tests/ui/qt/ModalCaller.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
@@ -217,6 +218,7 @@ public:
     bool IsAvailable() const override { return m_bAvailable; }
     bool HasWidgets() const override { return m_bHasWidgets; }
     bool IsOnQtThread() const override { return m_bOnQtThread; }
+    bool IsBorrowed() const noexcept override { return m_bBorrowed; }
     void Invoke(std::function<void()> fAction) const override { m_vInvoked.push_back(std::move(fAction)); }
     bool InvokeAndWait(std::function<void()> fAction, std::chrono::milliseconds) const override
     {
@@ -230,6 +232,7 @@ public:
     bool m_bAvailable = true;
     bool m_bHasWidgets = false; // a borrowed QGuiApplication
     bool m_bOnQtThread = false;
+    bool m_bBorrowed = false;
     mutable std::vector<std::function<void()>> m_vInvoked;
     mutable int m_nInvokeAndWait = 0;
 
@@ -587,6 +590,83 @@ public:
         Assert::AreEqual(DialogResult::No, nResult);
         Assert::AreEqual(size_t(1), oDesktop.ModalNotStartedCount());
         Assert::IsFalse(bOpenedLate, L"the dialog opened after its caller had been answered");
+    }
+
+    // --- a borrowed host: the Qt thread is the emulator's own, pumped once a frame ---
+
+    TEST_METHOD(TestABorrowedHostWaitsForAModalWithoutAClock)
+    {
+        TestViewModel vmWindow(L"A");
+        BorrowedQtApplication oApp;
+        ra::services::impl::QtApplicationHost oHost;
+        oHost.Start();
+        ra::services::ServiceLocator::ServiceOverride<ra::services::IQtApplicationHost> oOverride(&oHost);
+        Assert::IsTrue(oHost.IsBorrowed(), L"the host did not borrow the test's application");
+        {
+            QtDesktop oDesktop;
+            oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+            oDesktop.SetModalStartTimeout(50ms); // must not apply
+
+            ModalCaller oCaller(oDesktop, vmWindow);
+            std::this_thread::sleep_for(300ms); // the emulator is busy: nothing pumps
+            const bool bGaveUp = oCaller.Returned(0ms);
+
+            // the emulator's next frame: the dialog opens; answer it
+            const bool bOpened = oApp.PumpUntil([]() { return FindDialog(QStringLiteral("A")) != nullptr; }, 5s);
+            if (bOpened)
+                FindDialog(QStringLiteral("A"))->accept();
+            const bool bReturned = oApp.PumpUntil([&oCaller]() { return oCaller.Returned(0ms); }, 5s);
+            if (!bReturned)
+                RejectAll();
+
+            Assert::IsFalse(bGaveUp, L"the caller gave up on the clock");
+            Assert::IsTrue(bOpened, L"the dialog never opened once the host pumped");
+            Assert::IsTrue(bReturned, L"answering the dialog did not release the caller");
+            Assert::AreEqual(DialogResult::OK, oCaller.Result());
+            Assert::AreEqual(size_t(0), oDesktop.ModalNotStartedCount());
+        }
+        oHost.Stop();
+    }
+
+    TEST_METHOD(TestABorrowedHostReleasesAWaitingWorkerWhenTheDesktopCloses)
+    {
+        TestViewModel vmWindow(L"A");
+        BorrowedQtApplication oApp;
+        ra::services::impl::QtApplicationHost oHost;
+        oHost.Start();
+        ra::services::ServiceLocator::ServiceOverride<ra::services::IQtApplicationHost> oOverride(&oHost);
+        {
+            QtDesktop oDesktop;
+            auto pPresenter = std::make_unique<TestPresenter>();
+            auto& oPresenter = *pPresenter;
+            oDesktop.AddPresenter(std::move(pPresenter));
+
+            ModalCaller oCaller(oDesktop, vmWindow);
+            std::this_thread::sleep_for(200ms); // queued on the host's loop, never pumped
+            const bool bWaiting = !oCaller.Returned(0ms);
+
+            oDesktop.Shutdown(); // inline: this thread is the Qt thread. CloseAll marks the desktop closed.
+            const bool bReleased = oCaller.Returned(2s);
+
+            // the queued call runs on the next pump and must open nothing
+            oApp.Pump();
+            oApp.Pump();
+
+            Assert::IsTrue(bWaiting, L"the caller returned before anything happened");
+            Assert::IsTrue(bReleased, L"closing the desktop did not release the waiting caller");
+            Assert::AreEqual(DialogResult::No, oCaller.Result());
+            Assert::AreEqual(size_t(1), oDesktop.ModalNotStartedCount());
+            Assert::AreEqual(0, oPresenter.nCreateModal.load());
+            Assert::IsTrue(FindDialog(QStringLiteral("A")) == nullptr, L"the queued call opened the dialog after its caller was answered");
+        }
+        oHost.Stop();
+    }
+
+    TEST_METHOD(TestAnOwnedHostStillGivesUpOnTheClock)
+    {
+        // TestAModalThatCannotOpenInTimeAnswersNo covers the behaviour; this pins the mode it belongs to.
+        QtTestHost oQt;
+        Assert::IsFalse(oQt.Host().IsBorrowed());
     }
 
     // --- shutdown ---

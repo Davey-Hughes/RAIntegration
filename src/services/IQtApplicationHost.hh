@@ -49,6 +49,13 @@ public:
     virtual bool IsOnQtThread() const = 0;
 
     /// <summary>
+    /// <c>true</c> when the Qt application (and so the Qt thread) is the host emulator's own, borrowed at
+    /// <see cref="Start" />: it pumps when the emulator lets it, perhaps not for seconds during a game load, so a
+    /// wait on it must never give up on a clock.
+    /// </summary>
+    virtual bool IsBorrowed() const noexcept = 0;
+
+    /// <summary>
     /// Runs <paramref name="fAction" /> on the Qt thread: inline when already there, queued otherwise. Dropped when
     /// unavailable - and a queued call that has not run by the time <see cref="Stop" /> begins never runs.
     /// </summary>

@@ -37,6 +37,8 @@ struct ModalWait
 {
     std::mutex oMutex;
     std::condition_variable cvDone;
+    bool bStarted = false; // the Qt thread has begun opening the dialog
+    bool bGaveUp = false;  // the caller has already been answered: open nothing
     bool bDone = false;
     bool bRefused = false;
 
@@ -251,59 +253,97 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
     // the second dialog closed.
     auto pWait = std::make_shared<ModalWait>();
     auto pState = m_pState;
-    const bool bOpened = oHost.InvokeAndWait(
-        [pState, pWait, &oPresenter, &vmWindow]() {
-            if (pState->bClosed.load())
+    auto fOpen = [pState, pWait, &oPresenter, &vmWindow]() {
+        {
+            std::lock_guard<std::mutex> oLock(pWait->oMutex);
+            if (pWait->bGaveUp)
+                return; // the caller was answered while this waited in the queue
+            pWait->bStarted = true;
+        }
+        pWait->cvDone.notify_all();
+
+        if (pState->bClosed.load())
+        {
+            // CloseAll ran between the caller's check and this call
+            ++pState->nRefusedAfterShutdown;
             {
-                // CloseAll ran between the caller's check and this call
-                ++pState->nRefusedAfterShutdown;
-                {
-                    std::lock_guard<std::mutex> oLock(pWait->oMutex);
-                    pWait->bRefused = true;
-                }
-                pWait->SetDone();
-                return;
+                std::lock_guard<std::mutex> oLock(pWait->oMutex);
+                pWait->bRefused = true;
             }
+            pWait->SetDone();
+            return;
+        }
 
-            auto pDialog = oPresenter.CreateModal(vmWindow);
-            if (pDialog == nullptr)
+        auto pDialog = oPresenter.CreateModal(vmWindow);
+        if (pDialog == nullptr)
+        {
+            pWait->SetDone();
+            return;
+        }
+
+        QDialog* pOpened = pDialog.release();
+        pState->vOpenModals.emplace_back(pOpened);
+        QObject::connect(pOpened, &QDialog::finished, pOpened, [pState, pWait, pOpened]() {
+            // the dialog has written the view model's DialogResult, and
+            // does not touch it again
+            ForgetModal(*pState, pOpened);
+            pOpened->deleteLater();
+            pWait->SetDone();
+        });
+
+        // Destroyed without finishing - deleted directly - it wrote no
+        // DialogResult: release the caller anyway, with the refusal answer
+        // rather than the view model's None. (Not a cure for skipped stop
+        // hooks: destroying the application does not delete an open dialog,
+        // so nothing is destroyed and its caller still waits.)
+        QObject::connect(pOpened, &QObject::destroyed, [pWait]() {
             {
-                pWait->SetDone();
-                return;
+                std::lock_guard<std::mutex> oLock(pWait->oMutex);
+                if (pWait->bDone)
+                    return;
+                pWait->bRefused = true;
             }
+            pWait->SetDone();
+        });
 
-            QDialog* pOpened = pDialog.release();
-            pState->vOpenModals.emplace_back(pOpened);
-            QObject::connect(pOpened, &QDialog::finished, pOpened, [pState, pWait, pOpened]() {
-                // the dialog has written the view model's DialogResult, and
-                // does not touch it again
-                ForgetModal(*pState, pOpened);
-                pOpened->deleteLater();
-                pWait->SetDone();
-            });
+        // show(), not open(): open() forces Qt::WindowModal (measured, Qt
+        // 6.11), and a window-modal dialog with no parent blocks nothing.
+        // finished() still comes from done().
+        pOpened->setWindowModality(Qt::ApplicationModal);
+        pOpened->show();
+    };
 
-            // Destroyed without finishing - deleted directly - it wrote no
-            // DialogResult: release the caller anyway, with the refusal answer
-            // rather than the view model's None. (Not a cure for skipped stop
-            // hooks: destroying the application does not delete an open dialog,
-            // so nothing is destroyed and its caller still waits.)
-            QObject::connect(pOpened, &QObject::destroyed, [pWait]() {
-                {
-                    std::lock_guard<std::mutex> oLock(pWait->oMutex);
-                    if (pWait->bDone)
-                        return;
-                    pWait->bRefused = true;
-                }
-                pWait->SetDone();
-            });
+    if (oHost.IsBorrowed())
+    {
+        // The Qt thread is the emulator's own, and pumps only between frames -
+        // not at all while it hashes a disc image. A clock cannot tell a busy
+        // host from a hung one, so the wait for the dialog to start ends only
+        // when the library is shutting down (the pool drain this caller would
+        // otherwise hold up) or the desktop has closed.
+        oHost.Invoke(fOpen);
 
-            // show(), not open(): open() forces Qt::WindowModal (measured, Qt
-            // 6.11), and a window-modal dialog with no parent blocks nothing.
-            // finished() still comes from done().
-            pOpened->setWindowModality(Qt::ApplicationModal);
-            pOpened->show();
-        },
-        m_tModalStartTimeout);
+        std::unique_lock<std::mutex> oLock(pWait->oMutex);
+        while (!pWait->bStarted && !pWait->bDone)
+        {
+            if (ra::services::ServiceLocator::IsShuttingDown() || pState->bClosed.load())
+            {
+                pWait->bGaveUp = true;
+                oLock.unlock();
+                ++pState->nModalNotStarted;
+                const auto nAnswer = RefusalAnswer(vmWindow);
+                RA_LOG_WARN("Dialog \"%s\" could not be opened before shutdown - returning %s",
+                            ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+                return nAnswer;
+            }
+            pWait->cvDone.wait_for(oLock, std::chrono::milliseconds(100));
+        }
+        pWait->cvDone.wait(oLock, [&pWait]() { return pWait->bDone; });
+        if (pWait->bRefused)
+            return RefusalAnswer(vmWindow);
+        return vmWindow.GetDialogResult();
+    }
+
+    const bool bOpened = oHost.InvokeAndWait(fOpen, m_tModalStartTimeout);
 
     if (!bOpened)
     {

@@ -67,6 +67,7 @@ public:
     bool IsAvailable() const override;
     bool HasWidgets() const override { return m_bHasWidgets.load(); }
     bool IsOnQtThread() const override;
+    bool IsBorrowed() const noexcept override { return m_nMode.load() == Mode::Borrowed; }
     void Invoke(std::function<void()> fAction) const override;
     bool InvokeAndWait(std::function<void()> fAction, std::chrono::milliseconds tTimeout) const override;
     void AddStopHook(std::function<void()> fHook) override;
