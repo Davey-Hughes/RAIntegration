@@ -313,7 +313,7 @@ static bool ConfirmDevelopmentTool(const std::string& sActivity, std::initialize
     const auto& pDesktop = ra::services::ServiceLocator::Get<ra::ui::IDesktop>();
     const bool bAnyCanShow = std::any_of(vWindows.begin(), vWindows.end(),
                                          [&pDesktop](const WindowViewModelBase* pWindow) {
-                                             return pDesktop.CanShowWindow(*pWindow);
+                                             return pWindow != nullptr && pDesktop.CanShowWindow(*pWindow);
                                          });
     if (!bAnyCanShow)
         return true;
