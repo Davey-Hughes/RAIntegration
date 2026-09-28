@@ -90,19 +90,33 @@ public:
     TEST_METHOD(TestALateCallbackFindsItAliveAfterTheWaiterHasGone)
     {
         // The waiter gives up and drops its reference; the callback's copy keeps the object alive. Under AddressSanitizer
-        // a freed object would be a report.
-        auto pSynchronizer = std::make_shared<AchievementRuntime::Synchronizer>();
-        void* pUserdata = AchievementRuntime::Synchronizer::Share(pSynchronizer);
-        const std::weak_ptr<AchievementRuntime::Synchronizer> pWatch = pSynchronizer;
+        // a freed object would be a report. The waiter runs on a thread of its own: one that never gives up fails the
+        // test instead of hanging the run.
+        struct State
+        {
+            std::shared_ptr<AchievementRuntime::Synchronizer> pSynchronizer =
+                std::make_shared<AchievementRuntime::Synchronizer>();
+        };
+        auto* pState = new State();
+        void* pUserdata = AchievementRuntime::Synchronizer::Share(pState->pSynchronizer);
+        const std::weak_ptr<AchievementRuntime::Synchronizer> pWatch = pState->pSynchronizer;
 
-        pSynchronizer->WaitUntil([]() noexcept { return true; }, std::chrono::milliseconds(1));
-        pSynchronizer.reset(); // the waiter has gone
+        ra::tests::DetachedCall oWaiter([pState]() {
+            pState->pSynchronizer->WaitUntil([]() noexcept { return true; }, std::chrono::milliseconds(1));
+            pState->pSynchronizer.reset(); // the waiter has gone
+        });
+        const bool bReturned = oWaiter.FinishedWithin(std::chrono::seconds(5));
+        Assert::IsTrue(bReturned, L"the waiter never gave up");
 
+        // Before the callback runs: had the copy not kept it alive, CompleteShared's Expects would fail instead of this
+        // message - terminating the Linux runner, and throwing a contract exception under MSVC.
         const bool bAliveForTheCallback = !pWatch.expired();
-        AchievementRuntime::Synchronizer::CompleteShared(pUserdata, RC_OK, nullptr);
-
         Assert::IsTrue(bAliveForTheCallback, L"the callback's copy did not keep it alive");
+
+        AchievementRuntime::Synchronizer::CompleteShared(pUserdata, RC_OK, nullptr);
         Assert::IsTrue(pWatch.expired(), L"the callback did not release its copy");
+
+        delete pState; // reached only when the waiter returned: on a failure above it is leaked on purpose
     }
 };
 

@@ -93,7 +93,12 @@ public:
 
     void Shutdown([[maybe_unused]] bool /*bWait*/) noexcept override {}
 
-    bool IsShutdownRequested() const noexcept override { return false; }
+    bool IsShutdownRequested() const noexcept override { return m_bShutdownRequested; }
+
+    /// <summary>
+    /// Specifies what <see cref="IsShutdownRequested" /> reports, as a pool that has started shutting down would.
+    /// </summary>
+    void SetShutdownRequested(bool bValue) noexcept { m_bShutdownRequested = bValue; }
 
     /// <summary>
     /// Specifies whether non-scheduled tasks should be immediately executed when queued.
@@ -108,6 +113,7 @@ private:
 
     std::queue<std::function<void()>> m_vTasks;
     bool m_bSynchronous = false;
+    bool m_bShutdownRequested = false;
 
     struct DelayedTask
     {

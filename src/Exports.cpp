@@ -439,7 +439,11 @@ API void CCONV _RA_AttemptLogin(int bBlocking)
                 },
                 ra::services::AchievementRuntime::Synchronizer::Share(pSynchronizer));
 
-            pSynchronizer->Wait();
+            if (!pSynchronizer->Wait())
+            {
+                // shutdown has begun: HandleLoginResponse would show "Login Failed" and open a new Login dialog
+                return;
+            }
 
             auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
             HandleLoginResponse(pSynchronizer->GetResult(), pSynchronizer->GetErrorMessage().c_str(),

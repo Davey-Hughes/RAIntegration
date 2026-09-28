@@ -158,16 +158,21 @@ public:
         /// <summary>
         /// Waits for <see cref="Complete" /> - or, once shutdown has started, gives up with RC_ABORTED: rc_client_destroy
         /// drops a pending callback, and the thread pool drops a request it has not started, so it might never come.
+        /// Returns whether it completed. False means shutdown has begun: the caller reports nothing - nobody should
+        /// see a box for an abandoned request.
         /// </summary>
-        void Wait()
+        bool Wait()
         {
 #ifdef RA_UTEST
             // unit tests are single-threaded. if it has not completed yet, it would wait indefinitely.
             if (!m_bDone)
                 Microsoft::VisualStudio::CppUnitTestFramework::Assert::Fail(L"Sycnhronous request was not handled.");
+
+            return true;
 #else
-            WaitUntil([]() { return ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested(); },
-                      std::chrono::milliseconds(100));
+            return WaitUntil(
+                []() { return ra::services::ServiceLocator::Get<ra::services::IThreadPool>().IsShutdownRequested(); },
+                std::chrono::milliseconds(100));
 #endif
         }
 
@@ -223,9 +228,10 @@ public:
         /// <see cref="CompleteShared" /> releases. A callback that never comes - dropped at shutdown - leaks it: the
         /// process is ending.
         /// </summary>
-        static void* Share(const std::shared_ptr<Synchronizer>& pSynchronizer)
+        static void* Share(std::shared_ptr<Synchronizer> pSynchronizer)
         {
-            return new std::shared_ptr<Synchronizer>(pSynchronizer);
+            GSL_SUPPRESS_R3
+            return new std::shared_ptr<Synchronizer>(std::move(pSynchronizer));
         }
 
         /// <summary>
@@ -234,10 +240,12 @@ public:
         /// </summary>
         static void CompleteShared(void* pUserdata, int nResult, const char* sErrorMessage)
         {
-            const std::unique_ptr<std::shared_ptr<Synchronizer>> pShared(
-                static_cast<std::shared_ptr<Synchronizer>*>(pUserdata));
+            auto* pShared = static_cast<std::shared_ptr<Synchronizer>*>(pUserdata);
             Expects(pShared != nullptr && *pShared != nullptr);
+
             (*pShared)->Complete(nResult, sErrorMessage);
+
+            delete pShared;
         }
 
         // Read after Wait returns: Complete wrote them under the lock before waking it, and a later Complete is

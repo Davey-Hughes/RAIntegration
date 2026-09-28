@@ -40,7 +40,11 @@ bool LoginService::Login(const std::string& sUsername, const std::string& sPassw
         },
         ra::services::AchievementRuntime::Synchronizer::Share(pSynchronizer));
 
-    pSynchronizer->Wait();
+    if (!pSynchronizer->Wait())
+    {
+        // shutdown has begun: nobody should see a box for an abandoned login
+        return false;
+    }
 
     if (pSynchronizer->GetResult() != RC_OK)
     {
