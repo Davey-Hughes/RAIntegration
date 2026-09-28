@@ -13,6 +13,7 @@
 #include "tests/ui/qt/ModalCaller.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QDialog>
 #include <QMessageBox>
@@ -157,6 +158,45 @@ NoticeState ReadNotices()
     return oState;
 }
 
+// Every "not available" notice, visible or not: one the user dismissed is
+// hidden at once but deleted only later. Qt thread.
+int CountNotices()
+{
+    int nNotices = 0;
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        if (qobject_cast<QMessageBox*>(pWidget) != nullptr &&
+            pWidget->objectName() == QLatin1String(QtDesktop::NotAvailableNoticeName))
+        {
+            ++nNotices;
+        }
+    }
+
+    return nNotices;
+}
+
+// Clicks OK on the visible notice, as the user dismisses it. Returns whether
+// there was one to click. Qt thread.
+bool ClickNoticeOk()
+{
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        auto* pNotice = qobject_cast<QMessageBox*>(pWidget);
+        if (pNotice != nullptr && pNotice->isVisible() &&
+            pNotice->objectName() == QLatin1String(QtDesktop::NotAvailableNoticeName))
+        {
+            auto* pOk = pNotice->button(QMessageBox::Ok);
+            if (pOk == nullptr)
+                return false;
+
+            pOk->click();
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Deletes every notice, so none outlives the test's Qt application - even
 // when the code under test failed to. Qt thread.
 void DeleteNotices()
@@ -293,6 +333,32 @@ public:
         Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
         Assert::IsTrue(bShown, L"no notice opened");
         Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nGame Hash"), oNotice.sText);
+        Assert::AreEqual(size_t(1), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestShowModalWithoutWidgetsPostsNoNotice)
+    {
+        OtherViewModel vmWindow(L"Game Hash");
+        FakeQtApplicationHost oHost; // a borrowed QGuiApplication: no widgets
+        QtDesktop oDesktop;
+
+        Assert::AreEqual(DialogResult::No, oDesktop.ShowModal(vmWindow));
+        Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
+        Assert::AreEqual(size_t(0), oHost.m_vInvoked.size(), L"something was queued for the Qt thread");
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestNoViewAndNoHostIsHarmless)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtDesktop oDesktop; // no IQtApplicationHost registered at all
+
+        oDesktop.ShowWindow(vmWindow);
+        const auto nAnswer = oDesktop.ShowModal(vmWindow);
+
+        Assert::AreEqual(DialogResult::No, nAnswer);
+        Assert::AreEqual(size_t(2), oDesktop.NoViewLayerCount());
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
     }
 
     TEST_METHOD(TestAMessageBoxThatCannotBeShownGetsItsEscapeAnswer)
@@ -779,6 +845,37 @@ public:
         Assert::AreEqual(size_t(2), oDesktop.NoViewLayerCount());
     }
 
+    TEST_METHOD(TestADismissedNoticeIsReplacedByANewOne)
+    {
+        OtherViewModel vmFirst(L"Assets List");
+        OtherViewModel vmSecond(L"Memory Notes");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.ShowWindow(vmFirst);
+        const bool bFirst = oQt.WaitOnQt([]() { return ReadNotices().nOpen == 1; });
+
+        // the user dismisses it: hidden at once, deleted only later
+        bool bClicked = false;
+        oQt.RunOnQt([&bClicked]() { bClicked = ClickNoticeOk(); });
+        const bool bDismissed = oQt.WaitOnQt([]() { return ReadNotices().nOpen == 0; });
+
+        oDesktop.ShowWindow(vmSecond);
+        NoticeState oNotice;
+        const bool bSecond = oQt.WaitOnQt([&oNotice]() {
+            oNotice = ReadNotices();
+            return oNotice.nOpen == 1 && oNotice.sText == L"Not available on Linux yet:\nMemory Notes";
+        });
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bFirst, L"no first notice");
+        Assert::IsTrue(bClicked, L"no notice to dismiss");
+        Assert::IsTrue(bDismissed, L"the notice stayed open after OK");
+        Assert::IsTrue(bSecond, L"the second title did not open a notice of its own");
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nMemory Notes"), oNotice.sText);
+        Assert::AreEqual(size_t(2), oDesktop.NotAvailableNoticeCount());
+    }
+
     TEST_METHOD(TestNoNoticeWithoutWidgets)
     {
         OtherViewModel vmWindow(L"Assets List");
@@ -805,6 +902,24 @@ public:
         oQt.RunOnQt(DeleteNotices);
 
         Assert::AreEqual(0, oNotice.nOpen);
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestNoNoticeOnceClosedEvenWithWidgets)
+    {
+        // Nothing may even be queued once shutdown has begun: NoticeNotAvailable
+        // checks before the Qt thread's own check, which then never runs.
+        OtherViewModel vmWindow(L"Assets List");
+        FakeQtApplicationHost oHost;
+        oHost.m_bHasWidgets = true;
+        QtDesktop oDesktop;
+        oDesktop.Shutdown(); // runs CloseAll inline, which finds nothing open to touch
+        const auto nInvokedAfterShutdown = oHost.m_vInvoked.size();
+
+        oDesktop.ShowWindow(vmWindow);
+
+        Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
+        Assert::AreEqual(nInvokedAfterShutdown, oHost.m_vInvoked.size(), L"something was queued for the Qt thread");
         Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
     }
 
@@ -842,11 +957,16 @@ public:
 
         oDesktop.Shutdown();
         NoticeState oNotice;
-        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); });
+        int nNotices = -1;
+        oQt.RunOnQt([&oNotice, &nNotices]() {
+            oNotice = ReadNotices();
+            nNotices = CountNotices();
+        });
         oQt.RunOnQt(DeleteNotices);
 
         Assert::IsTrue(bShown, L"no notice opened");
         Assert::AreEqual(0, oNotice.nOpen, L"the notice outlived shutdown");
+        Assert::AreEqual(0, nNotices, L"shutdown hid the notice instead of deleting it");
     }
 };
 

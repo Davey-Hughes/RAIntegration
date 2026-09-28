@@ -400,6 +400,14 @@ void QtDesktop::ShowNotAvailable(State& oState)
     if (oState.bClosed.load() || vTitles.empty())
         return;
 
+    // A notice the user dismissed is hidden at once but deleted only later
+    // (WA_DeleteOnClose): titles must go to a new box, not to that one.
+    if (!oState.pNotice.isNull() && !oState.pNotice->isVisible())
+    {
+        oState.pNotice->deleteLater();
+        oState.pNotice.clear();
+    }
+
     const bool bNew = oState.pNotice.isNull();
     if (bNew)
     {
