@@ -309,6 +309,19 @@ target_compile_options(ra_linux_smoke PRIVATE -include msvc_compat.h -fdeclspec
   -Wno-unknown-pragmas -Wno-pragma-pack)
 target_link_libraries(ra_linux_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia Qt6::Widgets)
 
+# The library inside an emulator that owns the QApplication and pumps it once a
+# frame, never exec(): the Qt RALibretro's shape. Same objects as ra_linux_smoke.
+# checks/pumped-smoke.sh runs it.
+add_executable(ra_pumped_smoke tools/ra_pumped_smoke.cpp
+  $<TARGET_OBJECTS:ra_entry> $<TARGET_OBJECTS:ra_portable>)
+target_include_directories(ra_pumped_smoke PRIVATE
+  . compat src src/devkit RAInterface
+  rapidjson/include GSL/include rcheevos/include rcheevos/src)
+target_compile_definitions(ra_pumped_smoke PRIVATE RA_EXPORTS=1 RC_CLIENT_SUPPORTS_HASH)
+target_compile_options(ra_pumped_smoke PRIVATE -include msvc_compat.h -fdeclspec
+  -Wno-unknown-pragmas -Wno-pragma-pack)
+target_link_libraries(ra_pumped_smoke PRIVATE rcheevos CURL::libcurl Qt6::Gui Qt6::Multimedia Qt6::Widgets)
+
 # The library a Linux RA_Interface loader dlopens: the counterpart of
 # RA_Integration.dll, built from the same objects as the harness.
 #
