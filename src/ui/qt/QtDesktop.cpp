@@ -17,6 +17,7 @@
 
 #include <QDesktopServices>
 #include <QDialog>
+#include <QMessageBox>
 #include <QString>
 #include <QUrl>
 #include <QWidget>
@@ -141,6 +142,8 @@ void QtDesktop::ShowWindow(WindowViewModelBase& vmWindow) const
         ++m_pState->nNoViewLayer;
         RA_LOG_WARN("No view layer to show window \"%s\"",
                     ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
+        if (pPresenter == nullptr && CanHostWidgets(pHost))
+            NoticeNotAvailable(*pHost, vmWindow.GetWindowTitle());
         return;
     }
 
@@ -189,6 +192,8 @@ ra::ui::DialogResult QtDesktop::DoShowModal(WindowViewModelBase& vmWindow) const
         const auto nAnswer = RefusalAnswer(vmWindow);
         RA_LOG_WARN("No view layer to show dialog \"%s\" - returning %s",
                     ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+        if (pPresenter == nullptr && CanHostWidgets(pHost))
+            NoticeNotAvailable(*pHost, vmWindow.GetWindowTitle());
         return nAnswer;
     }
 
@@ -360,6 +365,65 @@ void QtDesktop::CloseAll(State& oState)
         pWindow->close();      // IsVisible false, as when the user closes it
         delete pWindow.data(); // WA_DeleteOnClose only schedules the delete
     }
+
+    // The "not available" notice answers nothing and has no view model: just delete it.
+    if (!oState.pNotice.isNull())
+        delete oState.pNotice.data();
+}
+
+void QtDesktop::NoticeNotAvailable(const ra::services::IQtApplicationHost& oHost, const std::wstring& sTitle) const
+{
+    if (m_pState->bClosed.load())
+        return; // shutting down: nothing opens
+
+    {
+        std::lock_guard<std::mutex> oLock(m_pState->oNoticeMutex);
+        m_pState->vNoticeTitles.push_back(sTitle);
+        if (m_pState->bNoticeQueued)
+            return; // the queued call lists this title too
+        m_pState->bNoticeQueued = true;
+    }
+
+    oHost.Invoke([pState = m_pState]() { ShowNotAvailable(*pState); });
+}
+
+void QtDesktop::ShowNotAvailable(State& oState)
+{
+    std::vector<std::wstring> vTitles;
+    {
+        std::lock_guard<std::mutex> oLock(oState.oNoticeMutex);
+        vTitles.swap(oState.vNoticeTitles);
+        oState.bNoticeQueued = false;
+    }
+
+    // CloseAll may have run since the titles were queued
+    if (oState.bClosed.load() || vTitles.empty())
+        return;
+
+    const bool bNew = oState.pNotice.isNull();
+    if (bNew)
+    {
+        // Not modal: it answers nothing, and ShowWindow's caller must not wait on it.
+        auto* pNotice = new QMessageBox(QMessageBox::Information, QStringLiteral("RetroAchievements"),
+                                        QStringLiteral("Not available on Linux yet:"), QMessageBox::Ok);
+        pNotice->setObjectName(QLatin1String(NotAvailableNoticeName));
+        pNotice->setAttribute(Qt::WA_DeleteOnClose);
+        pNotice->setWindowModality(Qt::NonModal);
+        oState.pNotice = pNotice;
+        ++oState.nNotAvailableNotices;
+    }
+
+    QStringList vLines = oState.pNotice->text().split(QLatin1Char('\n'));
+    for (const auto& sTitle : vTitles)
+    {
+        const auto sLine = QString::fromStdWString(sTitle);
+        if (!vLines.contains(sLine))
+            vLines.append(sLine);
+    }
+    oState.pNotice->setText(vLines.join(QLatin1Char('\n')));
+
+    if (bNew)
+        oState.pNotice->show();
 }
 
 void QtDesktop::CloseWindow(WindowViewModelBase& vmWindow) const

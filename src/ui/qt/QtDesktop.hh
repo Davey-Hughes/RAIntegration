@@ -6,10 +6,13 @@
 #include "ui/qt/IDialogPresenter.hh"
 
 #include <QPointer>
+#include <QMessageBox>
 
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
 namespace ra {
@@ -26,7 +29,8 @@ namespace qt {
 /// The Linux desktop. Shows the view models' windows on the Qt application's thread (RA-Qt); sends RA's UI work
 /// there and the emulator's callbacks back to the emulator's thread. A view model with no Qt window yet - or no Qt
 /// application that can host widgets - is answered without one: logged, with a message box's escape answer (Cancel,
-/// else No, else OK) and No for anything else.
+/// else No, else OK) and No for anything else. When widgets can be shown, its title is also listed in a "not
+/// available" notice.
 /// </summary>
 class QtDesktop : public ra::ui::null::NullDesktop
 {
@@ -66,6 +70,10 @@ public:
     size_t ModalNotStartedCount() const noexcept { return m_pState->nModalNotStarted.load(); }
     size_t ClosedForShutdownCount() const noexcept { return m_pState->nClosedForShutdown.load(); }
     size_t RefusedAfterShutdownCount() const noexcept { return m_pState->nRefusedAfterShutdown.load(); }
+    size_t NotAvailableNoticeCount() const noexcept { return m_pState->nNotAvailableNotices.load(); }
+
+    /// <summary>The objectName of the "not available" notice, for tests.</summary>
+    static constexpr const char* NotAvailableNoticeName = "RANotAvailableNotice";
 
 private:
     // Shared with the stop hook, which may run after this object is gone (a
@@ -78,6 +86,15 @@ private:
         std::atomic<size_t> nModalNotStarted{0};
         std::atomic<size_t> nClosedForShutdown{0};
         std::atomic<size_t> nRefusedAfterShutdown{0};
+        std::atomic<size_t> nNotAvailableNotices{0}; // "not available" notice boxes opened
+
+        // The "not available" notice. Titles wait here for the Qt thread,
+        // which lists them all in one box.
+        std::mutex oNoticeMutex;
+        std::vector<std::wstring> vNoticeTitles; // under oNoticeMutex
+        bool bNoticeQueued = false;              // under oNoticeMutex: a ShowNotAvailable call is queued
+        QPointer<QMessageBox> pNotice;           // Qt thread only
+
         std::atomic<bool> bClosed{false}; // set by Shutdown and CloseAll: from then on nothing opens
     };
 
@@ -99,6 +116,10 @@ private:
 
     static void ForgetModal(State& oState, const QDialog* pDialog);
     static void CloseAll(State& oState);
+
+    // Lists sTitle in the "not available" notice. Any thread: the box opens on the Qt thread.
+    void NoticeNotAvailable(const ra::services::IQtApplicationHost& oHost, const std::wstring& sTitle) const;
+    static void ShowNotAvailable(State& oState); // Qt thread
 
     std::shared_ptr<State> m_pState;
     std::chrono::milliseconds m_tModalStartTimeout{std::chrono::seconds(10)};

@@ -15,11 +15,13 @@
 
 #include <QApplication>
 #include <QDialog>
+#include <QMessageBox>
 #include <QString>
 
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -41,6 +43,9 @@ public:
 
 class OtherViewModel : public WindowViewModelBase
 {
+public:
+    OtherViewModel() = default;
+    explicit OtherViewModel(const std::wstring& sTitle) { SetWindowTitle(sTitle); }
 };
 
 // Answers as every modal must: DialogResult first, then finished(), and never
@@ -125,6 +130,42 @@ void RejectAll()
         auto* pDialog = dynamic_cast<TestDialog*>(pWidget);
         if (pDialog != nullptr && pDialog->isVisible())
             pDialog->reject();
+    }
+}
+
+// The "not available" notices open now, and the text of the last one found. Qt thread.
+struct NoticeState
+{
+    int nOpen = 0;
+    std::wstring sText;
+};
+
+NoticeState ReadNotices()
+{
+    NoticeState oState;
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        auto* pNotice = qobject_cast<QMessageBox*>(pWidget);
+        if (pNotice != nullptr && pNotice->isVisible() &&
+            pNotice->objectName() == QLatin1String(QtDesktop::NotAvailableNoticeName))
+        {
+            ++oState.nOpen;
+            oState.sText = pNotice->text().toStdWString();
+        }
+    }
+
+    return oState;
+}
+
+// Deletes every notice, so none outlives the test's Qt application - even
+// when the code under test failed to. Qt thread.
+void DeleteNotices()
+{
+    for (auto* pWidget : QApplication::topLevelWidgets())
+    {
+        auto* pNotice = qobject_cast<QMessageBox*>(pWidget);
+        if (pNotice != nullptr && pNotice->objectName() == QLatin1String(QtDesktop::NotAvailableNoticeName))
+            delete pNotice;
     }
 }
 
@@ -233,14 +274,25 @@ public:
         Assert::AreEqual(0, oPresenter.nCreateModal.load());
     }
 
-    TEST_METHOD(TestShowModalWithoutAPresenterAnswersNo)
+    TEST_METHOD(TestShowModalWithoutAPresenterAnswersNoAndPostsANotice)
     {
-        OtherViewModel vmWindow;
+        OtherViewModel vmWindow(L"Game Hash");
         QtTestHost oQt;
         QtDesktop oDesktop;
 
-        Assert::AreEqual(DialogResult::No, oDesktop.ShowModal(vmWindow));
+        const auto nAnswer = oDesktop.ShowModal(vmWindow);
+        NoticeState oNotice;
+        const bool bShown = oQt.WaitOnQt([&oNotice]() {
+            oNotice = ReadNotices();
+            return oNotice.nOpen == 1;
+        });
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::AreEqual(DialogResult::No, nAnswer);
         Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
+        Assert::IsTrue(bShown, L"no notice opened");
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nGame Hash"), oNotice.sText);
     }
 
     TEST_METHOD(TestAMessageBoxThatCannotBeShownGetsItsEscapeAnswer)
@@ -631,6 +683,170 @@ public:
         Assert::IsTrue(bReleased, L"stopping the Qt host left the worker waiting on its dialog");
         Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
         Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
+    }
+
+    // --- the "not available" notice ---
+
+    TEST_METHOD(TestAWindowWithNoViewPostsANotice)
+    {
+        OtherViewModel vmWindow(L"Memory Inspector");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        oDesktop.ShowWindow(vmWindow);
+        NoticeState oNotice;
+        const bool bShown = oQt.WaitOnQt([&oNotice]() {
+            oNotice = ReadNotices();
+            return oNotice.nOpen == 1;
+        });
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bShown, L"no notice opened");
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nMemory Inspector"), oNotice.sText);
+        Assert::AreEqual(size_t(1), oDesktop.NotAvailableNoticeCount());
+        Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
+    }
+
+    TEST_METHOD(TestTitlesQueuedTogetherShareOneNotice)
+    {
+        OtherViewModel vmFirst(L"Assets List");
+        OtherViewModel vmSecond(L"Memory Notes");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        // both titles are queued before the Qt thread shows anything
+        const bool bHeld = oQt.HoldQtWhile([]() {},
+                                           [&oDesktop, &vmFirst, &vmSecond]() {
+                                               oDesktop.ShowWindow(vmFirst);
+                                               oDesktop.ShowWindow(vmSecond);
+                                           },
+                                           []() {});
+        NoticeState oNotice;
+        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); });
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bHeld, L"the Qt thread was not held");
+        Assert::AreEqual(1, oNotice.nOpen);
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nAssets List\nMemory Notes"), oNotice.sText);
+        Assert::AreEqual(size_t(1), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestATitleArrivingWhileTheNoticeIsOpenIsAppended)
+    {
+        OtherViewModel vmFirst(L"Assets List");
+        OtherViewModel vmSecond(L"Memory Notes");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.ShowWindow(vmFirst);
+        const bool bFirst = oQt.WaitOnQt([]() { return ReadNotices().nOpen == 1; });
+
+        oDesktop.ShowWindow(vmSecond);
+        NoticeState oNotice;
+        const bool bAppended = oQt.WaitOnQt([&oNotice]() {
+            oNotice = ReadNotices();
+            return oNotice.sText.find(L"Memory Notes") != std::wstring::npos;
+        });
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bFirst, L"no first notice");
+        Assert::IsTrue(bAppended, L"the second title never appeared");
+        Assert::AreEqual(1, oNotice.nOpen);
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nAssets List\nMemory Notes"), oNotice.sText);
+        Assert::AreEqual(size_t(1), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestATitleAlreadyListedIsNotRepeated)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.ShowWindow(vmWindow);
+        const bool bShown = oQt.WaitOnQt([]() { return ReadNotices().nOpen == 1; });
+
+        oDesktop.ShowWindow(vmWindow);
+        NoticeState oNotice;
+        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); }); // queued behind the second title's call
+        oDesktop.Shutdown();
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bShown, L"no notice opened");
+        Assert::AreEqual(1, oNotice.nOpen);
+        Assert::AreEqual(std::wstring(L"Not available on Linux yet:\nAssets List"), oNotice.sText);
+        Assert::AreEqual(size_t(1), oDesktop.NotAvailableNoticeCount());
+        Assert::AreEqual(size_t(2), oDesktop.NoViewLayerCount());
+    }
+
+    TEST_METHOD(TestNoNoticeWithoutWidgets)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        FakeQtApplicationHost oHost; // a borrowed QGuiApplication: no widgets
+        QtDesktop oDesktop;
+
+        oDesktop.ShowWindow(vmWindow);
+
+        Assert::AreEqual(size_t(1), oDesktop.NoViewLayerCount());
+        Assert::AreEqual(size_t(0), oHost.m_vInvoked.size(), L"something was queued for the Qt thread");
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestNoNoticeOnceClosedForShutdown)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.Shutdown();
+
+        oDesktop.ShowWindow(vmWindow);
+        NoticeState oNotice;
+        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); }); // behind anything ShowWindow queued
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::AreEqual(0, oNotice.nOpen);
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestANoticeQueuedBeforeShutdownNeverOpens)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.SetShutdownCloseTimeout(std::chrono::milliseconds(50)); // the Qt thread is held below
+
+        // The title is queued, then shutdown begins, all before the Qt thread
+        // runs the queued call.
+        const bool bHeld = oQt.HoldQtWhile([]() {},
+                                           [&oDesktop, &vmWindow]() {
+                                               oDesktop.ShowWindow(vmWindow);
+                                               oDesktop.Shutdown();
+                                           },
+                                           []() {});
+        NoticeState oNotice;
+        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); });
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bHeld, L"the Qt thread was not held");
+        Assert::AreEqual(0, oNotice.nOpen, L"a notice opened after shutdown began");
+        Assert::AreEqual(size_t(0), oDesktop.NotAvailableNoticeCount());
+    }
+
+    TEST_METHOD(TestShutdownClosesTheNotice)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.ShowWindow(vmWindow);
+        const bool bShown = oQt.WaitOnQt([]() { return ReadNotices().nOpen == 1; });
+
+        oDesktop.Shutdown();
+        NoticeState oNotice;
+        oQt.RunOnQt([&oNotice]() { oNotice = ReadNotices(); });
+        oQt.RunOnQt(DeleteNotices);
+
+        Assert::IsTrue(bShown, L"no notice opened");
+        Assert::AreEqual(0, oNotice.nOpen, L"the notice outlived shutdown");
     }
 };
 
