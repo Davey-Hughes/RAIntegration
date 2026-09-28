@@ -968,6 +968,37 @@ public:
         Assert::AreEqual(0, oNotice.nOpen, L"the notice outlived shutdown");
         Assert::AreEqual(0, nNotices, L"shutdown hid the notice instead of deleting it");
     }
+
+    // --- CanShowWindow: whether a caller can expect a window ---
+
+    TEST_METHOD(TestCanShowWindowWithAPresenter)
+    {
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+
+        Assert::IsTrue(oDesktop.CanShowWindow(vmWindow));
+    }
+
+    TEST_METHOD(TestCannotShowWindowWithWidgetsAndNoPresenter)
+    {
+        OtherViewModel vmWindow(L"Assets List");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        Assert::IsFalse(oDesktop.CanShowWindow(vmWindow));
+    }
+
+    TEST_METHOD(TestCanShowWindowWithoutWidgets)
+    {
+        // ShowWindow drops it silently, posting no notice: callers keep today's behaviour
+        OtherViewModel vmWindow(L"Assets List");
+        FakeQtApplicationHost oHost; // a borrowed QGuiApplication: no widgets
+        QtDesktop oDesktop;
+
+        Assert::IsTrue(oDesktop.CanShowWindow(vmWindow));
+    }
 };
 
 } // namespace tests

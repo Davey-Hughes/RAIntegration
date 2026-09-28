@@ -42,6 +42,16 @@ public:
         vmViewModel.SetIsVisible(false);
     }
 
+    bool CanShowWindow(const WindowViewModelBase& vmViewModel) const override
+    {
+        return m_fCanShowWindow ? m_fCanShowWindow(vmViewModel) : true;
+    }
+
+    void SetCanShowWindow(std::function<bool(const WindowViewModelBase&)> fHandler) noexcept
+    {
+        m_fCanShowWindow = std::move(fHandler);
+    }
+
     bool WasDialogShown() noexcept { return m_bDialogShown; }
 
     void GetWorkArea(ra::ui::Position& oUpperLeftCorner, ra::ui::Size& oSize) const noexcept override
@@ -110,6 +120,7 @@ private:
 
     ra::services::ServiceLocator::ServiceOverride<IDesktop> m_Override;
     std::vector<DialogHandler> m_vHandlers;
+    std::function<bool(const WindowViewModelBase&)> m_fCanShowWindow;
     mutable bool m_bDialogShown = false;
     mutable std::string m_sLastOpenedUrl;
     std::wstring m_sExecutable;

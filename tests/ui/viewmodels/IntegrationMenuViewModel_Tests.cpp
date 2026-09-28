@@ -131,6 +131,38 @@ private:
             }
         }
 
+        template<typename T>
+        void ExpectShown(bool& bShown)
+        {
+            mockDesktop.ExpectWindow<T>([&bShown](T&)
+            {
+                bShown = true;
+                return DialogResult::None;
+            });
+        }
+
+        // In hardcore, a development tool whose window cannot open on this platform is passed to the desktop -
+        // which answers with a notice of its own - without first asking the user to leave hardcore.
+        template<typename T>
+        void AssertShowWindowWithoutAView(int nMenuItemId)
+        {
+            mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, true);
+            mockDesktop.SetCanShowWindow([](const WindowViewModelBase& vmWindow)
+            {
+                return dynamic_cast<const T*>(&vmWindow) == nullptr;
+            });
+
+            bool bDialogShown = false;
+            ExpectShown<T>(bDialogShown);
+
+            // the hardcore warning is not mocked: a prompt would record its activity (and answer No)
+            ActivateMenuItem(nMenuItemId);
+
+            Assert::AreEqual(std::string(""), mockEmulatorContext.GetDisableHardcoreWarningMessage());
+            Assert::IsTrue(bDialogShown, L"the window never reached the desktop");
+            Assert::IsTrue(mockConfiguration.IsFeatureEnabled(ra::services::Feature::Hardcore));
+        }
+
     private:
         LookupItemViewModelCollection m_vmItems;
     };
@@ -592,6 +624,12 @@ public:
         menu.AssertShowWindow<ra::ui::viewmodels::AssetEditorViewModel>(IDM_RA_FILES_ACHIEVEMENTEDITOR, false, "edit assets", DialogResult::None);
     }
 
+    TEST_METHOD(TestShowAssetEditorHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::AssetEditorViewModel>(IDM_RA_FILES_ACHIEVEMENTEDITOR);
+    }
+
     TEST_METHOD(TestShowMemoryInspectorHardcore)
     {
         IntegrationMenuViewModelHarness menu;
@@ -608,6 +646,12 @@ public:
     {
         IntegrationMenuViewModelHarness menu;
         menu.AssertShowWindow<ra::ui::viewmodels::MemoryInspectorViewModel>(IDM_RA_FILES_MEMORYFINDER, false, "inspect memory", DialogResult::None);
+    }
+
+    TEST_METHOD(TestShowMemoryInspectorHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::MemoryInspectorViewModel>(IDM_RA_FILES_MEMORYFINDER);
     }
 
     TEST_METHOD(TestShowMemoryBookmarksHardcore)
@@ -628,6 +672,12 @@ public:
         menu.AssertShowWindow<ra::ui::viewmodels::MemoryBookmarksViewModel>(IDM_RA_FILES_MEMORYBOOKMARKS, false, "view memory bookmarks", DialogResult::None);
     }
 
+    TEST_METHOD(TestShowMemoryBookmarksHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::MemoryBookmarksViewModel>(IDM_RA_FILES_MEMORYBOOKMARKS);
+    }
+
     TEST_METHOD(TestShowMemoryNotesHardcore)
     {
         IntegrationMenuViewModelHarness menu;
@@ -644,6 +694,12 @@ public:
     {
         IntegrationMenuViewModelHarness menu;
         menu.AssertShowWindow<ra::ui::viewmodels::MemoryNotesViewModel>(IDM_RA_FILES_CODENOTES, false, "view memory notes", DialogResult::None);
+    }
+
+    TEST_METHOD(TestShowMemoryNotesHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::MemoryNotesViewModel>(IDM_RA_FILES_CODENOTES);
     }
 
     TEST_METHOD(TestShowRichPresenceMonitorHardcore)
@@ -672,6 +728,12 @@ public:
             IDM_RA_FILES_POINTERFINDER, false, "find pointer", DialogResult::None);
     }
 
+    TEST_METHOD(TestShowPointerFinderHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::PointerFinderViewModel>(IDM_RA_FILES_POINTERFINDER);
+    }
+
     TEST_METHOD(TestShowPointerInspectorHardcoreAbort)
     {
         IntegrationMenuViewModelHarness menu;
@@ -684,6 +746,12 @@ public:
         IntegrationMenuViewModelHarness menu;
         menu.AssertShowWindow<ra::ui::viewmodels::PointerInspectorViewModel>(
             IDM_RA_FILES_POINTERINSPECTOR, false, "inspect pointers", DialogResult::None);
+    }
+
+    TEST_METHOD(TestShowPointerInspectorHardcoreWithoutAView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.AssertShowWindowWithoutAView<ra::ui::viewmodels::PointerInspectorViewModel>(IDM_RA_FILES_POINTERINSPECTOR);
     }
 
     TEST_METHOD(TestOpenAllHardcore)
@@ -870,6 +938,84 @@ public:
         Assert::IsTrue(bBookmarksShown);
         Assert::IsTrue(bNotesShown);
         Assert::IsTrue(bRichPresenceShown);
+    }
+
+    TEST_METHOD(TestOpenAllHardcoreWithoutViews)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, true);
+
+        // none of the four windows that need hardcore off can open on this platform
+        menu.mockDesktop.SetCanShowWindow([](const WindowViewModelBase& vmWindow)
+        {
+            return dynamic_cast<const ra::ui::viewmodels::AssetEditorViewModel*>(&vmWindow) == nullptr &&
+                   dynamic_cast<const ra::ui::viewmodels::MemoryInspectorViewModel*>(&vmWindow) == nullptr &&
+                   dynamic_cast<const ra::ui::viewmodels::MemoryBookmarksViewModel*>(&vmWindow) == nullptr &&
+                   dynamic_cast<const ra::ui::viewmodels::MemoryNotesViewModel*>(&vmWindow) == nullptr;
+        });
+
+        bool bAssetsShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::AssetListViewModel>(bAssetsShown);
+        bool bAssetShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::AssetEditorViewModel>(bAssetShown);
+        bool bInspectorShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryInspectorViewModel>(bInspectorShown);
+        bool bBookmarksShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryBookmarksViewModel>(bBookmarksShown);
+        bool bNotesShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryNotesViewModel>(bNotesShown);
+        bool bRichPresenceShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::RichPresenceMonitorViewModel>(bRichPresenceShown);
+
+        // the hardcore warning is not mocked: a prompt would record its activity (and answer No)
+        menu.ActivateMenuItem(IDM_RA_FILES_OPENALL);
+
+        Assert::AreEqual(std::string(""), menu.mockEmulatorContext.GetDisableHardcoreWarningMessage());
+        Assert::IsTrue(bAssetsShown);
+        Assert::IsTrue(bAssetShown);
+        Assert::IsTrue(bInspectorShown);
+        Assert::IsTrue(bBookmarksShown);
+        Assert::IsTrue(bNotesShown);
+        Assert::IsTrue(bRichPresenceShown);
+        Assert::IsTrue(menu.mockConfiguration.IsFeatureEnabled(ra::services::Feature::Hardcore));
+    }
+
+    TEST_METHOD(TestOpenAllHardcoreWithOneView)
+    {
+        IntegrationMenuViewModelHarness menu;
+        menu.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, true);
+
+        // only the Memory Inspector can open on this platform: leaving hardcore still buys something
+        menu.mockDesktop.SetCanShowWindow([](const WindowViewModelBase& vmWindow)
+        {
+            return dynamic_cast<const ra::ui::viewmodels::MemoryInspectorViewModel*>(&vmWindow) != nullptr;
+        });
+
+        bool bAssetsShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::AssetListViewModel>(bAssetsShown);
+        bool bAssetShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::AssetEditorViewModel>(bAssetShown);
+        bool bInspectorShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryInspectorViewModel>(bInspectorShown);
+        bool bBookmarksShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryBookmarksViewModel>(bBookmarksShown);
+        bool bNotesShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::MemoryNotesViewModel>(bNotesShown);
+        bool bRichPresenceShown = false;
+        menu.ExpectShown<ra::ui::viewmodels::RichPresenceMonitorViewModel>(bRichPresenceShown);
+
+        menu.mockEmulatorContext.MockDisableHardcoreWarning(DialogResult::No);
+
+        menu.ActivateMenuItem(IDM_RA_FILES_OPENALL);
+
+        Assert::AreEqual(std::string("use development tools"), menu.mockEmulatorContext.GetDisableHardcoreWarningMessage());
+        Assert::IsTrue(bAssetsShown);
+        Assert::IsFalse(bAssetShown);
+        Assert::IsFalse(bInspectorShown);
+        Assert::IsFalse(bBookmarksShown);
+        Assert::IsFalse(bNotesShown);
+        Assert::IsTrue(bRichPresenceShown);
+        Assert::IsTrue(menu.mockConfiguration.IsFeatureEnabled(ra::services::Feature::Hardcore));
     }
 
     TEST_METHOD(TestReportBrokenAchievements)

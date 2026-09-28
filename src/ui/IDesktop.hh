@@ -32,6 +32,13 @@ public:
     virtual ra::ui::DialogResult ShowModal(WindowViewModelBase& vmViewModel, const WindowViewModelBase& vmParentWindow) const = 0;
 
     /// <summary>
+    /// Whether ShowWindow or ShowModal can open a window for the view model. False only where this platform has
+    /// no view for it yet (the desktop then answers with a notice of its own), so a caller can skip asking the
+    /// user for something - such as leaving hardcore - that would only lead to a window that cannot open.
+    /// </summary>
+    GSL_SUPPRESS_F6 virtual bool CanShowWindow(const WindowViewModelBase&) const { return true; }
+
+    /// <summary>
     /// Closes the window for the provided view model.
     /// </summary>
     virtual void CloseWindow(WindowViewModelBase& vmViewModel) const = 0;

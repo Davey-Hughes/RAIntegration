@@ -39,6 +39,7 @@ public:
     ~QtDesktop() noexcept override = default;
 
     void ShowWindow(WindowViewModelBase& vmWindow) const override;
+    bool CanShowWindow(const WindowViewModelBase& vmWindow) const override;
     ra::ui::DialogResult ShowModal(WindowViewModelBase& vmWindow) const override;
     ra::ui::DialogResult ShowModal(WindowViewModelBase& vmWindow, const WindowViewModelBase& vmParentWindow) const override;
     void CloseWindow(WindowViewModelBase& vmWindow) const override;

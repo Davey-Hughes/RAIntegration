@@ -168,6 +168,12 @@ void QtDesktop::ShowWindow(WindowViewModelBase& vmWindow) const
     });
 }
 
+bool QtDesktop::CanShowWindow(const WindowViewModelBase& vmWindow) const
+{
+    // false exactly when ShowWindow and ShowModal answer with the "not available" notice
+    return FindPresenter(vmWindow) != nullptr || !CanHostWidgets(GetHost());
+}
+
 ra::ui::DialogResult QtDesktop::ShowModal(WindowViewModelBase& vmWindow) const
 {
     return DoShowModal(vmWindow);

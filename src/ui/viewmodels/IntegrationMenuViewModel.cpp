@@ -25,6 +25,9 @@
 
 #include "util/Strings.hh"
 
+#include <algorithm>
+#include <initializer_list>
+
 namespace ra {
 namespace ui {
 namespace viewmodels {
@@ -303,6 +306,22 @@ void IntegrationMenuViewModel::ToggleLeaderboards()
 
 }
 
+// Development tools need hardcore off, so opening one asks the user to leave it - unless none of the tool's
+// windows can open on this platform: the desktop then answers on its own, and leaving hardcore would buy nothing.
+static bool ConfirmDevelopmentTool(const std::string& sActivity, std::initializer_list<const WindowViewModelBase*> vWindows)
+{
+    const auto& pDesktop = ra::services::ServiceLocator::Get<ra::ui::IDesktop>();
+    const bool bAnyCanShow = std::any_of(vWindows.begin(), vWindows.end(),
+                                         [&pDesktop](const WindowViewModelBase* pWindow) {
+                                             return pDesktop.CanShowWindow(*pWindow);
+                                         });
+    if (!bAnyCanShow)
+        return true;
+
+    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
+    return pEmulatorContext.WarnDisableHardcoreMode(sActivity);
+}
+
 void IntegrationMenuViewModel::ShowOverlaySettings()
 {
     ra::ui::viewmodels::OverlaySettingsViewModel vmSettings;
@@ -319,62 +338,44 @@ void IntegrationMenuViewModel::ShowAssetList()
 
 void IntegrationMenuViewModel::ShowAssetEditor()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("edit assets"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("edit assets", {&pWindowManager.AssetEditor}))
         pWindowManager.AssetEditor.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowMemoryInspector()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("inspect memory"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("inspect memory", {&pWindowManager.MemoryInspector}))
         pWindowManager.MemoryInspector.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowMemoryBookmarks()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("view memory bookmarks"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("view memory bookmarks", {&pWindowManager.MemoryBookmarks}))
         pWindowManager.MemoryBookmarks.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowPointerFinder()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("find pointers"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("find pointers", {&pWindowManager.PointerFinder}))
         pWindowManager.PointerFinder.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowPointerInspector()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("inspect pointers"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("inspect pointers", {&pWindowManager.PointerInspector}))
         pWindowManager.PointerInspector.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowMemoryNotes()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("view memory notes"))
-    {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("view memory notes", {&pWindowManager.MemoryNotes}))
         pWindowManager.MemoryNotes.Show();
-    }
 }
 
 void IntegrationMenuViewModel::ShowRichPresenceMonitor()
@@ -390,11 +391,10 @@ void IntegrationMenuViewModel::ShowRichPresenceMonitor()
 
 void IntegrationMenuViewModel::ShowAllEditors()
 {
-    auto& pEmulatorContext = ra::services::ServiceLocator::GetMutable<ra::data::context::EmulatorContext>();
-    if (pEmulatorContext.WarnDisableHardcoreMode("use development tools"))
+    auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
+    if (ConfirmDevelopmentTool("use development tools", {&pWindowManager.AssetEditor, &pWindowManager.MemoryInspector,
+                                                         &pWindowManager.MemoryBookmarks, &pWindowManager.MemoryNotes}))
     {
-        auto& pWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
-
         pWindowManager.AssetList.Show();
         pWindowManager.AssetEditor.Show();
         pWindowManager.MemoryInspector.Show();
