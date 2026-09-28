@@ -1,7 +1,6 @@
 #include "ui/qt/LoginDialog.hh"
 
 #include "util/Log.hh"
-#include "util/Strings.hh"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>

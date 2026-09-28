@@ -194,7 +194,8 @@ void ComboBoxBinding::OnViewModelRemoved(gsl::index)
 
 void ComboBoxBinding::OnViewModelChanged(gsl::index)
 {
-    // raised for a moved item, and for each item whose index an add or remove shifted
+    // raised only for the items a move displaced: UpdateIndices renumbers the items an add or remove shifted without
+    // raising events
     PostRefresh();
 }
 
