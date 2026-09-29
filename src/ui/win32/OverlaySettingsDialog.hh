@@ -48,6 +48,7 @@ private:
     ra::ui::win32::bindings::ComboBoxBinding m_bindProgressTrackers;
     ra::ui::win32::bindings::ComboBoxBinding m_bindInformationLocation;
     ra::ui::win32::bindings::TextBoxBinding m_bindScreenshotLocation;
+    ra::ui::win32::bindings::CheckBoxBinding m_bindUpdateReminders;
 };
 
 } // namespace win32

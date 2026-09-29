@@ -18,12 +18,19 @@ using fnTaskDialog = std::add_pointer_t<HRESULT WINAPI(HWND, HINSTANCE, PCWSTR, 
                                                        TASKDIALOG_COMMON_BUTTON_FLAGS, PCWSTR, int*)>;
 static fnTaskDialog pTaskDialog = nullptr;
 
+// TaskDialogIndirect has the verification checkbox that TaskDialog lacks; same DLL, same availability (Vista+).
+using fnTaskDialogIndirect = std::add_pointer_t<HRESULT WINAPI(const TASKDIALOGCONFIG*, int*, int*, BOOL*)>;
+static fnTaskDialogIndirect pTaskDialogIndirect = nullptr;
+
 MessageBoxDialog::Presenter::Presenter() noexcept
 {
     // TaskDialog isn't supported on WinXP, so we have to dynamically find it.
     auto hDll = LoadLibraryA("comctl32");
     if (hDll)
+    {
         GSL_SUPPRESS_TYPE1 pTaskDialog = reinterpret_cast<fnTaskDialog>(GetProcAddress(hDll, "TaskDialog"));
+        GSL_SUPPRESS_TYPE1 pTaskDialogIndirect = reinterpret_cast<fnTaskDialogIndirect>(GetProcAddress(hDll, "TaskDialogIndirect"));
+    }
 }
 
 bool MessageBoxDialog::Presenter::IsSupported(const ra::ui::WindowViewModelBase& oViewModel) noexcept
@@ -102,8 +109,34 @@ void MessageBoxDialog::Presenter::DoShowModal(ra::ui::WindowViewModelBase& oView
             case MessageBoxViewModel::Buttons::RetryCancel: dwCommonButtons = TDCBF_RETRY_BUTTON | TDCBF_CANCEL_BUTTON; break;
         }
 
-        const HRESULT result = pTaskDialog(hParentWnd, nullptr, oMessageBoxViewModel.GetWindowTitle().c_str(),
-            oMessageBoxViewModel.GetHeader().c_str(), oMessageBoxViewModel.GetMessage().c_str(), dwCommonButtons, pszIcon, &nButton);
+        HRESULT result{};
+        if (!oMessageBoxViewModel.GetCheckBoxText().empty() && pTaskDialogIndirect != nullptr)
+        {
+            // Only a box that asks for a checkbox comes here; every other box keeps the TaskDialog call below.
+            TASKDIALOGCONFIG oConfig{};
+            oConfig.cbSize = sizeof(oConfig);
+            oConfig.hwndParent = hParentWnd;
+            oConfig.dwCommonButtons = dwCommonButtons;
+            oConfig.pszWindowTitle = oMessageBoxViewModel.GetWindowTitle().c_str();
+            GSL_SUPPRESS_TYPE7 oConfig.pszMainIcon = pszIcon; // the SDK's union of HICON and PCWSTR
+            oConfig.pszMainInstruction = oMessageBoxViewModel.GetHeader().c_str();
+            oConfig.pszContent = oMessageBoxViewModel.GetMessage().c_str();
+            oConfig.pszVerificationText = oMessageBoxViewModel.GetCheckBoxText().c_str();
+            if (oMessageBoxViewModel.IsCheckBoxChecked())
+                oConfig.dwFlags |= TDF_VERIFICATION_FLAG_CHECKED;
+
+            BOOL bChecked = FALSE;
+            result = pTaskDialogIndirect(&oConfig, &nButton, nullptr, &bChecked);
+
+            // before the answer below, which is what a waiting caller reads
+            if (SUCCEEDED(result))
+                oMessageBoxViewModel.SetCheckBoxChecked(bChecked != FALSE);
+        }
+        else
+        {
+            result = pTaskDialog(hParentWnd, nullptr, oMessageBoxViewModel.GetWindowTitle().c_str(),
+                oMessageBoxViewModel.GetHeader().c_str(), oMessageBoxViewModel.GetMessage().c_str(), dwCommonButtons, pszIcon, &nButton);
+        }
 
         if (!SUCCEEDED(result))
             nButton = IDABORT;

@@ -68,6 +68,9 @@
 // always initialize a variable
 #define GSL_SUPPRESS_TYPE6 GSL_SUPPRESS(type.6)
 
+// avoid naked unions (the Windows SDK's structs have them)
+#define GSL_SUPPRESS_TYPE7 GSL_SUPPRESS(type.7)
+
 /* clang-format on */
 
 #endif /* !RA_GSL_HH */

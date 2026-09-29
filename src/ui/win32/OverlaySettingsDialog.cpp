@@ -40,7 +40,8 @@ OverlaySettingsDialog::OverlaySettingsDialog(ra::ui::viewmodels::OverlaySettings
       m_bindChallengeNotifications(vmSettings),
       m_bindProgressTrackers(vmSettings),
       m_bindScreenshotLocation(vmSettings),
-      m_bindInformationLocation(vmSettings)
+      m_bindInformationLocation(vmSettings),
+      m_bindUpdateReminders(vmSettings)
 {
     m_bindWindow.SetInitialPosition(RelativePosition::Center, RelativePosition::Center);
 
@@ -71,6 +72,8 @@ OverlaySettingsDialog::OverlaySettingsDialog(ra::ui::viewmodels::OverlaySettings
     m_bindInformationLocation.BindSelectedItem(ra::ui::viewmodels::OverlaySettingsViewModel::MessageLocationProperty);
 
     m_bindScreenshotLocation.BindText(ra::ui::viewmodels::OverlaySettingsViewModel::ScreenshotLocationProperty);
+
+    m_bindUpdateReminders.BindCheck(ra::ui::viewmodels::OverlaySettingsViewModel::UpdateRemindersProperty);
 }
 
 BOOL OverlaySettingsDialog::OnInitDialog()
@@ -86,6 +89,7 @@ BOOL OverlaySettingsDialog::OnInitDialog()
     m_bindChallengeNotifications.SetControl(*this, IDC_RA_DISPLAY_CHALLENGE_INDICATOR);
     m_bindProgressTrackers.SetControl(*this, IDC_RA_DISPLAY_PROGRESS_INDICATOR);
     m_bindInformationLocation.SetControl(*this, IDC_RA_DISPLAY_INFORMATION);
+    m_bindUpdateReminders.SetControl(*this, IDC_RA_UPDATE_REMINDERS);
 
     m_bindScreenshotLocation.SetControl(*this, IDC_RA_SCREENSHOT_LOCATION);
 
