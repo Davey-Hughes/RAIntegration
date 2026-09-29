@@ -417,7 +417,23 @@ bool EmulatorContext::ValidateClientVersion(bool& bHardcore)
     }
     else
     {
-        // allow any version in non-hardcore, but inform the user a new version is available
+        // allow any version in non-hardcore, but inform the user a new version is available - unless they asked
+        // not to be told: about any version, or about this one (a later version reminds them again)
+        if (!pConfiguration.IsFeatureEnabled(ra::services::Feature::UpdateReminders))
+        {
+            RA_LOG_INFO("Update reminder not shown: turned off in settings (server %s, current %s)",
+                m_sLatestVersion, m_sVersion);
+            return bResult;
+        }
+
+        const std::string sSkippedVersion = pConfiguration.GetSkippedClientVersion();
+        if (!sSkippedVersion.empty() && nServerVersion <= ParseVersion(sSkippedVersion.c_str()))
+        {
+            RA_LOG_INFO("Update reminder not shown: version %s skipped by the user (current %s)",
+                m_sLatestVersion, m_sVersion);
+            return bResult;
+        }
+
         ra::ui::viewmodels::MessageBoxViewModel vmMessageBox;
         vmMessageBox.SetHeader(L"Would you like to update?");
         vmMessageBox.SetMessage(ra::util::String::Printf(
@@ -428,8 +444,18 @@ bool EmulatorContext::ValidateClientVersion(bool& bHardcore)
             sNewVersion));
         vmMessageBox.SetIcon(ra::ui::viewmodels::MessageBoxViewModel::Icon::Info);
         vmMessageBox.SetButtons(ra::ui::viewmodels::MessageBoxViewModel::Buttons::YesNo);
+        vmMessageBox.SetCheckBoxText(ra::util::String::Printf(L"Don't remind me about version %s", sNewVersion));
 
         bUpdate = (vmMessageBox.ShowModal() == ra::ui::DialogResult::Yes);
+
+        // whichever button closed the box; saved now, as a dev build is often killed rather than closed
+        if (vmMessageBox.IsCheckBoxChecked())
+        {
+            auto& pMutableConfiguration = ra::services::ServiceLocator::GetMutable<ra::services::IConfiguration>();
+            pMutableConfiguration.SetSkippedClientVersion(m_sLatestVersion);
+            pMutableConfiguration.Save();
+            RA_LOG_INFO("Update reminders for version %s turned off by the user", m_sLatestVersion);
+        }
     }
 
     if (bUpdate)

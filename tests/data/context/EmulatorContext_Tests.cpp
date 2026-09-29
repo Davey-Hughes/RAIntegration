@@ -55,6 +55,9 @@ private:
               m_Override(this)
         {
             mockAchievementRuntime.MockGame();
+
+            // JsonFileConfiguration's default; MockConfiguration starts with every feature off
+            mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, true);
         }
 
         void MockVersions(const std::string& sClientVersion, const std::string& sServerVersion, const std::string& sMinimumVersion)
@@ -107,6 +110,26 @@ private:
 
         mutable int m_nUIThread = 0;
     };
+
+    // Whether a client one version behind (0.57 < 0.58, minimum 0.56) is shown
+    // the "Would you like to update?" box, given a stored skipped version.
+    static bool IsReminded(const std::string& sSkippedVersion, bool bHardcore = false)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, bHardcore);
+        emulator.mockConfiguration.SetSkippedClientVersion(sSkippedVersion);
+        emulator.MockVersions("0.57.0.0", "0.58.0.0", "0.56.0.0");
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&)
+        {
+            return ra::ui::DialogResult::No;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::AreEqual(bHardcore, emulator.mockConfiguration.IsFeatureEnabled(ra::services::Feature::Hardcore));
+        return emulator.mockDesktop.WasDialogShown();
+    }
 
 public:
     TEST_METHOD(TestClientName)
@@ -563,6 +586,154 @@ public:
 
         Assert::IsTrue(emulator.ValidateClientVersion());
         Assert::IsTrue(emulator.mockDesktop.WasDialogShown());
+    }
+
+    TEST_METHOD(TestValidateClientVersionOlderOffersToSkipTheVersion)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.MockVersions("0.57.0.0", "0.58.0.0");
+        std::wstring sCheckBoxText;
+        bool bInitiallyChecked = true;
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([&sCheckBoxText, &bInitiallyChecked](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+        {
+            sCheckBoxText = vmMessageBox.GetCheckBoxText();
+            bInitiallyChecked = vmMessageBox.IsCheckBoxChecked();
+            return ra::ui::DialogResult::No;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::IsTrue(emulator.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L"Don't remind me about version 0.58"), sCheckBoxText);
+        Assert::IsFalse(bInitiallyChecked);
+        Assert::AreEqual(std::string(), emulator.mockConfiguration.GetSkippedClientVersion(), L"not ticked: nothing stored");
+        Assert::AreEqual(0, emulator.mockConfiguration.GetSaveCount(), L"not ticked: nothing saved");
+    }
+
+    TEST_METHOD(TestValidateClientVersionRemindersTurnedOff)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, false);
+        emulator.MockVersions("0.57.0.0", "0.58.0.0");
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&)
+        {
+            return ra::ui::DialogResult::No;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::IsFalse(emulator.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::string(), emulator.mockDesktop.LastOpenedUrl());
+
+        // control: the same client with reminders on is reminded
+        emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, true);
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::IsTrue(emulator.mockDesktop.WasDialogShown());
+    }
+
+    TEST_METHOD(TestValidateClientVersionSkippedVersion)
+    {
+        Assert::IsTrue(IsReminded(""), L"nothing skipped");
+        Assert::IsFalse(IsReminded("0.58.0.0"), L"the server's version, as the server wrote it");
+        Assert::IsFalse(IsReminded("0.58"), L"the same version, written shorter");
+        Assert::IsFalse(IsReminded("0.59"), L"a version newer than the server's");
+        Assert::IsTrue(IsReminded("0.57.9"), L"a version older than the server's");
+    }
+
+    TEST_METHOD(TestValidateClientVersionSkippedVersionHardcoreAboveMinimum)
+    {
+        Assert::IsFalse(IsReminded("0.58.0.0", true));
+        Assert::IsTrue(IsReminded("", true), L"control: nothing skipped");
+    }
+
+    TEST_METHOD(TestValidateClientVersionTickSkipsTheVersion)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.MockVersions("0.57.0.0", "0.58.0.0");
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+        {
+            vmMessageBox.SetCheckBoxChecked(true);
+            return ra::ui::DialogResult::No;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::AreEqual(std::string("0.58.0.0"), emulator.mockConfiguration.GetSkippedClientVersion());
+        Assert::AreEqual(1, emulator.mockConfiguration.GetSaveCount());
+        Assert::AreEqual(std::string(), emulator.mockDesktop.LastOpenedUrl());
+
+        // the next check keeps quiet
+        emulator.mockDesktop.ResetExpectedWindows();
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::IsFalse(emulator.mockDesktop.WasDialogShown());
+    }
+
+    TEST_METHOD(TestValidateClientVersionTickWithYesStillOpensTheDownloadPage)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.MockVersions("0.57.0.0", "0.58.0.0");
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+        {
+            vmMessageBox.SetCheckBoxChecked(true);
+            return ra::ui::DialogResult::Yes;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::AreEqual(std::string("http://host/download.php"), emulator.mockDesktop.LastOpenedUrl());
+        Assert::AreEqual(std::string("0.58.0.0"), emulator.mockConfiguration.GetSkippedClientVersion());
+        Assert::AreEqual(1, emulator.mockConfiguration.GetSaveCount());
+    }
+
+    TEST_METHOD(TestValidateClientVersionBelowMinimumHardcoreIgnoresReminderSettings)
+    {
+        EmulatorContextHarness emulator;
+        emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+        emulator.mockConfiguration.SetHostName("host");
+        emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, true);
+        emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, false);
+        emulator.mockConfiguration.SetSkippedClientVersion("0.58.0.0");
+        emulator.MockVersions("0.56.0.0", "0.58.0.0", "0.57.0.0");
+        std::wstring sHeader;
+        std::wstring sCheckBoxText = L"not shown";
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([&sHeader, &sCheckBoxText](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+        {
+            sHeader = vmMessageBox.GetHeader();
+            sCheckBoxText = vmMessageBox.GetCheckBoxText();
+            return ra::ui::DialogResult::Cancel;
+        });
+
+        Assert::IsTrue(emulator.ValidateClientVersion());
+        Assert::AreEqual(std::wstring(L"A newer client is required for hardcore mode."), sHeader);
+        Assert::AreEqual(std::wstring(), sCheckBoxText, L"the minimum-version box never offers the checkbox");
+        Assert::IsFalse(emulator.mockConfiguration.IsFeatureEnabled(ra::services::Feature::Hardcore));
+    }
+
+    TEST_METHOD(TestValidateClientVersionApiErrorIgnoresReminderSettings)
+    {
+        for (const bool bHardcore : {false, true})
+        {
+            EmulatorContextHarness emulator;
+            emulator.Initialize(EmulatorID::RA_Snes9x, nullptr);
+            emulator.SetClientVersion("0.57");
+            emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, bHardcore);
+            emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, false);
+            emulator.mockConfiguration.SetSkippedClientVersion("0.58.0.0");
+            emulator.mockRcClient.MockResponse("r=latestclient&e=2", "Could not communicate with server.", 0);
+            std::wstring sHeader;
+            emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([&sHeader](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+            {
+                sHeader = vmMessageBox.GetHeader();
+                return ra::ui::DialogResult::OK;
+            });
+
+            Assert::IsFalse(emulator.ValidateClientVersion());
+            Assert::AreEqual(std::wstring(L"Could not retrieve latest client version."), sHeader);
+        }
     }
 
     static void ReplaceIntegrationVersion(std::string& sVersion)
