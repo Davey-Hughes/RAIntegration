@@ -70,6 +70,24 @@ public:
         Assert::AreEqual(MessageBoxViewModel::Buttons::YesNo, vmMessageBox.GetButtons());
     }
 
+    TEST_METHOD(TestCheckBoxText)
+    {
+        MessageBoxViewModel vmMessageBox;
+        Assert::AreEqual(std::wstring(L""), vmMessageBox.GetCheckBoxText());
+
+        vmMessageBox.SetCheckBoxText(L"Don't remind me");
+        Assert::AreEqual(std::wstring(L"Don't remind me"), vmMessageBox.GetCheckBoxText());
+    }
+
+    TEST_METHOD(TestCheckBoxChecked)
+    {
+        MessageBoxViewModel vmMessageBox;
+        Assert::IsFalse(vmMessageBox.IsCheckBoxChecked());
+
+        vmMessageBox.SetCheckBoxChecked(true);
+        Assert::IsTrue(vmMessageBox.IsCheckBoxChecked());
+    }
+
     TEST_METHOD(TestShowMessage)
     {
         MockDesktop mockDesktop;

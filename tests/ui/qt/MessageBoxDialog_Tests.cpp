@@ -10,9 +10,11 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QCheckBox>
 #include <QKeyEvent>
 #include <QLabel>
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 
@@ -73,6 +75,41 @@ DialogResult AnswerFromWorker(QtTestHost& oQt, const QtDesktop& oDesktop, Messag
 
     Assert::IsTrue(bShown, L"no message box appeared");
     Assert::IsTrue(bReturned, L"closing the box did not release the caller");
+    return oCaller.Result();
+}
+
+// As AnswerFromWorker, for a Yes/No box with a checkbox that is ticked on the
+// Qt thread before fAnswer closes the box. Also returns the view model's tick.
+DialogResult AnswerTickedFromWorker(QtTestHost& oQt, const QtDesktop& oDesktop,
+                                    const std::function<void(MessageBoxDialog&)>& fAnswer, bool& bChecked)
+{
+    MessageBoxViewModel vmMessageBox(L"message");
+    vmMessageBox.SetButtons(MessageBoxViewModel::Buttons::YesNo);
+    vmMessageBox.SetCheckBoxText(L"Don't remind me");
+    ModalCaller oCaller(oDesktop, vmMessageBox);
+
+    const bool bShown = oQt.WaitOnQt([]() { return FindBox() != nullptr; });
+    bool bTicked = false;
+    if (bShown)
+    {
+        oQt.RunOnQt([&fAnswer, &bTicked]() {
+            auto* pBox = FindBox();
+            if (pBox->checkBox() != nullptr)
+            {
+                pBox->checkBox()->click();
+                bTicked = pBox->checkBox()->isChecked();
+            }
+            fAnswer(*pBox);
+        });
+    }
+    const bool bReturned = oCaller.Returned(std::chrono::seconds(2));
+    if (!bReturned)
+        oQt.RunOnQt(RejectAllBoxes);
+
+    Assert::IsTrue(bShown, L"no message box appeared");
+    Assert::IsTrue(bTicked, L"the box had no checkbox to tick");
+    Assert::IsTrue(bReturned, L"closing the box did not release the caller");
+    bChecked = vmMessageBox.IsCheckBoxChecked();
     return oCaller.Result();
 }
 
@@ -225,6 +262,122 @@ public:
 
             Assert::IsTrue(bMatches, L"wrong icon");
         }
+    }
+
+    TEST_METHOD(TestNoCheckBoxWithoutText)
+    {
+        MessageBoxViewModel vmMessageBox(L"message");
+        QtTestHost oQt;
+
+        bool bHasCheckBox = true;
+        oQt.RunOnQt([&]() {
+            MessageBoxDialog oBox(vmMessageBox);
+            bHasCheckBox = (oBox.checkBox() != nullptr);
+        });
+
+        Assert::IsFalse(bHasCheckBox);
+    }
+
+    TEST_METHOD(TestTheCheckBoxShowsTheViewModel)
+    {
+        QtTestHost oQt;
+
+        for (const bool bChecked : {false, true})
+        {
+            MessageBoxViewModel vmMessageBox(L"message");
+            vmMessageBox.SetCheckBoxText(L"Don't <b>remind</b> me");
+            vmMessageBox.SetCheckBoxChecked(bChecked);
+            std::wstring sText;
+            bool bShownChecked = !bChecked;
+            oQt.RunOnQt([&]() {
+                MessageBoxDialog oBox(vmMessageBox);
+                if (oBox.checkBox() != nullptr)
+                {
+                    sText = oBox.checkBox()->text().toStdWString();
+                    bShownChecked = oBox.checkBox()->isChecked();
+                }
+            });
+
+            Assert::AreEqual(std::wstring(L"Don't <b>remind</b> me"), sText);
+            Assert::AreEqual(bChecked, bShownChecked);
+        }
+    }
+
+    TEST_METHOD(TestTheTickIsKeptWhateverClosesTheBox)
+    {
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        struct Case
+        {
+            const wchar_t* sHow;
+            std::function<void(MessageBoxDialog&)> fClose;
+            DialogResult nExpected;
+        };
+        const Case vCases[] = {
+            {L"Yes", [](MessageBoxDialog& oBox) { Click(oBox, QMessageBox::Yes); }, DialogResult::Yes},
+            {L"No", [](MessageBoxDialog& oBox) { Click(oBox, QMessageBox::No); }, DialogResult::No},
+            {L"Esc", PressEscape, DialogResult::No},
+            {L"reject()", [](MessageBoxDialog& oBox) { oBox.reject(); }, DialogResult::No},
+        };
+
+        for (const auto& oCase : vCases)
+        {
+            bool bChecked = false;
+            Assert::AreEqual(oCase.nExpected, AnswerTickedFromWorker(oQt, oDesktop, oCase.fClose, bChecked), oCase.sHow);
+            Assert::IsTrue(bChecked, oCase.sHow);
+        }
+    }
+
+    TEST_METHOD(TestTheTickIsWrittenBeforeTheAnswer)
+    {
+        // What the view model says about the tick at the moment its result
+        // changes: the waiting caller wakes then, and may destroy it at once.
+        class ResultWatcher : public ra::ui::ViewModelBase::NotifyTarget
+        {
+        public:
+            void OnViewModelIntValueChanged(const IntModelProperty::ChangeArgs& args) override
+            {
+                if (args.Property == ra::ui::WindowViewModelBase::DialogResultProperty && m_pViewModel != nullptr)
+                    m_nCheckedAtResult = m_pViewModel->IsCheckBoxChecked() ? 1 : 0;
+            }
+
+            const MessageBoxViewModel* m_pViewModel = nullptr;
+            std::atomic<int> m_nCheckedAtResult{-1};
+        };
+
+        ResultWatcher oWatcher; // before the view model, which holds a reference to it
+        MessageBoxViewModel vmMessageBox(L"message");
+        vmMessageBox.SetButtons(MessageBoxViewModel::Buttons::YesNo);
+        vmMessageBox.SetCheckBoxText(L"Don't remind me");
+        oWatcher.m_pViewModel = &vmMessageBox;
+        vmMessageBox.AddNotifyTarget(oWatcher);
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+
+        {
+            ModalCaller oCaller(oDesktop, vmMessageBox);
+            const bool bShown = oQt.WaitOnQt([]() { return FindBox() != nullptr; });
+            if (bShown)
+            {
+                oQt.RunOnQt([]() {
+                    auto* pBox = FindBox();
+                    if (pBox->checkBox() != nullptr)
+                        pBox->checkBox()->click();
+                    Click(*pBox, QMessageBox::Yes);
+                });
+            }
+            const bool bReturned = oCaller.Returned(std::chrono::seconds(2));
+            if (!bReturned)
+                oQt.RunOnQt(RejectAllBoxes);
+
+            Assert::IsTrue(bShown, L"no message box appeared");
+            Assert::IsTrue(bReturned, L"closing the box did not release the caller");
+            Assert::AreEqual(DialogResult::Yes, oCaller.Result());
+        }
+
+        vmMessageBox.RemoveNotifyTarget(oWatcher);
+        Assert::AreEqual(1, oWatcher.m_nCheckedAtResult.load(), L"the tick was not in the view model when the answer was");
     }
 
     TEST_METHOD(TestShowWindowOpensNothing)

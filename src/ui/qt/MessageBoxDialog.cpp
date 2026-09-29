@@ -4,6 +4,7 @@
 #include "util/Strings.hh"
 
 #include <QAbstractButton>
+#include <QCheckBox>
 #include <QString>
 
 namespace ra {
@@ -101,6 +102,14 @@ MessageBoxDialog::MessageBoxDialog(MessageBoxViewModel& vmMessageBox)
             break;
     }
 
+    // Win32 shows the same checkbox as its TaskDialog's verification checkbox
+    if (!vmMessageBox.GetCheckBoxText().empty())
+    {
+        auto* pCheckBox = new QCheckBox(QString::fromStdWString(vmMessageBox.GetCheckBoxText()));
+        pCheckBox->setChecked(vmMessageBox.IsCheckBoxChecked());
+        setCheckBox(pCheckBox); // the box takes ownership
+    }
+
     // Set rather than left to Qt's detection, so Esc and done()'s "no button"
     // case are one rule.
     setEscapeButton(ToStandardButton(GetEscapeAnswer(m_nButtons)));
@@ -156,6 +165,11 @@ void MessageBoxDialog::done(int nResult)
                     break;
             }
         }
+
+        // the tick counts whichever way the box closed; written before the
+        // answer, which is what wakes the caller
+        if (checkBox() != nullptr)
+            m_pViewModel->SetCheckBoxChecked(checkBox()->isChecked());
 
         // before finished() is emitted: the waiting caller reads it as soon as
         // it wakes, and may destroy the view model right after

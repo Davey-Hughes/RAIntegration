@@ -108,6 +108,40 @@ public:
     void SetButtons(Buttons nValue) { SetValue(ButtonsProperty, static_cast<int>(nValue)); }
 
     /// <summary>
+    /// The <see cref="ModelProperty" /> for the checkbox's label.
+    /// </summary>
+    static const StringModelProperty CheckBoxTextProperty;
+
+    /// <summary>
+    /// Gets the label of the checkbox shown under the message (empty for no checkbox).
+    /// </summary>
+    /// <remarks>
+    /// Win32 shows it only as a TaskDialog's verification checkbox: not on Windows XP, and not for a box without a
+    /// header (those use MessageBox). Where it is not shown, <see cref="IsCheckBoxChecked" /> stays as it was.
+    /// </remarks>
+    const std::wstring& GetCheckBoxText() const { return GetValue(CheckBoxTextProperty); }
+
+    /// <summary>
+    /// Sets the label of the checkbox shown under the message, empty for no checkbox.
+    /// </summary>
+    void SetCheckBoxText(const std::wstring& sValue) { SetValue(CheckBoxTextProperty, sValue); }
+
+    /// <summary>
+    /// The <see cref="ModelProperty" /> for whether the checkbox is ticked.
+    /// </summary>
+    static const BoolModelProperty CheckBoxCheckedProperty;
+
+    /// <summary>
+    /// Gets whether the checkbox is ticked - read it after ShowModal returns, whichever button closed the box.
+    /// </summary>
+    bool IsCheckBoxChecked() const { return GetValue(CheckBoxCheckedProperty); }
+
+    /// <summary>
+    /// Sets whether the checkbox is ticked (the initial state when set before ShowModal).
+    /// </summary>
+    void SetCheckBoxChecked(bool bValue) { SetValue(CheckBoxCheckedProperty, bValue); }
+
+    /// <summary>
     /// Shows a generic message.
     /// </summary>
     static void ShowMessage(const std::wstring& sMessage)
