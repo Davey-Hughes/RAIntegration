@@ -32,6 +32,9 @@ public:
     const std::wstring& GetScreenshotDirectory() const noexcept override { return m_sScreenshotDirectory; }
     void SetScreenshotDirectory(const std::wstring& sValue) override { m_sScreenshotDirectory = sValue; }
 
+    std::string GetSkippedClientVersion() const override;
+    void SetSkippedClientVersion(const std::string& sValue) override;
+
     ra::ui::Position GetWindowPosition(const std::string& sPositionKey) const override;
     void SetWindowPosition(const std::string& sPositionKey, const ra::ui::Position& oPosition) override;
 
@@ -58,6 +61,7 @@ private:
 
     unsigned int m_nBackgroundThreads = 8;
     std::wstring m_sScreenshotDirectory;
+    std::string m_sSkippedClientVersion; // guarded by m_mtxSave
 
     typedef struct WindowPosition
     {
@@ -72,6 +76,14 @@ private:
     // Qt thread on every resize, while Save() can run on any thread. The other
     // settings are written from the threads they always were, and are not guarded.
     mutable std::mutex m_mtxWindowPositions;
+
+    // Serialises Save(): the start-up version check saves from a pool worker
+    // (a skipped version) while the UI thread may be saving too, and two saves
+    // at once both truncate and rewrite the same file. Also guards
+    // m_sSkippedClientVersion, which that worker writes. Taken before
+    // m_mtxWindowPositions, never after it. Not recursive: Save() reads the
+    // member directly and never calls GetSkippedClientVersion().
+    mutable std::mutex m_mtxSave;
 
     bool m_bCustomHost = false;
     std::string m_sHostName;

@@ -18,6 +18,7 @@ enum class Feature
     AchievementTriggeredScreenshot,
     MasteryNotificationScreenshot,
     Offline,
+    UpdateReminders,
 };
 
 class IConfiguration
@@ -73,6 +74,18 @@ public:
     /// Sets the directory where screenshots should be stored.
     /// </summary>
     virtual void SetScreenshotDirectory(const std::wstring& sValue) = 0;
+
+    /// <summary>
+    /// Gets the newest client version the user asked not to be reminded about, as the server wrote it (empty for
+    /// none).
+    /// </summary>
+    /// <remarks>A copy, not a reference: the start-up version check sets it from a worker thread.</remarks>
+    virtual std::string GetSkippedClientVersion() const = 0;
+
+    /// <summary>
+    /// Sets the newest client version the user asked not to be reminded about.
+    /// </summary>
+    virtual void SetSkippedClientVersion(const std::string& sValue) = 0;
 
     /// <summary>
     /// Gets whether or not a custom host was provided.

@@ -5,6 +5,7 @@
 #include "services/IConfiguration.hh"
 #include "services/ServiceLocator.hh"
 
+#include <atomic>
 #include <set>
 
 namespace ra {
@@ -43,6 +44,9 @@ public:
     const std::wstring& GetScreenshotDirectory() const noexcept override { return m_sScreenshotDirectory; }
     void SetScreenshotDirectory(const std::wstring& sValue) override { m_sScreenshotDirectory = sValue; }
 
+    std::string GetSkippedClientVersion() const override { return m_sSkippedClientVersion; }
+    void SetSkippedClientVersion(const std::string& sValue) override { m_sSkippedClientVersion = sValue; }
+
     bool IsCustomHost() const noexcept override { return !m_sHostName.empty(); }
 
     const std::string& GetHostName() const noexcept override { return m_sHostName; }
@@ -57,7 +61,11 @@ public:
 
     void Save() const noexcept override
     {
+        ++m_nSaveCount;
     }
+
+    // How many times Save() was called, so a test of "saved" can fail.
+    int GetSaveCount() const noexcept { return m_nSaveCount; }
 
 private:
     ra::services::ServiceLocator::ServiceOverride<ra::services::IConfiguration> m_Override;
@@ -71,6 +79,9 @@ private:
     unsigned int m_nBackgroundThreads = 0;
 
     std::set<Feature> m_vEnabledFeatures;
+
+    std::string m_sSkippedClientVersion;
+    mutable std::atomic<int> m_nSaveCount{0};
 };
 
 } // namespace mocks

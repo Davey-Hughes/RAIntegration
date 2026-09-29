@@ -69,6 +69,7 @@ bool JsonFileConfiguration::Load(const std::wstring& sFilename)
     // default values
     m_sUsername.clear();
     m_sApiToken.clear();
+    SetSkippedClientVersion("");
     {
         std::lock_guard<std::mutex> lock(m_mtxWindowPositions);
         m_mWindowPositions.clear();
@@ -76,7 +77,8 @@ bool JsonFileConfiguration::Load(const std::wstring& sFilename)
     m_nBackgroundThreads = 8;
     m_vEnabledFeatures =
         (1 << static_cast<int>(Feature::Hardcore)) |
-        (1 << static_cast<int>(Feature::Leaderboards));
+        (1 << static_cast<int>(Feature::Leaderboards)) |
+        (1 << static_cast<int>(Feature::UpdateReminders));
     SetPopupLocation(ra::ui::viewmodels::Popup::Message, ra::ui::viewmodels::PopupLocation::BottomLeft);
     SetPopupLocation(ra::ui::viewmodels::Popup::AchievementTriggered, ra::ui::viewmodels::PopupLocation::BottomLeft);
     SetPopupLocation(ra::ui::viewmodels::Popup::Mastery, ra::ui::viewmodels::PopupLocation::TopMiddle);
@@ -125,6 +127,11 @@ bool JsonFileConfiguration::Load(const std::wstring& sFilename)
     ReadPopupLocation(*this, ra::ui::viewmodels::Popup::Message, pJson, "Informational Notification Display", ra::ui::viewmodels::PopupLocation::BottomLeft, true);
 
     SetFeatureEnabled(Feature::PreferDecimal, pJson.GetBoolean("Prefer Decimal", false));
+
+    SetFeatureEnabled(Feature::UpdateReminders, pJson.GetBoolean("Update Reminders", true));
+    std::string sSkippedClientVersion;
+    if (pJson.TryGetString("Skipped Client Version", sSkippedClientVersion))
+        SetSkippedClientVersion(sSkippedClientVersion);
 
     m_nBackgroundThreads = pJson.GetInteger("Num Background Threads", 4);
 
@@ -191,6 +198,9 @@ void JsonFileConfiguration::Save() const
         return;
     }
 
+    // one save at a time (see m_mtxSave); held until the file is written
+    std::lock_guard<std::mutex> lockSave(m_mtxSave);
+
     ra::util::Json::Writer pWriter;
     pWriter.SetString("Username", m_sUsername);
     pWriter.SetString("Token", m_sApiToken);
@@ -213,6 +223,9 @@ void JsonFileConfiguration::Save() const
     WritePopupLocation(pWriter, "Informational Notification Display", GetPopupLocation(ra::ui::viewmodels::Popup::Message));
 
     pWriter.SetBoolean("Prefer Decimal", IsFeatureEnabled(Feature::PreferDecimal));
+    pWriter.SetBoolean("Update Reminders", IsFeatureEnabled(Feature::UpdateReminders));
+    if (!m_sSkippedClientVersion.empty())
+        pWriter.SetString("Skipped Client Version", m_sSkippedClientVersion);
     pWriter.SetInteger("Num Background Threads", m_nBackgroundThreads);
 
     if (!m_sScreenshotDirectory.empty())
@@ -240,6 +253,18 @@ void JsonFileConfiguration::Save() const
     auto pFile = pFileSystem.CreateTextFile(m_sFilename);
     if (pFile != nullptr)
         pWriter.Save(*pFile);
+}
+
+std::string JsonFileConfiguration::GetSkippedClientVersion() const
+{
+    std::lock_guard<std::mutex> lock(m_mtxSave);
+    return m_sSkippedClientVersion;
+}
+
+void JsonFileConfiguration::SetSkippedClientVersion(const std::string& sValue)
+{
+    std::lock_guard<std::mutex> lock(m_mtxSave);
+    m_sSkippedClientVersion = sValue;
 }
 
 bool JsonFileConfiguration::IsFeatureEnabled(Feature nFeature) const noexcept

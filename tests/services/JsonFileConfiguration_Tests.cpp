@@ -115,6 +115,47 @@ public:
         AssertContains(fileSystem.GetFileContents(sFilename), "\"Token\":\"TOKEN\"");
     }
 
+    TEST_METHOD(TestSkippedClientVersion)
+    {
+        MockFileSystem fileSystem;
+
+        // default
+        JsonFileConfiguration config;
+        Assert::AreEqual(std::string(""), config.GetSkippedClientVersion());
+
+        // no file
+        Assert::IsFalse(config.Load(sFilename));
+        Assert::AreEqual(std::string(""), config.GetSkippedClientVersion());
+
+        // no value provided
+        fileSystem.MockFile(sFilename, "{}");
+        Assert::IsTrue(config.Load(sFilename));
+        Assert::AreEqual(std::string(""), config.GetSkippedClientVersion());
+
+        // value provided
+        fileSystem.MockFile(sFilename, "{\"Skipped Client Version\":\"1.8.4\"}");
+        Assert::IsTrue(config.Load(sFilename));
+        Assert::AreEqual(std::string("1.8.4"), config.GetSkippedClientVersion());
+
+        // a later load without the key forgets it
+        fileSystem.MockFile(sFilename, "{}");
+        Assert::IsTrue(config.Load(sFilename));
+        Assert::AreEqual(std::string(""), config.GetSkippedClientVersion());
+
+        // provide value
+        config.SetSkippedClientVersion("1.8.5");
+        Assert::AreEqual(std::string("1.8.5"), config.GetSkippedClientVersion());
+
+        // persist value
+        config.Save();
+        AssertContains(fileSystem.GetFileContents(sFilename), "\"Skipped Client Version\":\"1.8.5\"");
+
+        // an empty value is not written at all
+        config.SetSkippedClientVersion("");
+        config.Save();
+        AssertDoesNotContain(fileSystem.GetFileContents(sFilename), "Skipped Client Version");
+    }
+
     void TestFeature(ra::services::Feature nFeature, const std::string& sJsonKey, bool bDefault)
     {
         MockFileSystem fileSystem;
@@ -181,6 +222,11 @@ public:
     TEST_METHOD(TestPreferDecimal)
     {
         TestFeature(ra::services::Feature::PreferDecimal, "Prefer Decimal", false);
+    }
+
+    TEST_METHOD(TestUpdateReminders)
+    {
+        TestFeature(ra::services::Feature::UpdateReminders, "Update Reminders", true);
     }
 
     void TestPopupLocation(ra::ui::viewmodels::Popup nPopup, const std::string& sJsonKey, ra::ui::viewmodels::PopupLocation nDefault)
@@ -323,6 +369,58 @@ public:
         const auto oLast = reloaded.GetWindowSize("Window199");
         Assert::AreEqual(299, oLast.Width);
         Assert::AreEqual(249, oLast.Height);
+    }
+
+    TEST_METHOD(TestSavesFromTwoThreadsAtOnce)
+    {
+        // The start-up version check saves from a pool worker (a skipped version)
+        // while the UI thread may be saving too (Login, Overlay Settings). Two
+        // saves at once would both truncate and rewrite the file. In a normal
+        // build this usually survives; checks/tsan-notify.sh reports the race.
+        MockFileSystem fileSystem;
+        fileSystem.MockFile(sFilename, "{}");
+        JsonFileConfiguration config;
+        Assert::IsTrue(config.Load(sFilename));
+        config.SetUsername("User");
+
+        std::thread tOther([&config]() {
+            for (int i = 0; i < 50; ++i)
+                config.Save();
+        });
+
+        for (int i = 0; i < 50; ++i)
+            config.Save();
+
+        tOther.join();
+
+        JsonFileConfiguration reloaded;
+        Assert::IsTrue(reloaded.Load(sFilename));
+        Assert::AreEqual(std::string("User"), reloaded.GetUsername());
+    }
+
+    TEST_METHOD(TestSkippedClientVersionSetOnAnotherThreadWhileSaving)
+    {
+        // The worker that stores a skipped version races any save on the UI
+        // thread. Run under checks/tsan-notify.sh.
+        MockFileSystem fileSystem;
+        fileSystem.MockFile(sFilename, "{}");
+        JsonFileConfiguration config;
+        Assert::IsTrue(config.Load(sFilename));
+
+        std::thread tSetter([&config]() {
+            for (int i = 0; i < 200; ++i)
+                config.SetSkippedClientVersion("1.8." + std::to_string(i));
+        });
+
+        for (int i = 0; i < 50; ++i)
+            config.Save();
+
+        tSetter.join();
+        config.Save();
+
+        JsonFileConfiguration reloaded;
+        Assert::IsTrue(reloaded.Load(sFilename));
+        Assert::AreEqual(std::string("1.8.199"), reloaded.GetSkippedClientVersion());
     }
 };
 
