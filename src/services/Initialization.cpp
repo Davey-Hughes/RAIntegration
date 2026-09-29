@@ -52,7 +52,7 @@ namespace ra {
 namespace services {
 
 bool Initialization::s_bIsInitialized = false;
-bool Initialization::s_bIsShuttingDown = false;
+std::atomic<bool> Initialization::s_bIsShuttingDown{false};
 
 bool ServiceLocator::IsInitialized() noexcept
 {

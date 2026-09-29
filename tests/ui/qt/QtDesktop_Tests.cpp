@@ -18,10 +18,12 @@
 #include <QApplication>
 #include <QDialog>
 #include <QMessageBox>
+#include <QObject>
 #include <QString>
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <future>
 #include <string>
 #include <thread>
@@ -209,6 +211,43 @@ void DeleteNotices()
             delete pNotice;
     }
 }
+
+// Sets an environment variable - or unsets it, given nullptr - for as long as this lives, then puts back what was
+// there. Declare it before the test's Qt host: the environment must not change while a Qt thread runs.
+class EnvironmentOverride
+{
+public:
+    EnvironmentOverride(const char* sName, const char* sValue) : m_sName(sName)
+    {
+        const char* sOld = std::getenv(sName);
+        m_bHadValue = (sOld != nullptr);
+        if (m_bHadValue)
+            m_sOldValue = sOld;
+
+        if (sValue != nullptr)
+            setenv(sName, sValue, 1);
+        else
+            unsetenv(sName);
+    }
+
+    ~EnvironmentOverride() noexcept
+    {
+        if (m_bHadValue)
+            setenv(m_sName.c_str(), m_sOldValue.c_str(), 1);
+        else
+            unsetenv(m_sName.c_str());
+    }
+
+    EnvironmentOverride(const EnvironmentOverride&) noexcept = delete;
+    EnvironmentOverride& operator=(const EnvironmentOverride&) noexcept = delete;
+    EnvironmentOverride(EnvironmentOverride&&) noexcept = delete;
+    EnvironmentOverride& operator=(EnvironmentOverride&&) noexcept = delete;
+
+private:
+    std::string m_sName;
+    std::string m_sOldValue;
+    bool m_bHadValue = false;
+};
 
 class FakeQtApplicationHost : public ra::services::IQtApplicationHost
 {
@@ -624,6 +663,7 @@ public:
             Assert::IsTrue(bReturned, L"answering the dialog did not release the caller");
             Assert::AreEqual(DialogResult::OK, oCaller.Result());
             Assert::AreEqual(size_t(0), oDesktop.ModalNotStartedCount());
+            Assert::AreEqual(size_t(1), oDesktop.StillWaitingForHostCount(), L"the long wait was not logged, once");
         }
         oHost.Stop();
     }
@@ -658,6 +698,49 @@ public:
             Assert::AreEqual(size_t(1), oDesktop.ModalNotStartedCount());
             Assert::AreEqual(0, oPresenter.nCreateModal.load());
             Assert::IsTrue(FindDialog(QStringLiteral("A")) == nullptr, L"the queued call opened the dialog after its caller was answered");
+        }
+        oHost.Stop();
+    }
+
+    TEST_METHOD(TestShutdownDestroysAWorkersModalWithoutAPump)
+    {
+        // Nothing pumps between _RA_Shutdown and the loader's dlclose: a rejected dialog left to deleteLater would
+        // outlive the library, with its connections into library code.
+        TestViewModel vmWindow(L"A");
+        BorrowedQtApplication oApp;
+        ra::services::impl::QtApplicationHost oHost;
+        oHost.Start();
+        ra::services::ServiceLocator::ServiceOverride<ra::services::IQtApplicationHost> oOverride(&oHost);
+        {
+            QtDesktop oDesktop;
+            oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+
+            ModalCaller oCaller(oDesktop, vmWindow);
+            const bool bOpened = oApp.PumpUntil([]() { return FindDialog(QStringLiteral("A")) != nullptr; }, 5s);
+
+            bool bDestroyed = false;
+            QObject oWatcher; // ends the watch with the test, whatever became of the dialog
+            if (bOpened)
+            {
+                QObject::connect(FindDialog(QStringLiteral("A")), &QObject::destroyed, &oWatcher,
+                                 [&bDestroyed]() { bDestroyed = true; });
+            }
+
+            oDesktop.Shutdown(); // inline: this thread is the Qt thread
+            const bool bDestroyedWithoutAPump = bDestroyed;
+            const bool bReleased = oCaller.Returned(2s);
+
+            // whatever was left to a deferred delete goes now, inside the test
+            oApp.Pump();
+            if (!bReleased)
+                RejectAll();
+
+            Assert::IsTrue(bOpened, L"the dialog never opened once the host pumped");
+            Assert::IsTrue(bDestroyedWithoutAPump, L"the rejected dialog outlived Shutdown, waiting for a pump");
+            Assert::IsTrue(bReleased, L"Shutdown left the worker waiting on its dialog");
+            // the reject's own answer, not the destroyed-unanswered No: finished() released the caller first
+            Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
+            Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
         }
         oHost.Stop();
     }
@@ -829,6 +912,76 @@ public:
         Assert::IsTrue(bReleased, L"stopping the Qt host left the worker waiting on its dialog");
         Assert::AreEqual(DialogResult::Cancel, oCaller.Result());
         Assert::AreEqual(size_t(1), oDesktop.ClosedForShutdownCount());
+    }
+
+    // --- RA_AUTO_ANSWER_DIALOGS: the headless runs' hook ---
+
+    TEST_METHOD(TestAutoAnswerAnswersModalsWithoutShowingThem)
+    {
+        TestViewModel vmOnQt(L"A");
+        TestViewModel vmFromWorker(L"B");
+        EnvironmentOverride oAutoAnswer("RA_AUTO_ANSWER_DIALOGS", "1");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        auto pPresenter = std::make_unique<TestPresenter>();
+        auto& oPresenter = *pPresenter;
+        oDesktop.AddPresenter(std::move(pPresenter));
+
+        // from the Qt thread, which would exec() the dialog
+        std::atomic<int> nOnQt{-1};
+        oQt.Host().Invoke([&oDesktop, &vmOnQt, &nOnQt]() { nOnQt = ra::etoi(oDesktop.ShowModal(vmOnQt)); });
+        const bool bOnQtReturned = oQt.WaitOnQt([&nOnQt]() { return nOnQt.load() != -1; }, 2s);
+        if (!bOnQtReturned)
+        {
+            oQt.RunOnQt(RejectAll); // it is in exec(): answer it, and let the nested loop unwind
+            oQt.WaitOnQt([&nOnQt]() { return nOnQt.load() != -1; });
+        }
+
+        // from a worker, which would wait for the Qt thread to open it
+        ModalCaller oCaller(oDesktop, vmFromWorker);
+        const bool bWorkerReturned = oCaller.Returned(2s);
+        if (!bWorkerReturned)
+        {
+            oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("B")) != nullptr; }, 2s);
+            oQt.RunOnQt(RejectAll);
+            oCaller.Returned(2s);
+        }
+
+        Assert::IsTrue(bOnQtReturned, L"the Qt thread's ShowModal showed its dialog");
+        Assert::IsTrue(bWorkerReturned, L"the worker's ShowModal showed its dialog");
+        Assert::AreEqual(DialogResult::No, ra::itoe<DialogResult>(nOnQt.load()));
+        Assert::AreEqual(DialogResult::No, oCaller.Result());
+        Assert::AreEqual(0, oPresenter.nCreateModal.load(), L"a dialog was created");
+        Assert::AreEqual(size_t(2), oDesktop.AutoAnsweredCount());
+    }
+
+    TEST_METHOD(TestModalsAreShownWhenAutoAnswerIsOff)
+    {
+        // unset, empty and "0" all leave the hook off
+        for (const char* sValue : {static_cast<const char*>(nullptr), "", "0"})
+        {
+            TestViewModel vmWindow(L"A");
+            EnvironmentOverride oAutoAnswer("RA_AUTO_ANSWER_DIALOGS", sValue);
+            QtTestHost oQt;
+            QtDesktop oDesktop;
+            auto pPresenter = std::make_unique<TestPresenter>();
+            auto& oPresenter = *pPresenter;
+            oDesktop.AddPresenter(std::move(pPresenter));
+
+            ModalCaller oCaller(oDesktop, vmWindow);
+            const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+            if (bShown)
+                oQt.RunOnQt([]() { FindDialog(QStringLiteral("A"))->accept(); });
+            const bool bReturned = oCaller.Returned(2s);
+            if (!bReturned)
+                oQt.RunOnQt(RejectAll);
+
+            Assert::IsTrue(bShown, L"the dialog never appeared");
+            Assert::IsTrue(bReturned, L"answering the dialog did not release the caller");
+            Assert::AreEqual(DialogResult::OK, oCaller.Result());
+            Assert::AreEqual(1, oPresenter.nCreateModal.load());
+            Assert::AreEqual(size_t(0), oDesktop.AutoAnsweredCount());
+        }
     }
 
     // --- the "not available" notice ---

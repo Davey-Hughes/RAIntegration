@@ -24,6 +24,8 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 
 namespace ra {
@@ -69,6 +71,14 @@ const char* DialogResultName(ra::ui::DialogResult nResult) noexcept
         default:
             return "None";
     }
+}
+
+// RA_AUTO_ANSWER_DIALOGS set to anything but empty or "0": the headless runs' hook (see QtDesktop.hh). Read on every
+// call, so a test can turn it on and off.
+bool AutoAnswerRequested()
+{
+    const char* sValue = std::getenv("RA_AUTO_ANSWER_DIALOGS");
+    return sValue != nullptr && sValue[0] != '\0' && std::strcmp(sValue, "0") != 0;
 }
 
 } // namespace
@@ -214,6 +224,16 @@ ra::ui::DialogResult QtDesktop::DoShowModal(WindowViewModelBase& vmWindow) const
         return nAnswer;
     }
 
+    if (AutoAnswerRequested())
+    {
+        // shown to nobody: answered as a box closed unanswered is
+        ++m_pState->nAutoAnswered;
+        const auto nAnswer = RefusalAnswer(vmWindow);
+        RA_LOG_WARN("Dialog \"%s\" auto-answered %s (RA_AUTO_ANSWER_DIALOGS)",
+                    ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
+        return nAnswer;
+    }
+
     if (pHost->IsOnQtThread())
         return ShowModalOnQtThread(*pPresenter, vmWindow);
 
@@ -319,9 +339,12 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
         // not at all while it hashes a disc image. A clock cannot tell a busy
         // host from a hung one, so the wait for the dialog to start ends only
         // when the library is shutting down (the pool drain this caller would
-        // otherwise hold up) or the desktop has closed.
+        // otherwise hold up) or the desktop has closed. Past the modal start
+        // timeout it says so, once, and keeps waiting.
         oHost.Invoke(fOpen);
 
+        const auto tWarnAt = std::chrono::steady_clock::now() + m_tModalStartTimeout;
+        bool bWarned = false;
         std::unique_lock<std::mutex> oLock(pWait->oMutex);
         while (!pWait->bStarted && !pWait->bDone)
         {
@@ -335,6 +358,18 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
                             ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str(), DialogResultName(nAnswer));
                 return nAnswer;
             }
+
+            if (!bWarned && std::chrono::steady_clock::now() >= tWarnAt)
+            {
+                bWarned = true;
+                oLock.unlock();
+                ++pState->nStillWaitingForHost;
+                RA_LOG_WARN("Still waiting for the host to pump; dialog \"%s\"",
+                            ra::util::String::Narrow(vmWindow.GetWindowTitle()).c_str());
+                oLock.lock();
+                continue; // the state may have changed while unlocked
+            }
+
             pWait->cvDone.wait_for(oLock, std::chrono::milliseconds(100));
         }
         pWait->cvDone.wait(oLock, [&pWait]() { return pWait->bDone; });
@@ -391,6 +426,17 @@ void QtDesktop::CloseAll(State& oState)
         if (ra::services::ServiceLocator::Exists<ra::services::ILogger>())
             RA_LOG_INFO("Closing dialog \"%s\" for shutdown", pDialog->windowTitle().toStdString().c_str());
         pDialog->reject();
+
+        // A worker's dialog that the reject finished has been forgotten, its caller released, and its delete left to
+        // deleteLater - but nothing may pump again before the loader's dlclose, and a dialog outliving the library
+        // keeps connections into its code. Delete it now: Qt drops the pending deferred delete, and the destroyed
+        // handler finds the caller already released. Still listed means not ours to delete: a Qt-thread caller's
+        // exec(), which owns its dialog, has not returned yet, or the dialog put the reject off (ModalDialogBase,
+        // while CanAccept is on the stack) and finishes when that returns.
+        const bool bStillListed = std::any_of(oState.vOpenModals.begin(), oState.vOpenModals.end(),
+                                              [&pDialog](const QPointer<QDialog>& pOpen) { return pOpen == pDialog; });
+        if (!pDialog.isNull() && !bStillListed)
+            delete pDialog.data();
     }
 
     // Then the non-modal windows, deleted now rather than later: the Qt

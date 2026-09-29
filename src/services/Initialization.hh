@@ -4,6 +4,8 @@
 
 #include "RAInterface/RA_Emulators.h"
 
+#include <atomic>
+
 namespace ra {
 namespace services {
 
@@ -18,15 +20,15 @@ public:
 
     static bool IsInitialized() noexcept { return s_bIsInitialized; }
 
-    static bool IsShuttingDown() noexcept { return s_bIsShuttingDown; }
+    static bool IsShuttingDown() noexcept { return s_bIsShuttingDown.load(); }
 
-    static void StartShutdown() noexcept { s_bIsShuttingDown = true; }
+    static void StartShutdown() noexcept { s_bIsShuttingDown.store(true); }
 
 private:
     static void InitializeNotifyTargets();
 
     static bool s_bIsInitialized;
-    static bool s_bIsShuttingDown;
+    static std::atomic<bool> s_bIsShuttingDown; // polled from pool workers (QtDesktop's borrowed modal wait)
 };
 
 } // namespace services

@@ -31,6 +31,12 @@ namespace qt {
 /// application that can host widgets - is answered without one: logged, with a message box's escape answer (Cancel,
 /// else No, else OK) and No for anything else. When widgets can be shown, its title is also listed in a "not
 /// available" notice.
+///
+/// A test hook for headless runs: with the environment variable RA_AUTO_ANSWER_DIALOGS set to anything but empty or
+/// "0", a modal dialog that would be shown is not - from the Qt thread or any other - and ShowModal returns at once
+/// with that same escape answer, logged at WARN ("auto-answered") and counted (AutoAnsweredCount). It is read on
+/// every call. ShowWindow is unaffected. Only for runs with no one to answer: a headless gate sets it so that the
+/// login box, say, cannot hang the run.
 /// </summary>
 class QtDesktop : public ra::ui::null::NullDesktop
 {
@@ -54,6 +60,8 @@ public:
 
     /// <summary>
     /// How long ShowModal waits for its dialog to open on the Qt thread before answering without it (see RefusalAnswer).
+    /// A borrowed host (IsBorrowed) ignores it: that wait ends only at shutdown or when the desktop closes - a clock
+    /// cannot tell a busy emulator from a hung one - and past this timeout it only logs, once, that it still waits.
     /// </summary>
     void SetModalStartTimeout(std::chrono::milliseconds tTimeout) noexcept { m_tModalStartTimeout = tTimeout; }
 
@@ -72,6 +80,8 @@ public:
     size_t ClosedForShutdownCount() const noexcept { return m_pState->nClosedForShutdown.load(); }
     size_t RefusedAfterShutdownCount() const noexcept { return m_pState->nRefusedAfterShutdown.load(); }
     size_t NotAvailableNoticeCount() const noexcept { return m_pState->nNotAvailableNotices.load(); }
+    size_t AutoAnsweredCount() const noexcept { return m_pState->nAutoAnswered.load(); }
+    size_t StillWaitingForHostCount() const noexcept { return m_pState->nStillWaitingForHost.load(); }
 
     /// <summary>The objectName of the "not available" notice, for tests.</summary>
     static constexpr const char* NotAvailableNoticeName = "RANotAvailableNotice";
@@ -88,6 +98,8 @@ private:
         std::atomic<size_t> nClosedForShutdown{0};
         std::atomic<size_t> nRefusedAfterShutdown{0};
         std::atomic<size_t> nNotAvailableNotices{0}; // "not available" notice boxes opened
+        std::atomic<size_t> nAutoAnswered{0};        // modals answered unshown (RA_AUTO_ANSWER_DIALOGS)
+        std::atomic<size_t> nStillWaitingForHost{0}; // borrowed waits that outlasted m_tModalStartTimeout
 
         // The "not available" notice. Titles wait here for the Qt thread,
         // which lists them all in one box.
