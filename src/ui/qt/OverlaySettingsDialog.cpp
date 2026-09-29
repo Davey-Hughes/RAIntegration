@@ -49,7 +49,8 @@ OverlaySettingsDialog::OverlaySettingsDialog(OverlaySettingsViewModel& vmSetting
       m_bindActiveChallengeLocation(vmSettings),
       m_bindProgressTrackerLocation(vmSettings),
       m_bindMessageLocation(vmSettings),
-      m_bindScreenshotLocation(vmSettings)
+      m_bindScreenshotLocation(vmSettings),
+      m_bindUpdateReminders(vmSettings)
 {
     auto* pForm = new QFormLayout();
 
@@ -58,13 +59,13 @@ OverlaySettingsDialog::OverlaySettingsDialog(OverlaySettingsViewModel& vmSetting
     AddLocation(*pForm, QStringLiteral("AchievementTriggerLocation"), QStringLiteral("&Achievement triggered notification"),
                 m_bindAchievementTriggerLocation, vmSettings.PopupLocations(),
                 OverlaySettingsViewModel::AchievementTriggerLocationProperty);
-    AddScreenshot(*pForm, QStringLiteral("ScreenshotAchievementTrigger"),
-                  QStringLiteral("&Capture achievement triggered screenshot"), m_bindScreenshotAchievementTrigger,
-                  OverlaySettingsViewModel::ScreenshotAchievementTriggerProperty);
+    AddCheckBox(*pForm, QStringLiteral("ScreenshotAchievementTrigger"),
+                QStringLiteral("&Capture achievement triggered screenshot"), m_bindScreenshotAchievementTrigger,
+                OverlaySettingsViewModel::ScreenshotAchievementTriggerProperty);
     AddLocation(*pForm, QStringLiteral("MasteryLocation"), QStringLiteral("Game &mastery notification"),
                 m_bindMasteryLocation, vmSettings.PopupLocations(), OverlaySettingsViewModel::MasteryLocationProperty);
-    AddScreenshot(*pForm, QStringLiteral("ScreenshotMastery"), QStringLiteral("Capture &game mastery screenshot"),
-                  m_bindScreenshotMastery, OverlaySettingsViewModel::ScreenshotMasteryProperty);
+    AddCheckBox(*pForm, QStringLiteral("ScreenshotMastery"), QStringLiteral("Capture &game mastery screenshot"),
+                m_bindScreenshotMastery, OverlaySettingsViewModel::ScreenshotMasteryProperty);
     AddLocation(*pForm, QStringLiteral("LeaderboardStartedLocation"), QStringLiteral("&Leaderboard started notification"),
                 m_bindLeaderboardStartedLocation, vmSettings.PopupLocations(),
                 OverlaySettingsViewModel::LeaderboardStartedLocationProperty);
@@ -85,6 +86,10 @@ OverlaySettingsDialog::OverlaySettingsDialog(OverlaySettingsViewModel& vmSetting
                 OverlaySettingsViewModel::ProgressTrackerLocationProperty);
     AddLocation(*pForm, QStringLiteral("MessageLocation"), QStringLiteral("&Informational notifications"),
                 m_bindMessageLocation, vmSettings.PopupLocations(), OverlaySettingsViewModel::MessageLocationProperty);
+
+    // Win32 puts it in the same place: after the last notification row, before the screenshot location
+    AddCheckBox(*pForm, QStringLiteral("UpdateReminders"), QStringLiteral("Tell me when a new client &version is available"),
+                m_bindUpdateReminders, OverlaySettingsViewModel::UpdateRemindersProperty);
 
     // Read-only, as on Win32 (ES_READONLY): the location changes only through Browse.
     auto* pLocation = new QLineEdit(this);
@@ -129,9 +134,9 @@ void OverlaySettingsDialog::AddLocation(QFormLayout& oForm, const QString& sName
     RegisterBinding(oBinding);
 }
 
-void OverlaySettingsDialog::AddScreenshot(QFormLayout& oForm, const QString& sName, const QString& sLabel,
-                                          ra::ui::qt::bindings::CheckBoxBinding& oBinding,
-                                          const BoolModelProperty& pProperty)
+void OverlaySettingsDialog::AddCheckBox(QFormLayout& oForm, const QString& sName, const QString& sLabel,
+                                        ra::ui::qt::bindings::CheckBoxBinding& oBinding,
+                                        const BoolModelProperty& pProperty)
 {
     auto* pCheckBox = new QCheckBox(sLabel, this);
     pCheckBox->setObjectName(sName);

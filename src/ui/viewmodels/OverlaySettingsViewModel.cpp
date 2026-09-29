@@ -24,6 +24,7 @@ const IntModelProperty OverlaySettingsViewModel::LeaderboardScoreboardLocationPr
 const IntModelProperty OverlaySettingsViewModel::ActiveChallengeLocationProperty("OverlaySettingsViewModel", "ActiveChallengeLocation", ra::etoi(PopupLocation::BottomRight));
 const IntModelProperty OverlaySettingsViewModel::ProgressTrackerLocationProperty("OverlaySettingsViewModel", "ProgressLocation", ra::etoi(PopupLocation::BottomRight));
 const StringModelProperty OverlaySettingsViewModel::ScreenshotLocationProperty("OverlaySettingsViewModel", "ScreenshotLocation", L"");
+const BoolModelProperty OverlaySettingsViewModel::UpdateRemindersProperty("OverlaySettingsViewModel", "UpdateReminders", true);
 
 OverlaySettingsViewModel::OverlaySettingsViewModel() noexcept
 {
@@ -67,6 +68,8 @@ void OverlaySettingsViewModel::Initialize()
     SetProgressTrackerLocation(pWindowConfiguration.GetPopupLocation(Popup::Progress));
 
     SetScreenshotLocation(pConfiguration.GetScreenshotDirectory());
+
+    SetUpdateReminders(pConfiguration.IsFeatureEnabled(ra::services::Feature::UpdateReminders));
 }
 
 void OverlaySettingsViewModel::Commit()
@@ -91,6 +94,8 @@ void OverlaySettingsViewModel::Commit()
         sLocation.push_back(RA_DIR_SEP_L[0]);
 
     pConfiguration.SetScreenshotDirectory(sLocation);
+
+    pConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, UpdateReminders());
 
     pConfiguration.Save();
 }

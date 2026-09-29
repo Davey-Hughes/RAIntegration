@@ -36,8 +36,8 @@ private:
     void AddLocation(QFormLayout& oForm, const QString& sName, const QString& sLabel,
                      ra::ui::qt::bindings::ComboBoxBinding& oBinding,
                      const ra::ui::viewmodels::LookupItemViewModelCollection& vmItems, const IntModelProperty& pProperty);
-    void AddScreenshot(QFormLayout& oForm, const QString& sName, const QString& sLabel,
-                       ra::ui::qt::bindings::CheckBoxBinding& oBinding, const BoolModelProperty& pProperty);
+    void AddCheckBox(QFormLayout& oForm, const QString& sName, const QString& sLabel,
+                     ra::ui::qt::bindings::CheckBoxBinding& oBinding, const BoolModelProperty& pProperty);
 
     ra::ui::qt::bindings::ComboBoxBinding m_bindAchievementTriggerLocation;
     ra::ui::qt::bindings::CheckBoxBinding m_bindScreenshotAchievementTrigger;
@@ -51,6 +51,7 @@ private:
     ra::ui::qt::bindings::ComboBoxBinding m_bindProgressTrackerLocation;
     ra::ui::qt::bindings::ComboBoxBinding m_bindMessageLocation;
     ra::ui::qt::bindings::TextBoxBinding m_bindScreenshotLocation;
+    ra::ui::qt::bindings::CheckBoxBinding m_bindUpdateReminders;
 };
 
 } // namespace qt

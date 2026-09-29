@@ -162,6 +162,7 @@ public:
         ValidateFeatureInitialize(ra::services::Feature::AchievementTriggeredScreenshot, [](OverlaySettingsViewModel& vm) { return vm.ScreenshotAchievementTrigger(); });
         ValidatePopupLocationInitialize(ra::ui::viewmodels::Popup::Mastery, [](OverlaySettingsViewModel& vm) { return vm.GetMasteryLocation(); });
         ValidateFeatureInitialize(ra::services::Feature::MasteryNotificationScreenshot, [](OverlaySettingsViewModel& vm) { return vm.ScreenshotMastery(); });
+        ValidateFeatureInitialize(ra::services::Feature::UpdateReminders, [](OverlaySettingsViewModel& vm) { return vm.UpdateReminders(); });
         ValidatePopupLocationInitialize(ra::ui::viewmodels::Popup::LeaderboardStarted, [](OverlaySettingsViewModel& vm) { return vm.GetLeaderboardStartedLocation(); });
         ValidatePopupLocationInitialize(ra::ui::viewmodels::Popup::LeaderboardCanceled, [](OverlaySettingsViewModel& vm) { return vm.GetLeaderboardCanceledLocation(); });
         ValidatePopupLocationInitialize(ra::ui::viewmodels::Popup::LeaderboardTracker, [](OverlaySettingsViewModel& vm) { return vm.GetLeaderboardTrackerLocation(); });
@@ -181,6 +182,7 @@ public:
         ValidateFeatureCommit(ra::services::Feature::AchievementTriggeredScreenshot, [](OverlaySettingsViewModel& vm, bool bValue) { return vm.SetScreenshotAchievementTrigger(bValue); });
         ValidatePopupLocationCommit(ra::ui::viewmodels::Popup::Mastery, [](OverlaySettingsViewModel& vm, ra::ui::viewmodels::PopupLocation nValue) { return vm.SetMasteryLocation(nValue); });
         ValidateFeatureCommit(ra::services::Feature::MasteryNotificationScreenshot, [](OverlaySettingsViewModel& vm, bool bValue) { return vm.SetScreenshotMastery(bValue); });
+        ValidateFeatureCommit(ra::services::Feature::UpdateReminders, [](OverlaySettingsViewModel& vm, bool bValue) { return vm.SetUpdateReminders(bValue); });
         ValidatePopupLocationCommit(ra::ui::viewmodels::Popup::LeaderboardStarted, [](OverlaySettingsViewModel& vm, ra::ui::viewmodels::PopupLocation nValue) { return vm.SetLeaderboardStartedLocation(nValue); });
         ValidatePopupLocationCommit(ra::ui::viewmodels::Popup::LeaderboardCanceled, [](OverlaySettingsViewModel& vm, ra::ui::viewmodels::PopupLocation nValue) { return vm.SetLeaderboardCanceledLocation(nValue); });
         ValidatePopupLocationCommit(ra::ui::viewmodels::Popup::LeaderboardTracker, [](OverlaySettingsViewModel& vm, ra::ui::viewmodels::PopupLocation nValue) { return vm.SetLeaderboardTrackerLocation(nValue); });
@@ -198,6 +200,15 @@ public:
         vmSettings.SetScreenshotLocation(L"C:\\Temp");
         vmSettings.Commit();
         Assert::AreEqual(std::wstring(L"C:\\Temp") + RA_DIR_SEP_L, vmSettings.mockConfiguration.GetScreenshotDirectory());
+    }
+
+    TEST_METHOD(TestCommitSaves)
+    {
+        OverlaySettingsViewModelHarness vmSettings;
+        Assert::AreEqual(0, vmSettings.mockConfiguration.GetSaveCount());
+
+        vmSettings.Commit();
+        Assert::AreEqual(1, vmSettings.mockConfiguration.GetSaveCount());
     }
 
     TEST_METHOD(TestAchievementTriggerDependencies)

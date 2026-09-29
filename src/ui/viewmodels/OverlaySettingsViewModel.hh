@@ -206,6 +206,21 @@ public:
     void SetScreenshotLocation(const std::wstring& sValue) { SetValue(ScreenshotLocationProperty, sValue); }
 
     /// <summary>
+    /// The <see cref="ModelProperty" /> for whether to say when a new client version is available.
+    /// </summary>
+    static const BoolModelProperty UpdateRemindersProperty;
+
+    /// <summary>
+    /// Gets whether to say when a new client version is available.
+    /// </summary>
+    bool UpdateReminders() const { return GetValue(UpdateRemindersProperty); }
+
+    /// <summary>
+    /// Sets whether to say when a new client version is available.
+    /// </summary>
+    void SetUpdateReminders(bool bValue) { SetValue(UpdateRemindersProperty, bValue); }
+
+    /// <summary>
     /// Opens the folder browser dialog to select a <see cref="ScreenshotLocation" />.
     /// </summary>
     void BrowseLocation();

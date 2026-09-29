@@ -130,6 +130,40 @@ public:
         Assert::IsTrue(vmSettings.ScreenshotMastery());
     }
 
+    TEST_METHOD(TestTheUpdateRemindersCheckBoxIsBound)
+    {
+        ra::services::mocks::MockConfiguration mockConfiguration;
+        ra::services::mocks::MockWindowConfiguration mockWindowConfiguration;
+        mockConfiguration.SetFeatureEnabled(Feature::UpdateReminders, false);
+        OverlaySettingsViewModel vmSettings;
+        vmSettings.Initialize();
+        QtTestHost oQt;
+        auto* pDialog = Open(oQt, vmSettings);
+
+        std::wstring sLabel;
+        bool bFound = false;
+        bool bShownChecked = true;
+        bool bCheckedAfterClick = false;
+        oQt.RunOnQt([pDialog, &sLabel, &bFound, &bShownChecked, &bCheckedAfterClick]() {
+            auto* pCheckBox = pDialog->findChild<QCheckBox*>(QStringLiteral("UpdateReminders"));
+            bFound = (pCheckBox != nullptr);
+            if (bFound)
+            {
+                sLabel = pCheckBox->text().toStdWString();
+                bShownChecked = pCheckBox->isChecked();
+                pCheckBox->click();
+                bCheckedAfterClick = pCheckBox->isChecked();
+            }
+        });
+        Delete(oQt, pDialog);
+
+        Assert::IsTrue(bFound, L"no UpdateReminders checkbox");
+        Assert::AreEqual(std::wstring(L"Tell me when a new client &version is available"), sLabel);
+        Assert::IsFalse(bShownChecked, L"the checkbox shows the configuration");
+        Assert::IsTrue(bCheckedAfterClick);
+        Assert::IsTrue(vmSettings.UpdateReminders(), L"a click writes the view model");
+    }
+
     TEST_METHOD(TestBrowseShowsTheChosenFolder)
     {
         ra::services::mocks::MockConfiguration mockConfiguration;
