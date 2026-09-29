@@ -121,7 +121,7 @@ private:
         emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, bHardcore);
         emulator.mockConfiguration.SetSkippedClientVersion(sSkippedVersion);
         emulator.MockVersions("0.57.0.0", "0.58.0.0", "0.56.0.0");
-        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&)
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&) noexcept
         {
             return ra::ui::DialogResult::No;
         });
@@ -618,7 +618,7 @@ public:
         emulator.mockConfiguration.SetHostName("host");
         emulator.mockConfiguration.SetFeatureEnabled(ra::services::Feature::UpdateReminders, false);
         emulator.MockVersions("0.57.0.0", "0.58.0.0");
-        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&)
+        emulator.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([](ra::ui::viewmodels::MessageBoxViewModel&) noexcept
         {
             return ra::ui::DialogResult::No;
         });
