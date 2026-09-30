@@ -74,6 +74,10 @@ private:
 
     // The image for (nType, sName): cached, or decoded now. With pReference, the reference takes a reference to it.
     QImage Resolve(ImageType nType, const std::string& sName, const ImageReference* pReference) const;
+
+    // With pReference, the reference takes a reference to the entry - once: drawing the same reference every frame
+    // does not count it again. Called under m_mtxImages.
+    void TakeReference(Entry& pEntry, const ImageReference* pReference) const;
     QImage GetDefaultImage(ImageType nType) const;
 
     // A download finished (a pool worker): a file that would not decode may be good now.

@@ -78,6 +78,15 @@ std::wstring QtImageRepository::GetFilename(ImageType nType, const std::string& 
     return m_oFiles.GetFilename(nType, sName);
 }
 
+void QtImageRepository::TakeReference(Entry& pEntry, const ImageReference* pReference) const
+{
+    if (pReference != nullptr && pReference->GetData() != pEntry.nId)
+    {
+        ++pEntry.nReferences;
+        pReference->SetData(pEntry.nId);
+    }
+}
+
 QImage QtImageRepository::Resolve(ImageType nType, const std::string& sName, const ImageReference* pReference) const
 {
     if (sName.empty())
@@ -92,11 +101,7 @@ QImage QtImageRepository::Resolve(ImageType nType, const std::string& sName, con
         auto pIter = pMap->find(sName);
         if (pIter != pMap->end())
         {
-            if (pReference != nullptr && pReference->GetData() != pIter->second.nId)
-            {
-                ++pIter->second.nReferences;
-                pReference->SetData(pIter->second.nId);
-            }
+            TakeReference(pIter->second, pReference);
             return pIter->second.oImage;
         }
 
@@ -140,11 +145,7 @@ QImage QtImageRepository::Resolve(ImageType nType, const std::string& sName, con
         pIter = pMap->emplace(sName, std::move(oEntry)).first;
     }
 
-    if (pReference != nullptr && pReference->GetData() != pIter->second.nId)
-    {
-        ++pIter->second.nReferences;
-        pReference->SetData(pIter->second.nId);
-    }
+    TakeReference(pIter->second, pReference);
 
     return pIter->second.oImage;
 }

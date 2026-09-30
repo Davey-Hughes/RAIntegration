@@ -250,6 +250,23 @@ public:
         Assert::AreEqual(2U, harness.repository.GetDecodeCount());
     }
 
+    TEST_METHOD(TestDrawingOneReferenceEveryFrameHoldsOneReference)
+    {
+        // a popup draws its badge on every frame: one reference, however many draws
+        QtImageRepositoryHarness harness;
+        harness.MockBadge("12345", Png(64, 64, BADGE_COLOR));
+        {
+            const ImageReference pImage(ImageType::Badge, "12345");
+            for (int nFrame = 0; nFrame < 3; ++nFrame)
+                harness.repository.GetImage(pImage);
+            Assert::AreEqual(1U, harness.repository.GetDecodeCount());
+        }
+
+        // its one reference is released, so the image is dropped: the next draw decodes it again
+        harness.repository.GetImage(ImageReference(ImageType::Badge, "12345"));
+        Assert::AreEqual(2U, harness.repository.GetDecodeCount(), L"a reference drawn three times held more than one");
+    }
+
     TEST_METHOD(TestAnUndecodableFileIsDecodedOnce)
     {
         QtImageRepositoryHarness harness;
