@@ -89,10 +89,11 @@ public:
     std::unique_ptr<ra::ui::drawing::ISurface> CaptureClientArea(const WindowViewModelBase&) const override
     {
         // Never nullptr: OverlayManager::CaptureScreenshot stores this with no
-        // null check and later dereferences it unconditionally. It is
-        // currently unreachable only because NullImageRepository::
-        // IsImageAvailable always returns false; an empty surface keeps that
-        // pairing safe instead of relying on it.
+        // null check and later dereferences it unconditionally. Reachable
+        // since QtImageRepository (O1b): with a screenshot option on,
+        // ProcessScreenshots renders the popup over this once its image is
+        // available, and the empty surface is what keeps that safe.
+        // QtSurfaceFactory::SaveImage writes nothing until O1c.
         return std::make_unique<ra::ui::drawing::null::NullSurface>(0, 0);
     }
 

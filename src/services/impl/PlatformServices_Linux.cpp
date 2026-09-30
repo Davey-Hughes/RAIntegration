@@ -15,8 +15,8 @@
 
 #include "ui/drawing/null/NullSurface.hh"
 #include "ui/drawing/qt/OverlayImage.hh"
+#include "ui/drawing/qt/QtImageRepository.hh"
 #include "ui/drawing/qt/QtSurface.hh"
-#include "ui/null/NullImageRepository.hh"
 #include "ui/qt/QtDesktop.hh"
 
 namespace ra {
@@ -73,7 +73,11 @@ std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
 
 std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository()
 {
-    return std::make_unique<ra::ui::null::NullImageRepository>();
+    // Qt decodes without a Qt application, and the files need none: with no display, images are still fetched, and
+    // nothing draws them because the surface factory is the null one.
+    auto pImageRepository = std::make_unique<ra::ui::drawing::qt::QtImageRepository>();
+    pImageRepository->Initialize();
+    return pImageRepository;
 }
 
 void StartPlatformServices()
