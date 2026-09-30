@@ -14,6 +14,7 @@
 #include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
+#include "ui/drawing/qt/QtSurface.hh"
 #include "ui/null/NullImageRepository.hh"
 #include "ui/qt/QtDesktop.hh"
 
@@ -58,6 +59,14 @@ std::unique_ptr<ra::ui::IDesktop> CreatePlatformDesktop()
 
 std::unique_ptr<ra::ui::drawing::ISurfaceFactory> CreatePlatformSurfaceFactory()
 {
+    // Qt draws text only while a Qt application runs, and aborts without one. With no display there is none
+    // (StartPlatformServices found none), and the null factory keeps the view models running without pixels.
+    if (ra::services::ServiceLocator::Exists<ra::services::IQtApplicationHost>() &&
+        ra::services::ServiceLocator::Get<ra::services::IQtApplicationHost>().IsAvailable())
+    {
+        return std::make_unique<ra::ui::drawing::qt::QtSurfaceFactory>();
+    }
+
     return std::make_unique<ra::ui::drawing::null::NullSurfaceFactory>();
 }
 
