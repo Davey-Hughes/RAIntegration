@@ -10,10 +10,13 @@
 #include "util/Log.hh"
 #include "util/Strings.hh"
 
+#include <QColor>
 #include <QImage>
+#include <QPainter>
 
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace ra {
@@ -24,35 +27,98 @@ namespace qt {
 namespace {
 
 // Windows shows its overlay window at 90% opacity while the theme is transparent (OverlayWindow.cpp:
-// SetLayeredWindowAttributes with LWA_ALPHA 255 * 90 / 100); the finished image gets the same.
-constexpr double WINDOWS_OVERLAY_OPACITY = (255 * 90 / 100) / 255.0;
+// SetLayeredWindowAttributes with LWA_ALPHA 255 * 90 / 100); the image the emulator gets has the same.
+constexpr int WINDOWS_OVERLAY_ALPHA = 255 * 90 / 100;
 
-// A surface with no pixels that counts what is drawn on it: OverlayManager::Render against it, without redrawing
-// everything, draws only what moved or changed - Windows' repaint - so it says whether the picture changed.
-class ChangeProbe : public ISurface
+// One sequence for the whole process, not one per OverlayImage: a new RA_Init's image never repeats a serial the
+// emulator had from the last session's. Never 0, which says "nothing to draw".
+std::atomic<int> s_nLastSerial{0};
+
+int NextSerial() noexcept
+{
+    int nSerial = s_nLastSerial.load();
+    int nNext = 0;
+    do
+    {
+        nNext = (nSerial == std::numeric_limits<int>::max()) ? 1 : nSerial + 1;
+    } while (!s_nLastSerial.compare_exchange_weak(nSerial, nNext));
+
+    return nNext;
+}
+
+// Passes every call on to the image's surface, and counts those that draw: OverlayManager::Render through it, not
+// redrawing everything, is OverlayWindow's repaint, and the count says whether that changed the picture.
+class DrawCounter : public ISurface
 {
 public:
-    ChangeProbe(unsigned int nWidth, unsigned int nHeight) noexcept : m_nWidth(nWidth), m_nHeight(nHeight) {}
+    explicit DrawCounter(ISurface& pSurface) noexcept : m_pSurface(pSurface) {}
 
-    unsigned int GetWidth() const noexcept override { return m_nWidth; }
-    unsigned int GetHeight() const noexcept override { return m_nHeight; }
+    unsigned int GetWidth() const override { return m_pSurface.GetWidth(); }
+    unsigned int GetHeight() const override { return m_pSurface.GetHeight(); }
 
-    void FillRectangle(int, int, int, int, Color) noexcept override { ++m_nDraws; }
-    int LoadFont(const std::string&, int, FontStyles) noexcept override { return 0; }
-    ra::ui::Size MeasureText(int, const std::wstring&) const noexcept override { return {0, 0}; }
-    void WriteText(int, int, int, Color, const std::wstring&) noexcept override { ++m_nDraws; }
-    void DrawImage(int, int, int, int, const ImageReference&) noexcept override { ++m_nDraws; }
-    void DrawImageStretched(int, int, int, int, const ImageReference&) noexcept override { ++m_nDraws; }
-    void DrawSurface(int, int, const ISurface&) noexcept override { ++m_nDraws; }
-    void DrawSurface(int, int, const ISurface&, int, int, int, int) noexcept override { ++m_nDraws; }
-    void SetOpacity(double) noexcept override { ++m_nDraws; }
-    void SetPixels(int, int, int, int, uint32_t*) noexcept override { ++m_nDraws; }
+    void FillRectangle(int nX, int nY, int nWidth, int nHeight, Color nColor) override
+    {
+        ++m_nDraws;
+        m_pSurface.FillRectangle(nX, nY, nWidth, nHeight, nColor);
+    }
+
+    int LoadFont(const std::string& sFont, int nFontSize, FontStyles nStyle) override
+    {
+        return m_pSurface.LoadFont(sFont, nFontSize, nStyle);
+    }
+
+    ra::ui::Size MeasureText(int nFont, const std::wstring& sText) const override
+    {
+        return m_pSurface.MeasureText(nFont, sText);
+    }
+
+    void WriteText(int nX, int nY, int nFont, Color nColor, const std::wstring& sText) override
+    {
+        ++m_nDraws;
+        m_pSurface.WriteText(nX, nY, nFont, nColor, sText);
+    }
+
+    void DrawImage(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage) override
+    {
+        ++m_nDraws;
+        m_pSurface.DrawImage(nX, nY, nWidth, nHeight, pImage);
+    }
+
+    void DrawImageStretched(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage) override
+    {
+        ++m_nDraws;
+        m_pSurface.DrawImageStretched(nX, nY, nWidth, nHeight, pImage);
+    }
+
+    void DrawSurface(int nX, int nY, const ISurface& pSurface) override
+    {
+        ++m_nDraws;
+        m_pSurface.DrawSurface(nX, nY, pSurface);
+    }
+
+    void DrawSurface(int nX, int nY, const ISurface& pSurface, int nSurfaceX, int nSurfaceY, int nWidth,
+                     int nHeight) override
+    {
+        ++m_nDraws;
+        m_pSurface.DrawSurface(nX, nY, pSurface, nSurfaceX, nSurfaceY, nWidth, nHeight);
+    }
+
+    void SetOpacity(double fAlpha) override
+    {
+        ++m_nDraws;
+        m_pSurface.SetOpacity(fAlpha);
+    }
+
+    void SetPixels(int nX, int nY, int nWidth, int nHeight, uint32_t* pARGB) override
+    {
+        ++m_nDraws;
+        m_pSurface.SetPixels(nX, nY, nWidth, nHeight, pARGB);
+    }
 
     unsigned int GetDraws() const noexcept { return m_nDraws; }
 
 private:
-    unsigned int m_nWidth;
-    unsigned int m_nHeight;
+    ISurface& m_pSurface;
     unsigned int m_nDraws = 0;
 };
 
@@ -62,6 +128,36 @@ OverlayImage::OverlayImage() : m_nHostThread(std::this_thread::get_id()), m_pFla
 
 OverlayImage::~OverlayImage() noexcept = default;
 
+void OverlayImage::Attach()
+{
+    if (m_bAttached || !ra::services::ServiceLocator::Exists<ra::ui::viewmodels::OverlayManager>())
+        return;
+
+    m_bAttached = true;
+
+    auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
+    pOverlayManager.SetRenderRequestHandler([pFlags = m_pFlags]() { pFlags->bDirty = true; });
+    // bVisible last: Update looks at it first, so a show it sees there has raised the other two already
+    pOverlayManager.SetShowRequestHandler([pFlags = m_pFlags]() noexcept {
+        pFlags->bShown = true;
+        pFlags->bDirty = true;
+        pFlags->bVisible = true;
+    });
+    pOverlayManager.SetHideRequestHandler([pFlags = m_pFlags]() noexcept { pFlags->bVisible = false; });
+
+    // RA_OVERLAY_TEST_POPUP set to anything but empty: the headless gate's hook (checks/native-headless.sh run 4).
+    // One message popup, with the value for its title, so a screenshot has something to find. Read once, here.
+    const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
+    if (sTestPopup != nullptr && sTestPopup[0] != '\0')
+    {
+        RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
+        pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+    }
+
+    // anything queued before the handlers were in never asked to be shown
+    pOverlayManager.RequestRender();
+}
+
 int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride)
 {
     if (ppPixels != nullptr)
@@ -69,7 +165,7 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
     if (pStride != nullptr)
         *pStride = 0;
 
-    // The image is the emulator thread's: rendered and read there, so it is never shared between threads.
+    // The image is the emulator thread's: drawn and read there, so it is never shared between threads.
     if (std::this_thread::get_id() != m_nHostThread)
     {
         if (!m_bWarnedOffThread.exchange(true))
@@ -93,8 +189,11 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
         return 0;
     }
 
-    if (!m_bAttached)
-        Attach();
+    if (!m_bAnnounced)
+    {
+        m_bAnnounced = true;
+        RA_LOG_INFO("Overlay: drawn by the emulator through _RA_UpdateOverlayImage");
+    }
 
     if (!m_pFlags->bVisible)
         return 0;
@@ -102,73 +201,121 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
     if (!(fScale > 0.0f) || !std::isfinite(fScale))
         fScale = 1.0f;
 
-    auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
+    // OverlayWindow redraws everything when its window is first shown or changes size (m_bErase). Here also when the
+    // scale changes, and when the overlay is shown again after a hide: the image may still hold the last picture.
+    bool bRedrawAll = m_pFlags->bShown.exchange(false);
     const bool bDirty = m_pFlags->bDirty.exchange(false);
     if (m_pSurface == nullptr || nWidth != m_nDeviceWidth || nHeight != m_nDeviceHeight || fScale != m_fScale)
     {
-        pFactory->SetScale(fScale);
-        m_pSurface = pFactory->CreateDeviceSurface(nWidth, nHeight, fScale);
-        m_nDeviceWidth = nWidth;
-        m_nDeviceHeight = nHeight;
-        m_fScale = fScale;
-        Redraw();
+        if (!MakeSurface(*pFactory, nWidth, nHeight, fScale))
+            return 0;
+
+        bRedrawAll = true;
+    }
+
+    auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
+    bool bChanged = false;
+    if (bRedrawAll)
+    {
+        m_pSurface->Clear();
+        pOverlayManager.Render(*m_pSurface, true);
+        bChanged = true;
     }
     else if (bDirty)
     {
-        // Render keeps asking for renders while anything is shown (its bRequestRender path), not only while
-        // something moves: redraw only when this pass drew something.
-        ChangeProbe oProbe(m_pSurface->GetWidth(), m_pSurface->GetHeight());
-        pOverlayManager.Render(oProbe, false);
-        if (oProbe.GetDraws() > 0)
-            Redraw();
+        // OverlayWindow's repaint: only what moved or changed, over what the image already holds - while the overlay
+        // slides in, the popups under it stay until it covers them. OverlayManager keeps asking for renders while
+        // anything is shown (its bRequestRender), not only while something moves, so only a pass that drew something
+        // makes a new picture.
+        DrawCounter oCounter(*m_pSurface);
+        pOverlayManager.Render(oCounter, false);
+        bChanged = (oCounter.GetDraws() > 0);
     }
 
-    // the last popup may have finished in that render: OverlayManager called the hide handler
-    if (!m_pFlags->bVisible)
+    if (bChanged && !Export())
         return 0;
 
-    *ppPixels = m_pSurface->GetImage().constBits();
-    *pStride = static_cast<int>(m_pSurface->GetImage().bytesPerLine());
+    // the last popup may have finished in that render: OverlayManager called the hide handler
+    if (!m_pFlags->bVisible || m_pExported == nullptr)
+        return 0;
+
+    *ppPixels = m_pExported->constBits();
+    *pStride = static_cast<int>(m_pExported->bytesPerLine());
     return m_nSerial;
 }
 
-void OverlayImage::Redraw()
+bool OverlayImage::MakeSurface(QtSurfaceFactory& pFactory, int nWidth, int nHeight, float fScale)
 {
-    auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
-    m_pSurface->Clear();
-    pOverlayManager.Render(*m_pSurface, true);
+    // Qt could not make the image at this size last time: it is not tried again at every frame
+    if (nWidth == m_nFailedWidth && nHeight == m_nFailedHeight && fScale == m_fFailedScale)
+        return false;
 
-    if (ra::services::ServiceLocator::Get<ra::ui::OverlayTheme>().Transparent())
-        m_pSurface->SetOpacity(WINDOWS_OVERLAY_OPACITY);
+    // the old picture goes first, so it never adds to what the new one needs
+    m_pExported = nullptr;
+    m_oCopy = QImage();
+    m_pSurface.reset();
 
-    m_nSerial = (m_nSerial == std::numeric_limits<int>::max()) ? 1 : m_nSerial + 1; // never 0: 0 is "nothing"
-    ++m_nRenderCount;
-}
-
-void OverlayImage::Attach()
-{
-    m_bAttached = true;
-
-    auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
-    pOverlayManager.SetRenderRequestHandler([pFlags = m_pFlags]() { pFlags->bDirty = true; });
-    pOverlayManager.SetShowRequestHandler([pFlags = m_pFlags]() noexcept {
-        pFlags->bVisible = true;
-        pFlags->bDirty = true;
-    });
-    pOverlayManager.SetHideRequestHandler([pFlags = m_pFlags]() noexcept { pFlags->bVisible = false; });
-    RA_LOG_INFO("Overlay: drawn by the emulator through _RA_UpdateOverlayImage");
-
-    // RA_OVERLAY_TEST_POPUP set to anything but empty: the headless gate's hook (checks/native-headless.sh run 4).
-    // One message popup, with the value for its title, so a screenshot has something to find.
-    const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
-    if (sTestPopup != nullptr && sTestPopup[0] != '\0')
+    ++m_nImageAttempts;
+    m_nDeviceWidth = nWidth;
+    m_nDeviceHeight = nHeight;
+    m_fScale = fScale;
+    pFactory.SetScale(fScale);
+    m_pSurface = pFactory.CreateDeviceSurface(nWidth, nHeight, fScale);
+    if (m_pSurface->GetImage().isNull())
     {
-        RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
-        pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+        Fail();
+        return false;
     }
 
-    // anything queued before the handlers existed never asked to be shown
-    pOverlayManager.RequestRender();
+    return true;
+}
+
+bool OverlayImage::Export()
+{
+    const QImage& oPicture = m_pSurface->GetImage();
+    if (ra::services::ServiceLocator::Get<ra::ui::OverlayTheme>().Transparent())
+    {
+        if (m_oCopy.size() != oPicture.size() || m_oCopy.format() != oPicture.format())
+        {
+            m_oCopy = QImage(oPicture.size(), oPicture.format());
+            if (m_oCopy.isNull())
+            {
+                Fail();
+                return false;
+            }
+        }
+
+        // a copy, scaled: the surface keeps its full opacity, so no pixel is ever scaled twice
+        std::memcpy(m_oCopy.bits(), oPicture.constBits(), static_cast<size_t>(oPicture.sizeInBytes()));
+        QPainter oPainter(&m_oCopy);
+        oPainter.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+        oPainter.fillRect(m_oCopy.rect(), QColor(0, 0, 0, WINDOWS_OVERLAY_ALPHA));
+        m_pExported = &m_oCopy;
+    }
+    else
+    {
+        m_oCopy = QImage();
+        m_pExported = &oPicture;
+    }
+
+    m_nSerial = NextSerial();
+    ++m_nRenderCount;
+    return true;
+}
+
+void OverlayImage::Fail()
+{
+    // Qt refused the size, or the memory was not there: no overlay at this size, said once, since the size is not
+    // tried again until the emulator asks for another
+    RA_LOG_WARN("Overlay: no %dx%d image could be made (scale %d%%): no overlay at that size", m_nDeviceWidth,
+                m_nDeviceHeight, static_cast<int>(std::lround(m_fScale * 100.0f)));
+    m_nFailedWidth = m_nDeviceWidth;
+    m_nFailedHeight = m_nDeviceHeight;
+    m_fFailedScale = m_fScale;
+
+    m_pExported = nullptr;
+    m_oCopy = QImage();
+    m_pSurface.reset();
 }
 
 } // namespace qt

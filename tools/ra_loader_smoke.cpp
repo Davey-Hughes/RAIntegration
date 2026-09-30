@@ -235,6 +235,12 @@ int RunHeadless()
           InLog("Qt services unavailable: no usable display"));
     Check(LogContains("Initializing offline mode"), "offline entry point chosen", InLog("Initializing offline mode"));
 
+    // on the thread that called RA_Init, as an emulator does each frame: with no Qt application nothing can be
+    // drawn, and the library says why
+    CheckNoOverlay("RA_UpdateOverlayImage() draws nothing without a display");
+    const std::string sNoQt = "No Qt application: the overlay cannot be drawn";
+    Check(LogContains(sNoQt), "the library said why there is no overlay", InLog(sNoQt));
+
     RA_Shutdown();
 
     // strict: with no Qt application there is no D-Bus thread either

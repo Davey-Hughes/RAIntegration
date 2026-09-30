@@ -197,6 +197,14 @@ static int InitCommon([[maybe_unused]] RA_WindowHandle hMainHWND, [[maybe_unused
     ra::services::Initialization::RegisterServices(ra::itoe<EmulatorID>(nEmulatorID), sClientName);
 #endif
 
+#ifndef _WIN32
+    // What _RA_UpdateHWnd's CreateOverlayWindow is on Windows: OverlayManager's handlers go in now, on the thread
+    // that called RA_Init - the one _RA_UpdateOverlayImage answers - before a worker (the login reply) can queue a
+    // popup and ask for it to be drawn. RegisterServices provided the OverlayImage (ProvidePlatformOverlayImage).
+    if (ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::OverlayImage>())
+        ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::OverlayImage>().Attach();
+#endif
+
 #if !defined(RA_UTEST) && defined(_WIN32)
     _RA_UpdateHWnd(hMainHWND);
 
