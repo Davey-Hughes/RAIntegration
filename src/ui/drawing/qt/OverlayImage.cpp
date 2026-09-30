@@ -194,13 +194,23 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
         // 4). One message popup, with the value for its title, so a screenshot has something to find. Read once,
         // here rather than at Attach (RA_Init): a loading game clears every popup right after RA_Init
         // (RA_ActivateGame -> OverlayManager::ClearPopups), which would destroy one queued that early before it was
-        // ever drawn.
+        // ever drawn. RA_OVERLAY_TEST_POPUP_IMAGE, also set: the name of a badge the popup shows, so the gate can
+        // find a badge drawn.
         const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
         if (sTestPopup != nullptr && sTestPopup[0] != '\0')
         {
             RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
-            ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(
-                ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+            auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
+            const char* sTestImage = std::getenv("RA_OVERLAY_TEST_POPUP_IMAGE");
+            if (sTestImage != nullptr && sTestImage[0] != '\0')
+            {
+                pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP",
+                                             ra::ui::ImageType::Badge, sTestImage);
+            }
+            else
+            {
+                pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+            }
         }
     }
 

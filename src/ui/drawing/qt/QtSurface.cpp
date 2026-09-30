@@ -1,5 +1,9 @@
 #include "QtSurface.hh"
 
+#include "QtImageRepository.hh"
+
+#include "services/ServiceLocator.hh"
+
 #include "util/EnumOps.hh"
 
 #include <QCoreApplication>
@@ -182,6 +186,31 @@ void QtSurface::WriteText(int nX, int nY, int nFont, Color nColor, const std::ws
     oPainter.setFont(oFont);
     oPainter.setPen(ToQColor(nColor));
     oPainter.drawText(QPointF(nX, nY + oMetrics.ascent()), sQText);
+}
+
+void QtSurface::DrawImage(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage)
+{
+    DrawImageStretched(nX, nY, nWidth, nHeight, pImage);
+}
+
+void QtSurface::DrawImageStretched(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage)
+{
+    if (m_oImage.isNull() || nWidth <= 0 || nHeight <= 0 ||
+        !ra::services::ServiceLocator::Exists<ra::ui::IImageRepository>())
+        return;
+
+    const auto* pRepository =
+        dynamic_cast<const QtImageRepository*>(&ra::services::ServiceLocator::Get<ra::ui::IImageRepository>());
+    if (pRepository == nullptr)
+        return;
+
+    const QImage oImage = pRepository->GetImage(pImage);
+    if (oImage.isNull())
+        return;
+
+    QPainter oPainter(&m_oImage);
+    oPainter.setRenderHint(QPainter::SmoothPixmapTransform);
+    oPainter.drawImage(QRectF(nX, nY, nWidth, nHeight), oImage);
 }
 
 void QtSurface::DrawSurface(int nX, int nY, const ISurface& pSurface)

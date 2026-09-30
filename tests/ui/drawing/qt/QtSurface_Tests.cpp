@@ -6,10 +6,18 @@
 #include "services/impl/PlatformServices.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
+#include "ui/drawing/qt/QtImageRepository.hh"
 
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
 #include "tests/devkit/ui/mocks/MockImageRepository.hh"
 #include "tests/ui/qt/QtTestHost.hh"
 
+#include <QBuffer>
+#include <QByteArray>
+#include <QColor>
 #include <QImage>
 
 #include <atomic>
@@ -94,6 +102,38 @@ std::unique_ptr<QtSurface> MakeSurface(const QtSurfaceFactory& oFactory, int nWi
     auto pSurface = oFactory.CreateSurface(nWidth, nHeight);
     return std::unique_ptr<QtSurface>(dynamic_cast<QtSurface*>(pSurface.release()));
 }
+
+// A registered QtImageRepository, where QtSurface finds its images, over a mock file system. Images need no Qt
+// application.
+class ImageHarness
+{
+public:
+    ra::context::mocks::MockRcClient mockRcClient;
+    ra::services::mocks::MockConfiguration mockConfiguration;
+    ra::services::mocks::MockFileSystem mockFileSystem;
+    ra::services::mocks::MockThreadPool mockThreadPool; // a missing image's download waits here, never run
+    QtImageRepository repository;
+
+    ImageHarness() : m_oOverride(&repository) { mockFileSystem.SetBaseDirectory(L"/base/"); }
+
+    // the badge's PNG: 64 x 64, every pixel the (straight) ARGB colour
+    void MockBadge(const std::string& sName, QRgb nColor)
+    {
+        QImage oImage(64, 64, QImage::Format_ARGB32);
+        oImage.fill(QColor::fromRgba(nColor));
+        QByteArray oBytes;
+        QBuffer oBuffer(&oBytes);
+        oBuffer.open(QIODevice::WriteOnly);
+        oImage.save(&oBuffer, "PNG");
+        mockFileSystem.MockFile(L"/base/RACache/Badge/" + ra::util::String::Widen(sName) + L".png",
+                                std::string(oBytes.constData(), static_cast<size_t>(oBytes.size())));
+    }
+
+private:
+    ra::services::ServiceLocator::ServiceOverride<ra::ui::IImageRepository> m_oOverride;
+};
+
+constexpr uint32_t BADGE_COLOR = 0xFF102030;
 
 // Only availability matters to CreatePlatformSurfaceFactory.
 class FakeQtApplicationHost : public ra::services::IQtApplicationHost
@@ -258,18 +298,92 @@ public:
         AssertPixel(0x00000000, *pSurface, 2, 0);
     }
 
-    TEST_METHOD(TestDrawImageIsAHarmlessNoOp)
+    TEST_METHOD(TestDrawImageLandsInsideItsRectangle)
     {
-        QtTestHost oQt;
-        ra::ui::mocks::MockImageRepository mockImageRepository;
+        ImageHarness images;
+        images.MockBadge("12345", BADGE_COLOR);
+        QtSurfaceFactory oFactory;
+        auto pSurface = MakeSurface(oFactory, 100, 100);
+        const ImageReference pImage(ImageType::Badge, "12345");
+
+        pSurface->DrawImage(10, 20, 64, 64, pImage);
+
+        AssertPixel(BADGE_COLOR, *pSurface, 10, 20);
+        AssertPixel(BADGE_COLOR, *pSurface, 73, 83);
+        Assert::AreEqual(64 * 64, CountPainted(*pSurface, 10, 20, 74, 84, true));
+        Assert::AreEqual(0, CountPainted(*pSurface, 10, 20, 74, 84, false));
+    }
+
+    TEST_METHOD(TestDrawImageAtScaleTwoFillsTwiceTheDevicePixels)
+    {
+        ImageHarness images;
+        images.MockBadge("12345", BADGE_COLOR);
+        QtSurfaceFactory oFactory;
+        oFactory.SetScale(2.0);
+        auto pSurface = MakeSurface(oFactory, 100, 100);
+        const ImageReference pImage(ImageType::Badge, "12345");
+
+        pSurface->DrawImage(10, 20, 64, 64, pImage);
+
+        AssertPixel(BADGE_COLOR, *pSurface, 20, 40);
+        AssertPixel(BADGE_COLOR, *pSurface, 147, 167);
+        Assert::AreEqual(128 * 128, CountPainted(*pSurface, 20, 40, 148, 168, true));
+        Assert::AreEqual(0, CountPainted(*pSurface, 20, 40, 148, 168, false));
+    }
+
+    TEST_METHOD(TestDrawImageStretchedFillsASmallerBox)
+    {
+        // the challenge indicator and the progress tracker draw badges at 32 x 32
+        ImageHarness images;
+        images.MockBadge("12345", BADGE_COLOR);
+        QtSurfaceFactory oFactory;
+        auto pSurface = MakeSurface(oFactory, 40, 40);
+        const ImageReference pImage(ImageType::Badge, "12345");
+
+        pSurface->DrawImageStretched(4, 4, 32, 32, pImage);
+
+        AssertPixel(BADGE_COLOR, *pSurface, 4, 4);
+        AssertPixel(BADGE_COLOR, *pSurface, 35, 35);
+        Assert::AreEqual(32 * 32, CountPainted(*pSurface, 4, 4, 36, 36, true));
+        Assert::AreEqual(0, CountPainted(*pSurface, 4, 4, 36, 36, false));
+    }
+
+    TEST_METHOD(TestAHalfTransparentImageBlendsOverWhatIsUnder)
+    {
+        // images keep their alpha (the owner's decision; GDI blits them opaque)
+        ImageHarness images;
+        images.MockBadge("12345", 0x80FF00FF); // 50% magenta
+        QtSurfaceFactory oFactory;
+        auto pSurface = MakeSurface(oFactory, 64, 64);
+        pSurface->FillRectangle(0, 0, 64, 64, Color(0xFF00FF00));
+        const ImageReference pImage(ImageType::Badge, "12345");
+
+        pSurface->DrawImage(0, 0, 64, 64, pImage);
+
+        AssertPixelNear(0xFF807F80, *pSurface, 32, 32); // 50% magenta over green
+    }
+
+    TEST_METHOD(TestDrawImageWithoutAQtImageRepositoryDrawsNothing)
+    {
         QtSurfaceFactory oFactory;
         auto pSurface = MakeSurface(oFactory, 8, 8);
         pSurface->FillRectangle(0, 0, 8, 8, Color(0xFF123456));
         const QImage oBefore = pSurface->GetImage().copy();
 
-        const ImageReference pImage(ImageType::Badge, "12345");
-        pSurface->DrawImage(0, 0, 8, 8, pImage);
-        pSurface->DrawImageStretched(0, 0, 8, 8, pImage);
+        {
+            // no image repository registered at all
+            const ImageReference pImage(ImageType::Badge, "12345");
+            pSurface->DrawImage(0, 0, 8, 8, pImage);
+            pSurface->DrawImageStretched(0, 0, 8, 8, pImage);
+        }
+        {
+            // another kind of repository
+            ra::ui::mocks::MockImageRepository mockImageRepository;
+            mockImageRepository.SetImageAvailable(ImageType::Badge, "12345");
+            const ImageReference pImage(ImageType::Badge, "12345");
+            pSurface->DrawImage(0, 0, 8, 8, pImage);
+            pSurface->DrawImageStretched(0, 0, 8, 8, pImage);
+        }
 
         Assert::IsTrue(pSurface->GetImage() == oBefore, L"the image changed");
     }

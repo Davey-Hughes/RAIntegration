@@ -4,6 +4,7 @@
 
 #include "Exports.hh"
 
+#include "ui/drawing/qt/QtImageRepository.hh"
 #include "ui/drawing/qt/QtSurface.hh"
 #include "ui/viewmodels/OverlayManager.hh"
 
@@ -11,6 +12,7 @@
 #include "tests/devkit/context/mocks/MockUserContext.hh"
 #include "tests/devkit/services/mocks/MockClock.hh"
 #include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
 #include "tests/devkit/services/mocks/MockHttpRequester.hh"
 #include "tests/devkit/services/mocks/MockThreadPool.hh"
 #include "tests/devkit/ui/mocks/MockImageRepository.hh"
@@ -23,6 +25,11 @@
 #include "tests/mocks/MockWindowConfiguration.hh"
 #include "tests/mocks/MockWindowManager.hh"
 #include "tests/ui/qt/QtTestHost.hh"
+
+#include <QBuffer>
+#include <QByteArray>
+#include <QColor>
+#include <QImage>
 
 #include <cmath>
 #include <cstdlib>
@@ -159,6 +166,21 @@ bool Near(uint32_t nExpected, uint32_t nActual)
 // the popup's background (MockConfiguration: softcore, so the theme's 64,80,104) at Windows' 90% (229 of 255),
 // premultiplied
 constexpr uint32_t POPUP_BACKGROUND = 0xE539485D;
+
+// an opaque magenta badge at Windows' 90%, premultiplied
+constexpr uint32_t MAGENTA_BADGE = 0xE5E500E5;
+
+// a 64 x 64 opaque magenta PNG
+std::string MagentaPng()
+{
+    QImage oImage(64, 64, QImage::Format_ARGB32);
+    oImage.fill(QColor(255, 0, 255));
+    QByteArray oBytes;
+    QBuffer oBuffer(&oBytes);
+    oBuffer.open(QIODevice::WriteOnly);
+    oImage.save(&oBuffer, "PNG");
+    return std::string(oBytes.constData(), static_cast<size_t>(oBytes.size()));
+}
 
 } // namespace
 
@@ -449,6 +471,47 @@ public:
 
         Assert::IsTrue(harness.Update(320, 240) > 0);
         Assert::IsNull(harness.overlayManager.GetMessage(2), L"a second test popup was queued");
+    }
+
+    TEST_METHOD(TestTheTestHookPopupCarriesItsImage)
+    {
+        ScopedEnvironmentVariable oHook("RA_OVERLAY_TEST_POPUP", "Hook");
+        ScopedEnvironmentVariable oImage("RA_OVERLAY_TEST_POPUP_IMAGE", "o1btest");
+        OverlayImageHarness harness;
+
+        Assert::IsTrue(harness.Update(320, 240) > 0, L"the hook's popup was not shown");
+
+        const auto* pPopup = harness.overlayManager.GetMessage(1);
+        Assert::IsNotNull(pPopup);
+        Assert::IsTrue(pPopup->GetImage().Type() == ra::ui::ImageType::Badge, L"the popup has no badge");
+        Assert::AreEqual(std::string("o1btest"), pPopup->GetImage().Name());
+    }
+
+    TEST_METHOD(TestAPopupShowsItsBadge)
+    {
+        OverlayImageHarness harness;
+        ra::services::mocks::MockFileSystem mockFileSystem;
+        mockFileSystem.SetBaseDirectory(L"/base/");
+        mockFileSystem.MockFile(L"/base/RACache/Badge/12345.png", MagentaPng());
+        QtImageRepository imageRepository;
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::IImageRepository> oImagesOverride(&imageRepository);
+
+        harness.overlayManager.QueueMessage(L"Title", L"Description", ra::ui::ImageType::Badge, "12345");
+        harness.Update(320, 240);
+        harness.mockClock.AdvanceTime(std::chrono::seconds(1)); // slid in
+        Assert::IsTrue(harness.Update(320, 240) > 0);
+
+        // the badge: 4 pixels into the popup, 64 x 64
+        const int nLeft = 10 + 4;
+        const int nTop = 240 - 10 - POPUP_HEIGHT + 4;
+        for (const auto& pPoint : {std::make_pair(0, 0), std::make_pair(32, 32), std::make_pair(63, 63)})
+        {
+            const uint32_t nPixel = harness.PixelAt(nLeft + pPoint.first, nTop + pPoint.second);
+            Assert::IsTrue(Near(MAGENTA_BADGE, nPixel),
+                           ra::util::String::Printf(L"no badge at (%d,%d): %08X", pPoint.first, pPoint.second, nPixel)
+                               .c_str());
+        }
+        Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(nLeft - 2, nTop + 32)), L"the badge spilled left");
     }
 
     TEST_METHOD(TestTheTestHookPopupSurvivesAGameLoadClearingPopups)

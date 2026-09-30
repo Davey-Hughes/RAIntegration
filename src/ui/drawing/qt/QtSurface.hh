@@ -89,9 +89,15 @@ public:
     ra::ui::Size MeasureText(int nFont, const std::wstring& sText) const override;
     void WriteText(int nX, int nY, int nFont, Color nColor, const std::wstring& sText) override;
 
-    // Badges and avatars arrive in O1b: until then there is no image to draw.
-    void DrawImage(int, int, int, int, const ImageReference&) noexcept override {}
-    void DrawImageStretched(int, int, int, int, const ImageReference&) noexcept override {}
+    /// <summary>
+    /// Draws the whole image scaled into the rectangle, source-over: transparent parts show what is under them.
+    /// Every DrawImage rectangle is 64x64, the size gdi::ImageRepository decodes to, so this matches GDI's unscaled
+    /// BitBlt. The image comes from the registered QtImageRepository; with none, nothing is drawn.
+    /// </summary>
+    void DrawImage(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage) override;
+
+    /// <summary>The same as DrawImage.</summary>
+    void DrawImageStretched(int nX, int nY, int nWidth, int nHeight, const ImageReference& pImage) override;
 
     void DrawSurface(int nX, int nY, const ISurface& pSurface) override;
     void DrawSurface(int nX, int nY, const ISurface& pSurface, int nSurfaceX, int nSurfaceY, int nWidth,
