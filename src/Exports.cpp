@@ -35,6 +35,7 @@
 
 #ifndef _WIN32
 #include "services/impl/HostThreadDispatcher.hh"
+#include "ui/drawing/qt/OverlayImage.hh"
 #endif
 
 #include "ui/viewmodels/IntegrationMenuViewModel.hh"
@@ -762,3 +763,22 @@ API void CCONV _RA_RestoreState(const char* pBuffer)
         OnStateRestored();
     }
 }
+
+#ifndef _WIN32
+API int CCONV _RA_UpdateOverlayImage(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride)
+{
+    // before RA_Init and after RA_Shutdown there is nothing to draw
+    if (!ra::services::ServiceLocator::IsInitialized() ||
+        !ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::OverlayImage>())
+    {
+        if (ppPixels != nullptr)
+            *ppPixels = nullptr;
+        if (pStride != nullptr)
+            *pStride = 0;
+        return 0;
+    }
+
+    return ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::OverlayImage>().Update(
+        nWidth, nHeight, fScale, ppPixels, pStride);
+}
+#endif

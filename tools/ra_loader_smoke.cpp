@@ -81,6 +81,17 @@ std::string InLog(const std::string& sText)
     return LogContains(sText) ? ("RALog.txt: \"" + sText + "\"") : ("no \"" + sText + "\" in RALog.txt");
 }
 
+// RA_UpdateOverlayImage when nothing is to be drawn: 0, and both out-parameters cleared - from values that are not.
+void CheckNoOverlay(const char* sName)
+{
+    int nStride = -1;
+    const void* pPixels = &nStride;
+    const int nSerial = RA_UpdateOverlayImage(64, 48, 1.0f, &pPixels, &nStride);
+    Check(nSerial == 0 && pPixels == nullptr && nStride == 0, sName,
+          "returned " + std::to_string(nSerial) + ", stride " + std::to_string(nStride) +
+              (pPixels == nullptr ? ", pixels NULL" : ", pixels set"));
+}
+
 // This program's stand-in for an emulator's event queue: RA_InstallHostDispatcher's
 // post function records the work, and RunPostedWork() runs it on this thread.
 std::mutex g_oPostedMutex;
@@ -134,6 +145,7 @@ int RunMissing()
     RA_AttemptLogin(1);
     RA_ActivateGame(1);
     RA_DoAchievementsFrame();
+    CheckNoOverlay("RA_UpdateOverlayImage() draws nothing without a library");
 
     const char* sUser = RA_UserName();
     Check(sUser != nullptr && *sUser == '\0', "RA_UserName() is empty",
@@ -182,6 +194,12 @@ int RunOffline()
           std::to_string(nThreadsBefore) + " before init, " + std::to_string(nThreadsAfterInit) + " after");
 
     Check(LogContains("Initializing offline mode"), "offline entry point chosen", InLog("Initializing offline mode"));
+
+    // on the thread that called RA_Init, as an emulator does each frame: nothing to show offline, and the library
+    // (not the loader's fallback) answered
+    CheckNoOverlay("RA_UpdateOverlayImage() draws nothing offline");
+    const std::string sOverlay = "Overlay: drawn by the emulator through _RA_UpdateOverlayImage";
+    Check(LogContains(sOverlay), "the library answered RA_UpdateOverlayImage", InLog(sOverlay));
 
     RA_Shutdown();
 

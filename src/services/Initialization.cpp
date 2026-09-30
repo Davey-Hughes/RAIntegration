@@ -215,6 +215,9 @@ void Initialization::RegisterServices(EmulatorID nEmulatorId, const char* sClien
     // Windows; the overlay phase replaces this.
     auto pOverlayWindow = std::make_unique<ra::ui::win32::OverlayWindow>();
     ra::services::ServiceLocator::Provide<ra::ui::win32::OverlayWindow>(std::move(pOverlayWindow));
+#else
+    // the Linux overlay: an image the emulator draws over its picture (_RA_UpdateOverlayImage)
+    ra::services::impl::ProvidePlatformOverlayImage();
 #endif
 
     auto pOverlayManager = std::make_unique<ra::ui::viewmodels::OverlayManager>();

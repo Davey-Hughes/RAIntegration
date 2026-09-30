@@ -40,6 +40,13 @@ std::unique_ptr<ra::ui::IImageRepository> CreatePlatformImageRepository();
 void StartPlatformServices();
 void StopPlatformServices();
 
+#ifndef _WIN32
+// Called from Initialization::RegisterServices where Windows makes its OverlayWindow: provides the
+// ui::drawing::qt::OverlayImage behind _RA_UpdateOverlayImage. A function rather than an #include there, which
+// would move that file's Expects() lines - and so the Windows build's __LINE__ values.
+void ProvidePlatformOverlayImage();
+#endif
+
 } // namespace impl
 } // namespace services
 } // namespace ra

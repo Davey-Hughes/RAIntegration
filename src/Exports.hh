@@ -157,6 +157,12 @@ extern "C" {
     API void CCONV _RA_NavigateOverlay(_In_ const ControllerInput* pInput);
     API int CCONV _RA_IsOverlayFullyVisible();
 
+#ifndef _WIN32
+    // The overlay as an image the emulator draws over its picture. RA_UpdateOverlayImage in RA_Interface.h has the
+    // contract.
+    API int CCONV _RA_UpdateOverlayImage(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,7 @@
 #include "services/impl/StderrFileLogger.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
+#include "ui/drawing/qt/OverlayImage.hh"
 #include "ui/drawing/qt/QtSurface.hh"
 #include "ui/null/NullImageRepository.hh"
 #include "ui/qt/QtDesktop.hh"
@@ -117,8 +118,19 @@ void StartPlatformServices()
     ra::services::ServiceLocator::Provide<ra::services::IQtApplicationHost>(std::move(pHost));
 }
 
+void ProvidePlatformOverlayImage()
+{
+    // on the emulator's thread, from RA_Init: the thread OverlayImage draws on
+    ra::services::ServiceLocator::Provide<ra::ui::drawing::qt::OverlayImage>(
+        std::make_unique<ra::ui::drawing::qt::OverlayImage>());
+}
+
 void StopPlatformServices()
 {
+    // no overlay once shutdown has begun: _RA_UpdateOverlayImage returns 0 from here on
+    if (ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::OverlayImage>())
+        ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::OverlayImage>().Shutdown();
+
     if (ra::services::ServiceLocator::Exists<HostThreadDispatcher>())
         ra::services::ServiceLocator::GetMutable<HostThreadDispatcher>().Shutdown();
 
