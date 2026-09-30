@@ -137,13 +137,18 @@ void OverlayImage::Attach()
 
     auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
     pOverlayManager.SetRenderRequestHandler([pFlags = m_pFlags]() { pFlags->bDirty = true; });
-    // bVisible last: Update looks at it first, so a show it sees there has raised the other two already
+    // bVisible last in both: Update looks at it first, so a change it sees there has raised the other flag already.
+    // A show only asks for a picture, as OverlayWindow's only shows its window: OverlayManager also asks for one when
+    // its render loop has gone idle with the overlay still showing (a tracker holding still), and a redraw of
+    // everything then would erase what the sliding pause overlay has not reached yet. A hide makes the picture stale.
     pOverlayManager.SetShowRequestHandler([pFlags = m_pFlags]() noexcept {
-        pFlags->bShown = true;
         pFlags->bDirty = true;
         pFlags->bVisible = true;
     });
-    pOverlayManager.SetHideRequestHandler([pFlags = m_pFlags]() noexcept { pFlags->bVisible = false; });
+    pOverlayManager.SetHideRequestHandler([pFlags = m_pFlags]() noexcept {
+        pFlags->bStale = true;
+        pFlags->bVisible = false;
+    });
 
     // RA_OVERLAY_TEST_POPUP set to anything but empty: the headless gate's hook (checks/native-headless.sh run 4).
     // One message popup, with the value for its title, so a screenshot has something to find. Read once, here.
@@ -202,9 +207,8 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
         fScale = 1.0f;
 
     // OverlayWindow redraws everything when its window is first shown or changes size (m_bErase). Here also when the
-    // scale changes, and when the overlay is shown again after a hide: the image may still hold the last picture.
-    bool bRedrawAll = m_pFlags->bShown.exchange(false);
-    const bool bDirty = m_pFlags->bDirty.exchange(false);
+    // scale changes, and when the overlay shows again after a hide: the image may still hold the last picture.
+    bool bRedrawAll = false;
     if (m_pSurface == nullptr || nWidth != m_nDeviceWidth || nHeight != m_nDeviceHeight || fScale != m_fScale)
     {
         if (!MakeSurface(*pFactory, nWidth, nHeight, fScale))
@@ -212,6 +216,12 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
 
         bRedrawAll = true;
     }
+
+    // Taken only here, once the image is settled: a frame that returned above leaves them for the next. Taking the
+    // render request without rendering would stop OverlayManager's render loop, which asks again only once rendered.
+    const bool bStale = m_pFlags->bStale.exchange(false);
+    const bool bDirty = m_pFlags->bDirty.exchange(false);
+    bRedrawAll = bRedrawAll || bStale;
 
     auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
     bool bChanged = false;

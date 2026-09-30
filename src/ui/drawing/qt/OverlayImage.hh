@@ -67,7 +67,7 @@ private:
     struct Flags
     {
         std::atomic<bool> bDirty{false};
-        std::atomic<bool> bShown{false}; // shown since Update last looked: everything is redrawn
+        std::atomic<bool> bStale{false}; // hidden since the last picture: everything is redrawn when it shows again
         std::atomic<bool> bVisible{false};
     };
 

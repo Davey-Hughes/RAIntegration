@@ -43,6 +43,10 @@ using ra::ui::viewmodels::PopupLocation;
 
 namespace {
 
+// Wider than a QImage can be: Qt refuses more than (INT_MAX - 31) / 32 pixels a row at 32 bits a pixel (qimage.cpp,
+// calculateImageParameters), before it allocates anything.
+constexpr int REFUSED_WIDTH = 100000000;
+
 // A popup message: 4 + 64 + 4 pixels high, plus the theme's 2-pixel shadow; 10 pixels in from the left and up from
 // the bottom once it has slid in (PopupMessageViewModel).
 constexpr int POPUP_HEIGHT = 4 + 64 + 4 + 2;
@@ -103,6 +107,22 @@ public:
         Update(nWidth, nHeight, fScale);
         mockClock.AdvanceTime(std::chrono::seconds(1));
         return Update(nWidth, nHeight, fScale);
+    }
+
+    // Shows the overlay, lets it slide in, then hides it; returns the last Update's serial. The first time the overlay
+    // is shown, OverlayManager itself erases everything right of it on its first frame - on Windows too: its render
+    // location is still (0, 0), so UpdatePopup fills the whole width its move seems to have uncovered. From then on it
+    // covers what is under it only as it slides over it.
+    int ShowAndHideTheOverlay(int nWidth, int nHeight)
+    {
+        overlayManager.ShowOverlay();
+        Update(nWidth, nHeight);
+        mockClock.AdvanceTime(std::chrono::milliseconds(500));
+        Update(nWidth, nHeight); // fully visible
+        overlayManager.HideOverlay();
+        Update(nWidth, nHeight); // fading out
+        mockClock.AdvanceTime(std::chrono::milliseconds(500));
+        return Update(nWidth, nHeight);
     }
 
 private:
@@ -227,9 +247,6 @@ public:
 
     TEST_METHOD(TestASizeQtRefusesReturnsZeroAndIsNotTriedAgain)
     {
-        // wider than a QImage can be: Qt refuses more than (INT_MAX - 31) / 32 pixels a row at 32 bits a pixel
-        // (qimage.cpp, calculateImageParameters), before it allocates anything
-        constexpr int REFUSED_WIDTH = 100000000;
         OverlayImageHarness harness;
         Assert::IsTrue(harness.ShowPopup(320, 240) > 0);
         const unsigned nAttempts = harness.overlayImage.GetImageAttempts();
@@ -253,6 +270,20 @@ public:
         Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(10 + 3, nTop + 3)), L"no popup at the good size");
     }
 
+    TEST_METHOD(TestARememberedRefusedSizeDoesNotStopTheOverlay)
+    {
+        OverlayImageHarness harness;
+        Assert::IsTrue(harness.ShowPopup(320, 240) > 0);
+        Assert::AreEqual(0, harness.Update(REFUSED_WIDTH, 1)); // refused: the image is dropped
+        Assert::IsTrue(harness.Update(320, 240) > 0);          // made again, and OverlayManager asks for the next render
+        Assert::AreEqual(0, harness.Update(REFUSED_WIDTH, 1)); // remembered, so not tried: that request must survive it
+
+        // the overlay still follows OverlayManager: past its five seconds, the popup ends and the overlay hides
+        harness.mockClock.AdvanceTime(std::chrono::seconds(6));
+        Assert::AreEqual(0, harness.Update(320, 240), L"the overlay stopped: the popup never ended");
+        Assert::IsNull(harness.pPixels);
+    }
+
     TEST_METHOD(TestTheOverlayIsHiddenOnceThePopupEnds)
     {
         OverlayImageHarness harness;
@@ -269,18 +300,7 @@ public:
         // Windows repaints its overlay window rather than clearing it (OverlayWindow::Render): as the overlay slides
         // in, only the overlay is drawn, over the popups the window already shows
         OverlayImageHarness harness;
-
-        // The overlay shown and hidden once already. The first time, OverlayManager itself erases everything right
-        // of the sliding overlay on its first frame - on Windows too: the overlay's render location is still (0, 0),
-        // so UpdatePopup fills the whole width it takes its move to have uncovered.
-        harness.overlayManager.ShowOverlay();
-        harness.Update(320, 240);
-        harness.mockClock.AdvanceTime(std::chrono::milliseconds(500));
-        harness.Update(320, 240); // fully visible
-        harness.overlayManager.HideOverlay();
-        harness.Update(320, 240); // fading out
-        harness.mockClock.AdvanceTime(std::chrono::milliseconds(500));
-        Assert::AreEqual(0, harness.Update(320, 240), L"the overlay did not hide");
+        Assert::AreEqual(0, harness.ShowAndHideTheOverlay(320, 240), L"the overlay did not hide");
 
         int nSerial = harness.ShowPopup(320, 240);
         // inside the popup's background, below its text, 60 pixels from the image's left edge
@@ -304,6 +324,43 @@ public:
             Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(nPopupX, nPopupY)),
                            ra::util::String::Printf(L"frame %d: the popup is gone or dimmed: %08X", nFrame,
                                                     harness.PixelAt(nPopupX, nPopupY)).c_str());
+        }
+    }
+
+    TEST_METHOD(TestATrackerStaysUntilTheSlidingOverlayCoversIt)
+    {
+        // A pause during a leaderboard attempt. Unlike a popup, a tracker holding still does not keep OverlayManager
+        // asking for renders: once a repaint has drawn nothing its render loop stops, and the pause's first request
+        // runs the show handler again, on an overlay that is already showing. Windows only shows its window again
+        // then (OverlayWindow's show handler): nothing is erased, and the tracker stays until the overlay covers it.
+        OverlayImageHarness harness;
+        harness.mockWindowConfiguration.SetPopupLocation(Popup::LeaderboardTracker, PopupLocation::BottomRight);
+        Assert::AreEqual(0, harness.ShowAndHideTheOverlay(320, 240), L"the overlay did not hide");
+
+        const auto& vmTracker = harness.overlayManager.AddScoreTracker(1);
+        int nSerial = harness.Update(320, 240);
+        Assert::IsTrue(nSerial > 0, L"no serial for a tracker");
+        Assert::AreEqual(nSerial, harness.Update(320, 240), L"the idle repaint drew something"); // the loop stops
+        // inside the tracker's background, left of and above its text
+        const int nTrackerX = vmTracker.GetRenderLocationX() + 1;
+        const int nTrackerY = vmTracker.GetRenderLocationY() + 1;
+        Assert::IsTrue(nTrackerX > 200, L"the tracker is not at the right");
+        Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(nTrackerX, nTrackerY)), L"no tracker before the overlay");
+
+        harness.overlayManager.ShowOverlay();
+        for (int nFrame = 1; nFrame <= 3; ++nFrame)
+        {
+            harness.mockClock.AdvanceTime(std::chrono::milliseconds(5));
+            const int nFrameSerial = harness.Update(320, 240);
+            Assert::IsTrue(nFrameSerial != 0 && nFrameSerial != nSerial,
+                           ra::util::String::Printf(L"frame %d: the overlay's move was not drawn", nFrame).c_str());
+            nSerial = nFrameSerial;
+
+            Assert::IsTrue(harness.PixelAt(2, 120) != 0,
+                           ra::util::String::Printf(L"frame %d: no overlay at the left edge", nFrame).c_str());
+            Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(nTrackerX, nTrackerY)),
+                           ra::util::String::Printf(L"frame %d: the tracker is gone or dimmed: %08X", nFrame,
+                                                    harness.PixelAt(nTrackerX, nTrackerY)).c_str());
         }
     }
 
