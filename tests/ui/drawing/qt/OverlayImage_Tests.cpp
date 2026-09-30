@@ -483,7 +483,9 @@ public:
         ra::services::ServiceLocator::ServiceOverride<OverlayImage> oOverride(&harness.overlayImage);
         harness.mockConfiguration.SetFeatureEnabled(ra::services::Feature::Hardcore, false);
 
+        Assert::IsFalse(harness.overlayImage.IsAttached());
         Assert::AreEqual(1, _RA_InitI(nullptr, 0, "1.0"));
+        Assert::IsTrue(harness.overlayImage.IsAttached(), L"RA_Init did not attach the overlay's handlers");
 
         Assert::IsTrue(harness.Update(320, 240) > 0, L"the test popup was not shown");
         const auto* pPopup = harness.overlayManager.GetMessage(1);

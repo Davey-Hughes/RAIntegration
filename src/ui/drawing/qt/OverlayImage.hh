@@ -66,6 +66,11 @@ public:
     /// </summary>
     unsigned GetImageAttempts() const noexcept { return m_nImageAttempts; }
 
+    /// <summary>
+    /// Whether OverlayManager's handlers are in (Attach), for the tests.
+    /// </summary>
+    bool IsAttached() const noexcept { return m_bAttached; }
+
 private:
     // Shared with OverlayManager's handlers, which may outlive this object.
     struct Flags
