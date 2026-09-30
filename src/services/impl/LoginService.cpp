@@ -70,7 +70,12 @@ void LoginService::Logout()
 
     pUserContext.Initialize("", "", "");
 
-    ra::services::ServiceLocator::Get<ra::services::IConfiguration>().Save();
+    // Forget the saved login too: the configuration keeps its own copy of the token (LoginViewModel saves it), and
+    // saving it unchanged meant the next start logged straight back in. The username stays, so the login box is still
+    // filled in.
+    auto& pConfiguration = ra::services::ServiceLocator::GetMutable<ra::services::IConfiguration>();
+    pConfiguration.SetApiToken("");
+    pConfiguration.Save();
 
     ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>().Emulator.UpdateWindowTitle();
     ra::services::ServiceLocator::Get<ra::data::context::EmulatorContext>().RebuildMenu();
@@ -79,7 +84,6 @@ void LoginService::Logout()
     ra::ui::viewmodels::MessageBoxViewModel::ShowInfoMessage(L"You are now logged out.");
 
     // update the global IServer instance to the disconnected API
-    const auto& pConfiguration = ra::services::ServiceLocator::Get<ra::services::IConfiguration>();
     auto serverApi = std::make_unique<ra::api::impl::DisconnectedServer>(pConfiguration.GetHostUrl());
     ra::services::ServiceLocator::Provide<ra::api::IServer>(std::move(serverApi));
 }

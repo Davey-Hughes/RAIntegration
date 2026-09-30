@@ -3,13 +3,17 @@
 #include "services/impl/LoginService.hh"
 
 #include "tests/ui/UIAsserts.hh"
+#include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
 #include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/context/mocks/MockUserContext.hh"
 #include "tests/devkit/services/mocks/MockConfiguration.hh"
 #include "tests/mocks/MockAchievementRuntime.hh"
 #include "tests/mocks/MockDesktop.hh"
 #include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockGameIdentifier.hh"
 #include "tests/mocks/MockLoginService.hh"
+#include "tests/mocks/MockOverlayManager.hh"
 #include "tests/mocks/MockServer.hh"
 #include "tests/mocks/MockSessionTracker.hh"
 #include "tests/mocks/MockWindowManager.hh"
@@ -29,14 +33,18 @@ private:
     class LoginServiceHarness : public impl::LoginService
     {
     public:
+        ra::context::mocks::MockEmulatorMemoryContext mockEmulatorMemoryContext;
         ra::context::mocks::MockRcClient mockRcClient;
         ra::context::mocks::MockUserContext mockUserContext;
         ra::data::context::mocks::MockEmulatorContext mockEmulatorContext;
+        ra::data::context::mocks::MockGameContext mockGameContext;
+        ra::services::mocks::MockGameIdentifier mockGameIdentifier;
         ra::data::context::mocks::MockSessionTracker mockSessionTracker;
         ra::services::mocks::MockAchievementRuntime mockAchievementRuntime;
         ra::services::mocks::MockConfiguration mockConfiguration;
         ra::services::mocks::MockLoginService mockLoginService;
         ra::ui::mocks::MockDesktop mockDesktop;
+        ra::ui::viewmodels::mocks::MockOverlayManager mockOverlayManager;
         ra::ui::viewmodels::mocks::MockWindowManager mockWindowManager;
     };
 
@@ -97,6 +105,30 @@ public:
 
         // app title should not be updated
         Assert::AreEqual(std::wstring(L"Window"), pLogin.mockWindowManager.Emulator.GetWindowTitle());
+    }
+
+    TEST_METHOD(TestLogoutForgetsTheSavedToken)
+    {
+        LoginServiceHarness pLogin;
+        pLogin.mockUserContext.Initialize("User", "User", "ApiToken");
+        pLogin.mockConfiguration.SetUsername("User");
+        pLogin.mockConfiguration.SetApiToken("ApiToken");
+
+        pLogin.mockDesktop.ExpectWindow<MessageBoxViewModel>([](MessageBoxViewModel& vmMessageBox)
+        {
+            Assert::AreEqual(std::wstring(L"You are now logged out."), vmMessageBox.GetMessage());
+            return DialogResult::OK;
+        });
+
+        pLogin.Logout();
+
+        Assert::IsTrue(pLogin.mockUserContext.GetApiToken().empty());
+
+        // the configuration must not keep the token, or Save() writes it back and the next start logs straight in
+        Assert::AreEqual(std::string(""), pLogin.mockConfiguration.GetApiToken());
+
+        // the username stays so the login box is still filled in
+        Assert::AreEqual(std::string("User"), pLogin.mockConfiguration.GetUsername());
     }
 };
 
