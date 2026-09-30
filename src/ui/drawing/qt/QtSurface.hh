@@ -23,6 +23,15 @@ namespace qt {
 /// is good on the others, as GDI's ResourceRepository makes it on Windows (PopupMessageViewModel measures on one
 /// surface and writes with the same id on another). Any thread.
 /// </summary>
+/// <remarks>
+/// Stores each font's description (family, resolved pixel size, style) under the mutex, never a QFont: QFont and
+/// QFontMetrics are reentrant - separate instances on separate threads - not safe for two threads to use copies of
+/// one shared instance, and a QFont copy still shares its source's implicitly-shared private. Once badges (O1b) and
+/// screenshots (O1c) land, RALibretro's thread pool draws popup text (OverlayManager::ProcessScreenshots ->
+/// PopupMessageViewModel::CreateRenderImage) concurrently with the overlay render, often with the same font id, so
+/// Get() builds an independent QFont from the description on every call: no QFont or QFontMetrics instance, and no
+/// shared private, is ever used by two threads. Qt caches font lookups per thread, so this stays cheap.
+/// </remarks>
 class QtFontRegistry
 {
 public:
@@ -34,7 +43,12 @@ public:
     /// pixels, not the em size.</param>
     int Load(const std::string& sFont, int nCellHeight, FontStyles nStyle);
 
-    /// <summary>The font for the id, and its cell height; false for an id Load never gave.</summary>
+    /// <summary>
+    /// A QFont built fresh for the id, and its cell height; false for an id Load never gave, or when Qt cannot make
+    /// fonts right now - Load's same check, re-run here because a surface, and so its font ids, can outlive the
+    /// QGuiApplication that made them: without this recheck a cached description would still reach
+    /// QFontMetrics/QPainter with nothing behind it.
+    /// </summary>
     bool Get(int nFont, QFont& oFont, int& nCellHeight) const;
 
 private:
@@ -43,7 +57,7 @@ private:
         std::string sFont;
         int nCellHeight = 0;
         FontStyles nStyle = FontStyles::Normal;
-        QFont oFont;
+        int nPixelSize = 0; // resolved by Load; Get() builds a QFont from this, never stores one
     };
 
     mutable std::mutex m_mtxFonts;

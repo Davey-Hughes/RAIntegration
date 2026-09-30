@@ -12,10 +12,13 @@
 
 #include <QImage>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -372,6 +375,69 @@ public:
             const auto pFactory = ra::services::impl::CreatePlatformSurfaceFactory();
             Assert::IsNotNull(dynamic_cast<const ra::ui::drawing::null::NullSurfaceFactory*>(pFactory.get()));
         }
+    }
+
+    // Smoke test, not a reliable failure demonstration: QFont/QFontMetrics are reentrant (separate instances on
+    // separate threads), not thread-safe for one shared instance, and a plain (non-TSan) build does not reliably
+    // turn a data race into a visible failure. Two threads, each with its own surface, share one font id - the
+    // shape ProcessScreenshots' thread pool and the overlay render share once O1b/O1c land. What this DOES check
+    // reliably: the fix must not break ordinary concurrent use - both threads finish, and every metric they see
+    // matches the single-threaded answer.
+    TEST_METHOD(TestTwoThreadsSharingAFontIdBothFinishWithTheRightMetrics)
+    {
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        auto pSetup = MakeSurface(oFactory, 1, 1);
+        const int nFont = pSetup->LoadFont("Tahoma", 18, FontStyles::Normal);
+        Assert::AreNotEqual(0, nFont);
+        const auto szExpected = pSetup->MeasureText(nFont, L"Concurrent");
+        Assert::IsTrue(szExpected.Width > 0);
+
+        std::atomic<bool> bMismatch{false};
+        std::atomic<int> nPaintedTotal{0};
+        constexpr int nIterations = 300;
+
+        auto fWork = [&]() {
+            auto pSurface = MakeSurface(oFactory, 120, 40);
+            for (int i = 0; i < nIterations; ++i)
+            {
+                const auto szActual = pSurface->MeasureText(nFont, L"Concurrent");
+                if (szActual.Width != szExpected.Width || szActual.Height != szExpected.Height)
+                    bMismatch = true;
+                pSurface->WriteText(0, 0, nFont, Color(0xFFFFFFFF), L"Concurrent");
+            }
+            nPaintedTotal += CountPainted(*pSurface, 0, 0, 120, 40, true);
+        };
+
+        std::thread oT1(fWork);
+        std::thread oT2(fWork);
+        oT1.join();
+        oT2.join();
+
+        Assert::IsFalse(bMismatch.load(), L"a thread measured different metrics than the single-threaded answer");
+        Assert::IsTrue(nPaintedTotal.load() > 0, L"nothing drawn on either thread");
+    }
+
+    TEST_METHOD(TestFontsMeasureAndWriteNothingOnceTheApplicationIsGone)
+    {
+        QtSurfaceFactory oFactory;
+        int nFont = 0;
+        {
+            // Its own scope: ~QtTestHost's Stop() joins the owned Qt thread, which destroys the QApplication (a
+            // stack local of RunOwnedThread) before returning - so QCoreApplication::instance() is null again once
+            // this block ends, the same as TestNoFontsWithoutAQtApplication's baseline.
+            QtTestHost oQt;
+            auto pSetup = MakeSurface(oFactory, 1, 1);
+            nFont = pSetup->LoadFont("Tahoma", 18, FontStyles::Normal);
+            Assert::AreNotEqual(0, nFont, L"could not load the font while Qt ran");
+        }
+
+        // the factory (and so the font id) outlives the application that made it, as OverlayImage's does
+        auto pSurface = MakeSurface(oFactory, 20, 20);
+        pSurface->WriteText(0, 0, nFont, Color(0xFFFFFFFF), L"x");
+
+        Assert::AreEqual(0, pSurface->MeasureText(nFont, L"x").Width);
+        Assert::AreEqual(0, CountPainted(*pSurface, 0, 0, 20, 20, true));
     }
 };
 

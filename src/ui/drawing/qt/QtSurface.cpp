@@ -40,8 +40,9 @@ QFont StyledFont(const std::string& sFont, FontStyles nStyle, int nPixelSize)
 
 // GDI's CreateFont with a positive height asks for the cell height - ascent plus descent - where Qt's pixel size is
 // the em. The largest pixel size whose ascent plus descent fits the cell height, so text takes the room the layout
-// gives it (measured: "Tahoma" is Noto Sans here, whose pixel size 26 is 36 pixels tall; 19 is 26).
-QFont CellHeightFont(const std::string& sFont, int nCellHeight, FontStyles nStyle)
+// gives it (measured: "Tahoma" is Noto Sans here, whose pixel size 26 is 36 pixels tall; 19 is 26). Resolved once,
+// under the registry's lock, and stored as a plain int: the QFont it sizes is built fresh on every later use.
+int CellHeightPixelSize(const std::string& sFont, int nCellHeight, FontStyles nStyle)
 {
     const auto fHeight = [&sFont, nStyle](int nPixelSize) {
         return QFontMetrics(StyledFont(sFont, nStyle, nPixelSize)).height();
@@ -54,7 +55,7 @@ QFont CellHeightFont(const std::string& sFont, int nCellHeight, FontStyles nStyl
     while (fHeight(nPixelSize + 1) <= nCellHeight)
         ++nPixelSize;
 
-    return StyledFont(sFont, nStyle, nPixelSize);
+    return nPixelSize;
 }
 
 QColor ToQColor(Color nColor)
@@ -81,20 +82,37 @@ int QtFontRegistry::Load(const std::string& sFont, int nCellHeight, FontStyles n
     oEntry.sFont = sFont;
     oEntry.nCellHeight = nCellHeight;
     oEntry.nStyle = nStyle;
-    oEntry.oFont = CellHeightFont(sFont, nCellHeight, nStyle);
+    oEntry.nPixelSize = CellHeightPixelSize(sFont, nCellHeight, nStyle);
     m_vFonts.push_back(std::move(oEntry));
     return static_cast<int>(m_vFonts.size());
 }
 
 bool QtFontRegistry::Get(int nFont, QFont& oFont, int& nCellHeight) const
 {
-    std::lock_guard<std::mutex> oLock(m_mtxFonts);
-    if (nFont <= 0 || static_cast<size_t>(nFont) > m_vFonts.size())
+    std::string sFont;
+    FontStyles nStyle = FontStyles::Normal;
+    int nPixelSize = 0;
+    int nEntryCellHeight = 0;
+    {
+        std::lock_guard<std::mutex> oLock(m_mtxFonts);
+        if (nFont <= 0 || static_cast<size_t>(nFont) > m_vFonts.size())
+            return false;
+
+        const auto& pEntry = m_vFonts.at(static_cast<size_t>(nFont) - 1);
+        sFont = pEntry.sFont;
+        nStyle = pEntry.nStyle;
+        nPixelSize = pEntry.nPixelSize;
+        nEntryCellHeight = pEntry.nCellHeight;
+    }
+
+    // Load's same check, re-run: a surface (and so its font ids) can outlive the QGuiApplication that made them.
+    if (!CanMakeFonts())
         return false;
 
-    const auto& pEntry = m_vFonts.at(static_cast<size_t>(nFont) - 1);
-    oFont = pEntry.oFont; // implicitly shared: the copy is safe to use outside the lock
-    nCellHeight = pEntry.nCellHeight;
+    // built fresh, outside the lock, from plain data: no QFont crosses threads, so no two threads ever touch one
+    // QFont's shared private at once, however this Get() and another Get() elsewhere overlap.
+    oFont = StyledFont(sFont, nStyle, nPixelSize);
+    nCellHeight = nEntryCellHeight;
     return true;
 }
 
