@@ -289,11 +289,19 @@ public:
     {
         IntegrationMenuViewModelHarness menu;
         menu.mockLoginService.Login("User", "TOKEN");
+        menu.mockConfiguration.SetUsername("User");
+        menu.mockConfiguration.SetApiToken("TOKEN");
         Assert::IsTrue(menu.mockLoginService.IsLoggedIn());
 
         menu.ActivateMenuItem(IDM_RA_FILES_LOGOUT);
 
         Assert::IsFalse(menu.mockLoginService.IsLoggedIn());
+
+        // saved API token should be cleared
+        Assert::AreEqual(std::string(""), menu.mockConfiguration.GetApiToken());
+
+        // saved username should be kept
+        Assert::AreEqual(std::string("User"), menu.mockConfiguration.GetUsername());
     }
 
     TEST_METHOD(TestOpenUserPage)

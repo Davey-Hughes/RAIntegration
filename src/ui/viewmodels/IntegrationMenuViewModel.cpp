@@ -197,6 +197,11 @@ void IntegrationMenuViewModel::Login()
 
 void IntegrationMenuViewModel::Logout()
 {
+    // forget the saved token so the next start doesn't log back in. only done when the user asks to
+    // log out - a forced logout (like the hardcore version check) keeps it. Logout() saves the change.
+    auto& pConfiguration = ra::services::ServiceLocator::GetMutable<ra::services::IConfiguration>();
+    pConfiguration.SetApiToken("");
+
     auto& pLoginContext = ra::services::ServiceLocator::GetMutable<ra::services::ILoginService>();
     pLoginContext.Logout();
 }
