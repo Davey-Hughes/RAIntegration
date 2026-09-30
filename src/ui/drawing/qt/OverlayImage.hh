@@ -39,13 +39,17 @@ public:
     OverlayImage& operator=(OverlayImage&&) noexcept = delete;
 
     /// <summary>
-    /// Installs OverlayManager's handlers, and queues the test hook's popup (RA_OVERLAY_TEST_POPUP). RA_Init calls it
-    /// (Exports.cpp), on its own thread, once OverlayManager is registered and before any other thread can queue a
-    /// popup. Once per object: a second call does nothing.
+    /// Installs OverlayManager's handlers. RA_Init calls it (Exports.cpp), on its own thread, once OverlayManager is
+    /// registered and before any other thread can queue a popup. Once per object: a second call does nothing.
     /// </summary>
     void Attach();
 
-    /// <summary>_RA_UpdateOverlayImage: RA_Interface.h has the contract.</summary>
+    /// <summary>
+    /// _RA_UpdateOverlayImage: RA_Interface.h has the contract. The first call also queues the test hook's popup
+    /// (RA_OVERLAY_TEST_POPUP), read once here rather than at Attach: a loading game clears every popup right after
+    /// RA_Init (RA_ActivateGame -> OverlayManager::ClearPopups), which would destroy one queued that early before
+    /// this object ever drew it.
+    /// </summary>
     int Update(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride);
 
     /// <summary>From now on Update returns 0: the library is shutting down (StopPlatformServices).</summary>

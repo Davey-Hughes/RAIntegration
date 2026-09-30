@@ -150,15 +150,6 @@ void OverlayImage::Attach()
         pFlags->bVisible = false;
     });
 
-    // RA_OVERLAY_TEST_POPUP set to anything but empty: the headless gate's hook (checks/native-headless.sh run 4).
-    // One message popup, with the value for its title, so a screenshot has something to find. Read once, here.
-    const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
-    if (sTestPopup != nullptr && sTestPopup[0] != '\0')
-    {
-        RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
-        pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
-    }
-
     // anything queued before the handlers were in never asked to be shown
     pOverlayManager.RequestRender();
 }
@@ -198,6 +189,19 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
     {
         m_bAnnounced = true;
         RA_LOG_INFO("Overlay: drawn by the emulator through _RA_UpdateOverlayImage");
+
+        // RA_OVERLAY_TEST_POPUP set to anything but empty: the headless gate's hook (checks/native-headless.sh run
+        // 4). One message popup, with the value for its title, so a screenshot has something to find. Read once,
+        // here rather than at Attach (RA_Init): a loading game clears every popup right after RA_Init
+        // (RA_ActivateGame -> OverlayManager::ClearPopups), which would destroy one queued that early before it was
+        // ever drawn.
+        const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
+        if (sTestPopup != nullptr && sTestPopup[0] != '\0')
+        {
+            RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
+            ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(
+                ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+        }
     }
 
     if (!m_pFlags->bVisible)

@@ -434,25 +434,50 @@ public:
 
     TEST_METHOD(TestTheTestHookQueuesOnePopup)
     {
-        // read once, when RA_Init attaches the overlay (the harness does it), and still set at every Update after
+        // read once, at the first Update after RA_Init attaches the overlay (the harness's Attach), not at Attach
+        // itself: see TestTheTestHookPopupSurvivesAGameLoadClearingPopups for why. Still set at every Update after.
         ScopedEnvironmentVariable oHook("RA_OVERLAY_TEST_POPUP", "Hook");
         OverlayImageHarness harness;
+
+        const int nSerial = harness.Update(320, 240);
+        Assert::IsTrue(nSerial > 0, L"the hook's popup was not shown");
 
         const auto* pPopup = harness.overlayManager.GetMessage(1);
         Assert::IsNotNull(pPopup);
         Assert::AreEqual(std::wstring(L"Hook"), pPopup->GetTitle());
         Assert::AreEqual(std::wstring(L"RA_OVERLAY_TEST_POPUP"), pPopup->GetDescription());
 
-        const int nSerial = harness.Update(320, 240);
-        Assert::IsTrue(nSerial > 0, L"the hook's popup was not shown");
         Assert::IsTrue(harness.Update(320, 240) > 0);
         Assert::IsNull(harness.overlayManager.GetMessage(2), L"a second test popup was queued");
+    }
+
+    TEST_METHOD(TestTheTestHookPopupSurvivesAGameLoadClearingPopups)
+    {
+        // RALibretro's -g loads its game right after RA_Init: RA_IdentifyHash, then RA_ActivateGame(0), which calls
+        // OverlayManager::ClearPopups() (GameIdentifier.cpp) before the emulator's first frame ever calls Update.
+        // Queueing the hook's popup at Attach (RA_Init) let that destroy it before it was ever drawn; queueing it at
+        // the first Update instead means it is queued only once the game load's clear has already happened.
+        ScopedEnvironmentVariable oHook("RA_OVERLAY_TEST_POPUP", "Hook");
+        OverlayImageHarness harness;
+        harness.overlayManager.ClearPopups(); // as a loading game does, before the first Update
+
+        const int nFirst = harness.Update(320, 240);
+        Assert::IsTrue(nFirst > 0, L"the hook's popup did not survive the game load");
+
+        harness.mockClock.AdvanceTime(std::chrono::seconds(1)); // slid in
+        const int nSerial = harness.Update(320, 240);
+        Assert::IsTrue(nSerial != 0 && nSerial != nFirst, L"the popup's move was not redrawn");
+        Assert::IsNotNull(harness.pPixels);
+        const int nTop = 240 - 10 - POPUP_HEIGHT;
+        Assert::IsTrue(Near(POPUP_BACKGROUND, harness.PixelAt(10 + 3, nTop + 3)),
+                       L"no test popup in the bottom-left corner after a loading game cleared popups");
     }
 
     TEST_METHOD(TestRAInitAttachesTheOverlayBeforeAnyUpdate)
     {
         // a worker (the login reply's "Welcome back") may queue a popup, and ask for a render, as soon as RA_Init
-        // returns: the handlers must be in by then, and the test hook's popup queued, before the first Update
+        // returns: the handlers must be in by then. The test hook's own popup is queued only at the first Update,
+        // not here - see TestTheTestHookPopupSurvivesAGameLoadClearingPopups for why.
         ScopedEnvironmentVariable oHook("RA_OVERLAY_TEST_POPUP", "Hook");
         OverlayImageHarness harness(false);
         ra::services::ServiceLocator::ServiceOverride<OverlayImage> oOverride(&harness.overlayImage);
@@ -460,10 +485,10 @@ public:
 
         Assert::AreEqual(1, _RA_InitI(nullptr, 0, "1.0"));
 
-        const auto* pPopup = harness.overlayManager.GetMessage(1);
-        Assert::IsNotNull(pPopup, L"RA_Init queued no test popup");
-        Assert::AreEqual(std::wstring(L"Hook"), pPopup->GetTitle());
         Assert::IsTrue(harness.Update(320, 240) > 0, L"the test popup was not shown");
+        const auto* pPopup = harness.overlayManager.GetMessage(1);
+        Assert::IsNotNull(pPopup, L"the test popup was not queued at the first Update");
+        Assert::AreEqual(std::wstring(L"Hook"), pPopup->GetTitle());
     }
 
     TEST_METHOD(TestASecondOverlayImageNeverRepeatsASerial)
