@@ -9,8 +9,10 @@
 #include "tests/mocks/MockWindowConfiguration.hh"
 #include "tests/ui/UIAsserts.hh"
 #include "tests/ui/qt/QtTestHost.hh"
+#include "tests/ui/qt/RightAligningStyle.hh"
 
 #include <QCheckBox>
+#include <QFormLayout>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QPushButton>
@@ -50,6 +52,27 @@ void Delete(QtTestHost& oQt, QDialog* pDialog)
 TEST_CLASS(OverlaySettingsDialog_Tests)
 {
 public:
+    TEST_METHOD(TestLabelsAreOnTheLeftWhateverTheStyle)
+    {
+        // Win32's dialog has its labels on the left; KDE's style would put a form's on the right
+        ra::services::mocks::MockConfiguration mockConfiguration;
+        ra::services::mocks::MockWindowConfiguration mockWindowConfiguration;
+        OverlaySettingsViewModel vmSettings;
+        vmSettings.Initialize();
+        QtTestHost oQt;
+
+        int nAlignment = 0;
+        oQt.RunOnQt([&vmSettings, &nAlignment]() {
+            ra::ui::qt::tests::RightAligningStyle oStyle;
+            auto* pDialog = new OverlaySettingsDialog(vmSettings);
+            pDialog->setStyle(&oStyle);
+            nAlignment = static_cast<int>(pDialog->findChild<QFormLayout*>()->labelAlignment() & Qt::AlignHorizontal_Mask);
+            delete pDialog;
+        });
+
+        Assert::AreEqual(static_cast<int>(Qt::AlignLeft), nAlignment);
+    }
+
     TEST_METHOD(TestItShowsTheConfiguration)
     {
         ra::services::mocks::MockConfiguration mockConfiguration;

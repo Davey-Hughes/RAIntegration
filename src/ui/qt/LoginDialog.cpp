@@ -65,6 +65,8 @@ LoginDialog::LoginDialog(LoginViewModel& vmLogin)
     pPasswordLabel->setBuddy(pPassword);
 
     auto* pForm = new QFormLayout();
+    // labels on the left, as in Win32's dialog, whatever the style says (KDE's puts a form's on the right)
+    pForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     pForm->addRow(pUsernameLabel, pUsername);
     pForm->addRow(pPasswordLabel, pPassword);
     pForm->addRow(QString(), pRememberMe);

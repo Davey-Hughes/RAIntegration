@@ -11,9 +11,11 @@
 #include "tests/ui/UIAsserts.hh"
 #include "tests/ui/qt/ModalCaller.hh"
 #include "tests/ui/qt/QtTestHost.hh"
+#include "tests/ui/qt/RightAligningStyle.hh"
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QFormLayout>
 #include <QLineEdit>
 
 #include <chrono>
@@ -113,6 +115,25 @@ void RejectAll()
 TEST_CLASS(LoginDialog_Tests)
 {
 public:
+    TEST_METHOD(TestLabelsAreOnTheLeftWhateverTheStyle)
+    {
+        // Win32's dialog has its labels on the left; KDE's style would put a form's on the right
+        LoginServices oServices;
+        LoginViewModel vmLogin;
+        QtTestHost oQt;
+
+        int nAlignment = 0;
+        oQt.RunOnQt([&vmLogin, &nAlignment]() {
+            ra::ui::qt::tests::RightAligningStyle oStyle;
+            auto* pDialog = new LoginDialog(vmLogin);
+            pDialog->setStyle(&oStyle);
+            nAlignment = static_cast<int>(pDialog->findChild<QFormLayout*>()->labelAlignment() & Qt::AlignHorizontal_Mask);
+            delete pDialog;
+        });
+
+        Assert::AreEqual(static_cast<int>(Qt::AlignLeft), nAlignment);
+    }
+
     TEST_METHOD(TestItShowsTheConfiguredUsernameAndHidesThePassword)
     {
         LoginServices oServices;

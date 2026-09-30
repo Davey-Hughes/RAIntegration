@@ -53,6 +53,8 @@ OverlaySettingsDialog::OverlaySettingsDialog(OverlaySettingsViewModel& vmSetting
       m_bindUpdateReminders(vmSettings)
 {
     auto* pForm = new QFormLayout();
+    // labels on the left, as in Win32's dialog, whatever the style says (KDE's puts a form's on the right)
+    pForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     // Win32's rows and labels (RA_Shared.rc, IDD_RA_OVERLAYSETTINGS), and its lists: PopupLocationsNoMiddle for the
     // scoreboard, challenge and progress indicators.
