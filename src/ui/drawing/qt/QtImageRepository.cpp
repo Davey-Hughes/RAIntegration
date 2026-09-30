@@ -3,8 +3,6 @@
 #include "util/Log.hh"
 #include "util/Strings.hh"
 
-#include <QByteArray>
-
 namespace ra {
 namespace ui {
 namespace drawing {
@@ -203,7 +201,9 @@ void QtImageRepository::ReleaseReference(ImageReference& pImage) noexcept
         const auto pIter = pMap->find(pImage.Name());
         if (pIter != pMap->end() && pIter->second.nId == pImage.GetData())
         {
-            // a copied reference carries the data without a reference of its own: never go below 0
+            // Defensive only: each holder of this id counted itself in (TakeReference), and the entry goes at 0. A
+            // copied ImageReference carries the id without a count; the id check above and the erase below keep that
+            // to a re-decode at worst.
             if (pIter->second.nReferences > 0)
                 --pIter->second.nReferences;
 
