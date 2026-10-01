@@ -43,8 +43,13 @@ class GridModel;
 /// from inside Qt's handlers and the view model reacts inline. Posted work touches only the view's model, never the
 /// view model or its collections. A user's change is written to the items on the Qt thread, by row number, and only
 /// while the view shows the items' current order: an add, remove, move or batch makes the rows shown stale until its
-/// refresh arrives, and a write meanwhile is dropped rather than landing on another item. The binding's own write
-/// comes back as a queued row refresh, so the view converges on the view model.
+/// refresh arrives, and a write meanwhile is dropped rather than landing on another item. That is best-effort: the
+/// check and the write are not atomic against a structural change on a worker, and collections have no lock (as with
+/// Win32's writes by index), so it closes the gap only for changes ordered before the click. The binding's own write
+/// comes back as a queued row refresh, so the view converges on the view model while one thread writes the items. A
+/// worker's queued refresh of the same row, read before the user's change, can land after it and show a stale tick or
+/// selection until the row next changes. Report a Problem is safe: nothing else writes while it is open. A grid whose
+/// items a worker also changes (the D-slices) is not.
 /// </remarks>
 class GridBinding : public ControlBinding, protected ViewModelCollectionBase::NotifyTarget
 {

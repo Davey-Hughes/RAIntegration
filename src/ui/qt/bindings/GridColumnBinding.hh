@@ -16,8 +16,10 @@ namespace qt {
 namespace bindings {
 
 /// <summary>
-/// What one cell of a grid shows: a copy, read on whatever thread changed the items, so the Qt thread never reads
-/// them. Later column types add their own fields (a colour, a tooltip, an icon).
+/// What one cell of a grid shows: a copy, read on whatever thread changed the items and handed to the Qt thread. The
+/// Qt thread reads the items itself only in SetControl, and in the row refresh that follows the user's own tick or
+/// selection, where the view model's reaction also runs on the Qt thread. Later column types add their own fields (a
+/// colour, a tooltip, an icon).
 /// </summary>
 struct GridCell
 {
@@ -72,7 +74,10 @@ public:
     /// </summary>
     bool IsReadOnly() const noexcept { return true; }
 
-    /// <summary>What the cell for the item at <paramref name="nIndex" /> shows. Any thread.</summary>
+    /// <summary>
+    /// What the cell for the item at <paramref name="nIndex" /> shows. Any thread. It must never wait on the Qt thread:
+    /// Detach waits, from the Qt thread, for a GetCell running on another thread.
+    /// </summary>
     virtual GridCell GetCell(const ra::ui::ViewModelCollectionBase& vmItems, gsl::index nIndex) const = 0;
 
     /// <summary>Whether a change of <paramref name="pProperty" /> changes what this column shows.</summary>
