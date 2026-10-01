@@ -100,6 +100,7 @@ constexpr int DoneColumn = 3;
 
 struct GridOptions
 {
+    bool bSelectionBound = false;                    // tie the rows' selection to the tick, as Report a Problem does
     bool bWideTick = false;                          // WideTickStyle
     std::function<GridColumnBinding*()> fExtraColumn; // a fifth column
 };
@@ -141,6 +142,8 @@ BoundGrid* Create(QtTestHost& oQt, OwnerViewModel& vmOwner, Rows& vmItems, const
             pGrid->oBinding.BindColumn(DoneColumn + 1, std::unique_ptr<GridColumnBinding>(oOptions.fExtraColumn()));
 
         pGrid->oBinding.BindItems(vmItems);
+        if (oOptions.bSelectionBound)
+            pGrid->oBinding.BindIsSelected(LookupItemViewModel::IsSelectedProperty);
         pGrid->oBinding.SetControl(pGrid->oView);
 
         pGrid->oView.resize(500, 300);
@@ -195,6 +198,76 @@ bool IsSelected(Rows& vmItems, gsl::index nIndex)
 {
     return vmItems.GetItemAt(nIndex)->IsSelected();
 }
+
+QPoint TextCentre(const QTableView& oView, int nRow)
+{
+    return ra::ui::qt::tests::CellCentre(oView, nRow, DescriptionColumn);
+}
+
+std::vector<int> SelectedRows(const QTableView& oView)
+{
+    std::vector<int> vRows;
+    for (const auto& oIndex : oView.selectionModel()->selectedRows())
+        vRows.push_back(oIndex.row());
+    std::sort(vRows.begin(), vRows.end());
+    return vRows;
+}
+
+GridOptions Selectable()
+{
+    GridOptions oOptions;
+    oOptions.bSelectionBound = true;
+    return oOptions;
+}
+
+// Keeps at most one item selected, as BrokenAchievementsViewModel does: selecting one deselects the other, inline,
+// from inside the notification. Join before the grid, as the view model does (InitializeAchievements).
+class KeepOneSelected : public ViewModelCollectionBase::NotifyTarget
+{
+public:
+    explicit KeepOneSelected(Rows& vmItems) : m_vmItems(vmItems) { vmItems.AddNotifyTarget(*this); }
+    ~KeepOneSelected() noexcept { m_vmItems.RemoveNotifyTarget(*this); }
+
+    KeepOneSelected(const KeepOneSelected&) noexcept = delete;
+    KeepOneSelected& operator=(const KeepOneSelected&) noexcept = delete;
+    KeepOneSelected(KeepOneSelected&&) noexcept = delete;
+    KeepOneSelected& operator=(KeepOneSelected&&) noexcept = delete;
+
+    void OnViewModelBoolValueChanged(gsl::index nIndex, const BoolModelProperty::ChangeArgs& args) override
+    {
+        if (args.Property != LookupItemViewModel::IsSelectedProperty)
+            return;
+
+        if (args.tNewValue)
+        {
+            const auto nPrevious = m_nSelected;
+            m_nSelected = nIndex;
+            if (nPrevious != -1 && nPrevious != nIndex)
+                m_vmItems.GetItemAt(nPrevious)->SetSelected(false);
+        }
+        else if (m_nSelected == nIndex)
+        {
+            m_nSelected = -1;
+        }
+    }
+
+private:
+    Rows& m_vmItems;
+    gsl::index m_nSelected = -1;
+};
+
+// Counts the changes of the items' IsSelected.
+class SelectionChangeCounter : public ViewModelCollectionBase::NotifyTarget
+{
+public:
+    void OnViewModelBoolValueChanged(gsl::index, const BoolModelProperty::ChangeArgs& args) override
+    {
+        if (args.Property == LookupItemViewModel::IsSelectedProperty)
+            ++nChanges;
+    }
+
+    std::atomic<int> nChanges{0};
+};
 
 } // namespace
 
@@ -616,6 +689,217 @@ public:
 
         Assert::AreEqual(std::wstring(L"Title 0"), sTitle.toStdWString(), L"an item change reached the view after Detach");
         Assert::IsFalse(IsSelected(vmItems, 1), L"a tick was written after Detach");
+    }
+
+    // --- the rows' selection, tied to the tick ---
+
+    TEST_METHOD(TestNothingIsSelectedWhenShown)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        // focus arrives only once the window is active: wait for it, or the test checks nothing
+        oQt.RunOnQt([pGrid]() {
+            pGrid->oView.activateWindow();
+            pGrid->oView.setFocus(Qt::TabFocusReason);
+        });
+        const bool bFocused = oQt.WaitOnQt([pGrid]() { return pGrid->oView.hasFocus(); });
+        std::vector<int> vSelected{-1};
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bFocused, L"the view never took the focus");
+        Assert::AreEqual(size_t{0}, vSelected.size(), L"showing or focusing the view selected a row");
+        for (gsl::index nIndex = 0; nIndex < 3; ++nIndex)
+            Assert::IsFalse(IsSelected(vmItems, nIndex));
+    }
+
+    TEST_METHOD(TestClickingARowsTextSelectsAndTicksIt)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 2); });
+        const bool bTwo = IsSelected(vmItems, 2);
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 0); });
+        std::vector<int> vSelected;
+        int nCheck0 = 0, nCheck2 = 0;
+        oQt.RunOnQt([pGrid, &vSelected, &nCheck0, &nCheck2]() {
+            vSelected = SelectedRows(pGrid->oView);
+            nCheck0 = CheckState(pGrid->oView, 0);
+            nCheck2 = CheckState(pGrid->oView, 2);
+        });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bTwo, L"clicking row 2's text did not tick it");
+        Assert::IsTrue(IsSelected(vmItems, 0));
+        Assert::IsFalse(IsSelected(vmItems, 2), L"row 2 is still ticked");
+        Assert::IsTrue(vSelected == std::vector<int>{0});
+        Assert::AreEqual(static_cast<int>(Qt::Checked), nCheck0);
+        Assert::AreEqual(static_cast<int>(Qt::Unchecked), nCheck2);
+    }
+
+    TEST_METHOD(TestClickingAnUntickedBoxTicksOnlyThatRow)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 2); });
+        Click(oQt, pGrid, [](const QTableView& oView) { return TickCentre(oView, 0); });
+        std::vector<int> vSelected;
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(IsSelected(vmItems, 0), L"the box's row is not ticked");
+        Assert::IsFalse(IsSelected(vmItems, 1));
+        Assert::IsFalse(IsSelected(vmItems, 2), L"the previous row is still ticked");
+        Assert::IsTrue(vSelected == std::vector<int>{0});
+    }
+
+    TEST_METHOD(TestClickingTheTickedBoxLeavesNothingTicked)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TickCentre(oView, 1); });
+        const bool bTicked = IsSelected(vmItems, 1);
+        Click(oQt, pGrid, [](const QTableView& oView) { return TickCentre(oView, 1); });
+        std::vector<int> vSelected{-1};
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bTicked, L"the first click did not tick the row");
+        for (gsl::index nIndex = 0; nIndex < 3; ++nIndex)
+            Assert::IsFalse(IsSelected(vmItems, nIndex), L"a row is still ticked");
+        Assert::AreEqual(size_t{0}, vSelected.size(), L"a row is still selected");
+    }
+
+    TEST_METHOD(TestCtrlClickOnTheTickedRowUnticksIt)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 1); });
+        const bool bTicked = IsSelected(vmItems, 1);
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 1); }, Qt::ControlModifier);
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bTicked);
+        Assert::IsFalse(IsSelected(vmItems, 1), L"Ctrl+click left the row ticked");
+    }
+
+    TEST_METHOD(TestSpaceAndTheArrowKeysMoveTheTick)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 0); });
+        oQt.RunOnQt([pGrid]() { ra::ui::qt::tests::PressKey(pGrid->oView, Qt::Key_Down); });
+        oQt.RunOnQt([]() {});
+        const bool bMoved = IsSelected(vmItems, 1) && !IsSelected(vmItems, 0);
+        PressSpace(oQt, pGrid);
+        const bool bUnticked = !IsSelected(vmItems, 1);
+        std::vector<int> vSelected{-1};
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bMoved, L"Down did not move the tick to the next row");
+        Assert::IsTrue(bUnticked, L"Space did not untick the current row");
+        Assert::AreEqual(size_t{0}, vSelected.size(), L"the unticked row is still selected");
+    }
+
+    TEST_METHOD(TestQueuedSelectionsAreShownNotWrittenBack)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        SelectionChangeCounter oCounter;
+        vmItems.AddNotifyTarget(oCounter);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        // Three selections queue while the Qt thread is held. The first two are stale by the time they are shown:
+        // written back, the first would select row 1 again and so deselect row 2.
+        const bool bWasHeld = oQt.HoldQtWhile([]() {},
+                                              [&vmItems]() {
+                                                  vmItems.GetItemAt(1)->SetSelected(true);
+                                                  vmItems.GetItemAt(1)->SetSelected(false);
+                                                  vmItems.GetItemAt(2)->SetSelected(true);
+                                              },
+                                              []() {});
+        oQt.RunOnQt([]() {});
+        std::vector<int> vSelected;
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+        vmItems.RemoveNotifyTarget(oCounter);
+
+        Assert::IsTrue(bWasHeld);
+        Assert::IsTrue(IsSelected(vmItems, 2), L"a stale selection was written back over the worker's");
+        Assert::IsTrue(vSelected == std::vector<int>{2});
+        Assert::AreEqual(3, oCounter.nChanges.load(), L"showing the selections wrote to the items");
+    }
+
+    TEST_METHOD(TestASelectedItemStaysSelectedAcrossARefresh)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        vmItems.GetItemAt(1)->SetSelected(true);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        std::vector<int> vAtStart;
+        oQt.RunOnQt([pGrid, &vAtStart]() { vAtStart = SelectedRows(pGrid->oView); });
+        std::thread([&vmItems]() { vmItems.Add().SetLabel(L"Added"); }).join();
+        const bool bRefreshed = oQt.WaitOnQt([pGrid]() { return pGrid->oView.model()->rowCount() == 4; });
+        std::vector<int> vAfter;
+        oQt.RunOnQt([pGrid, &vAfter]() { vAfter = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(vAtStart == std::vector<int>{1}, L"the selected item was not shown selected");
+        Assert::IsTrue(bRefreshed);
+        Assert::IsTrue(vAfter == std::vector<int>{1}, L"the refresh lost the selection");
+        Assert::IsTrue(IsSelected(vmItems, 1), L"the refresh wrote the selection away");
+    }
+
+    TEST_METHOD(TestDetachStopsTheSelectionsWrites)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+        oQt.RunOnQt([pGrid]() { pGrid->oBinding.Detach(); });
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 2); });
+        Delete(oQt, pGrid);
+
+        Assert::IsFalse(IsSelected(vmItems, 2), L"a selection was written after Detach");
     }
 };
 

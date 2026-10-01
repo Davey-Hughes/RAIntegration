@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <set>
 #include <utility>
 
 namespace ra {
@@ -31,11 +32,11 @@ namespace detail {
 
 /// <summary>
 /// The view's side of a GridBinding, on the Qt thread: the rows shown, the header and widths, and the user's clicks
-/// and keys, which it hands to the binding through its write function.
+/// and keys, which it hands to the binding through its two write functions.
 /// </summary>
 /// <remarks>
 /// A child of the view, so posted work whose context it is is dropped once the view is gone. The binding clears the
-/// write function when it detaches; nothing here reaches the binding after that.
+/// write functions when it detaches; nothing here reaches the binding after that.
 /// </remarks>
 class GridModel final : public QAbstractTableModel
 {
@@ -49,7 +50,7 @@ public:
         bool bCheckBox;
     };
 
-    GridModel(QTableView& oView, std::vector<Column> vColumns);
+    GridModel(QTableView& oView, std::vector<Column> vColumns, bool bSelectionBound);
 
     int rowCount(const QModelIndex& oParent = QModelIndex()) const override;
     int columnCount(const QModelIndex& oParent = QModelIndex()) const override;
@@ -68,17 +69,22 @@ public:
     void UpdateLayout();
 
     std::function<void(gsl::index nRow, gsl::index nColumn, bool bChecked, unsigned int nStructure)> fWriteCheck;
+    std::function<void(gsl::index nRow, bool bSelected, unsigned int nStructure)> fWriteSelected;
 
 protected:
     bool eventFilter(QObject* pWatched, QEvent* pEvent) override;
 
 private:
+    void OnSelectionChanged(const QItemSelection& vSelected, const QItemSelection& vDeselected);
+    void ShowSelection(gsl::index nRow, bool bSelected);
     int CheckBoxWidth() const;
 
     QTableView& m_oView;
     std::vector<Column> m_vColumns;
     std::vector<GridRow> m_vRows;
     unsigned int m_nShownStructure = 0;
+    bool m_bSelectionBound;
+    bool m_bShowingSelection = false; // while the view model's selection is shown: not the user's
 };
 
 /// <summary>Shows a cell's whole text as its tooltip when the cell cuts it short: Win32's LVS_EX_LABELTIP.</summary>
@@ -109,8 +115,8 @@ public:
     }
 };
 
-GridModel::GridModel(QTableView& oView, std::vector<Column> vColumns)
-    : QAbstractTableModel(&oView), m_oView(oView), m_vColumns(std::move(vColumns))
+GridModel::GridModel(QTableView& oView, std::vector<Column> vColumns, bool bSelectionBound)
+    : QAbstractTableModel(&oView), m_oView(oView), m_vColumns(std::move(vColumns)), m_bSelectionBound(bSelectionBound)
 {
     oView.setModel(this);
     oView.setItemDelegate(new GridDelegate(&oView));
@@ -125,6 +131,9 @@ GridModel::GridModel(QTableView& oView, std::vector<Column> vColumns)
     pHeader->setStretchLastSection(false);
     pHeader->setSectionsClickable(false);              // nothing sorts yet (Win32: LVS_NOSORTHEADER here)
     pHeader->setHighlightSections(false);
+
+    // the model is the context: the connection goes with it
+    connect(oView.selectionModel(), &QItemSelectionModel::selectionChanged, this, &GridModel::OnSelectionChanged);
 
     oView.installEventFilter(this);             // Space
     oView.viewport()->installEventFilter(this); // its width
@@ -207,10 +216,20 @@ bool GridModel::setData(const QModelIndex& oIndex, const QVariant& vValue, int n
 
 void GridModel::ShowRows(std::vector<GridRow> vRows, unsigned int nStructure)
 {
+    // A reset clears the view's selection without a selectionChanged (measured), so the view model's is shown again.
     beginResetModel();
     m_vRows = std::move(vRows);
     m_nShownStructure = nStructure;
     endResetModel();
+
+    if (m_bSelectionBound)
+    {
+        for (gsl::index nRow = 0; nRow < gsl::narrow_cast<gsl::index>(m_vRows.size()); ++nRow)
+        {
+            if (m_vRows.at(nRow).bSelected)
+                ShowSelection(nRow, true);
+        }
+    }
 }
 
 void GridModel::ShowRow(gsl::index nRow, GridRow oRow, unsigned int nStructure)
@@ -218,9 +237,41 @@ void GridModel::ShowRow(gsl::index nRow, GridRow oRow, unsigned int nStructure)
     if (nStructure != m_nShownStructure || nRow < 0 || ra::to_unsigned(nRow) >= m_vRows.size())
         return;
 
+    const bool bSelected = oRow.bSelected;
     m_vRows.at(nRow) = std::move(oRow);
     emit dataChanged(index(gsl::narrow_cast<int>(nRow), 0),
                      index(gsl::narrow_cast<int>(nRow), gsl::narrow_cast<int>(m_vColumns.size()) - 1));
+
+    if (m_bSelectionBound)
+        ShowSelection(nRow, bSelected);
+}
+
+void GridModel::ShowSelection(gsl::index nRow, bool bSelected)
+{
+    m_bShowingSelection = true;
+    m_oView.selectionModel()->select(index(gsl::narrow_cast<int>(nRow), 0),
+                                     (bSelected ? QItemSelectionModel::Select : QItemSelectionModel::Deselect) |
+                                         QItemSelectionModel::Rows);
+    m_bShowingSelection = false;
+}
+
+void GridModel::OnSelectionChanged(const QItemSelection& vSelected, const QItemSelection& vDeselected)
+{
+    if (!m_bSelectionBound || m_bShowingSelection || !fWriteSelected)
+        return;
+
+    // Deselections first: a view model keeping one item selected sees the old one go before the new one comes.
+    std::set<int> vRows;
+    for (const auto& oIndex : vDeselected.indexes())
+        vRows.insert(oIndex.row());
+    for (const int nRow : vRows)
+        fWriteSelected(nRow, false, m_nShownStructure);
+
+    vRows.clear();
+    for (const auto& oIndex : vSelected.indexes())
+        vRows.insert(oIndex.row());
+    for (const int nRow : vRows)
+        fWriteSelected(nRow, true, m_nShownStructure);
 }
 
 bool GridModel::eventFilter(QObject* pWatched, QEvent* pEvent)
@@ -352,6 +403,12 @@ void GridBinding::BindItems(ViewModelCollectionBase& vmItems) noexcept
     m_pItems = &vmItems;
 }
 
+void GridBinding::BindIsSelected(const BoolModelProperty& pProperty) noexcept
+{
+    assert(m_pModel.load() == nullptr); // before SetControl: the handlers read it
+    m_pIsSelectedProperty = &pProperty;
+}
+
 void GridBinding::SetControl(QTableView& oView)
 {
     assert(m_pModel.load() == nullptr); // once
@@ -366,12 +423,15 @@ void GridBinding::SetControl(QTableView& oView)
                             dynamic_cast<const GridCheckBoxColumnBinding*>(pColumn.get()) != nullptr});
     }
 
-    auto* pModel = new detail::GridModel(oView, std::move(vColumns));
+    auto* pModel = new detail::GridModel(oView, std::move(vColumns), m_pIsSelectedProperty != nullptr);
     m_pQtModel = pModel;
     if (!IsDetached())
     {
         pModel->fWriteCheck = [this](gsl::index nRow, gsl::index nColumn, bool bChecked, unsigned int nStructure) {
             WriteCheck(nRow, nColumn, bChecked, nStructure);
+        };
+        pModel->fWriteSelected = [this](gsl::index nRow, bool bSelected, unsigned int nStructure) {
+            WriteSelected(nRow, bSelected, nStructure);
         };
     }
 
@@ -396,6 +456,7 @@ void GridBinding::Detach() noexcept
         // Qt thread: the user's clicks no longer reach the binding, which may be destroyed before the view. The one
         // thing that stops a write after Detach.
         m_pQtModel->fWriteCheck = nullptr;
+        m_pQtModel->fWriteSelected = nullptr;
     }
 
     if (m_bTracking)
@@ -416,6 +477,9 @@ detail::GridRow GridBinding::ReadRow(gsl::index nIndex) const
     oRow.vCells.reserve(m_vColumns.size());
     for (const auto& pColumn : m_vColumns)
         oRow.vCells.push_back(pColumn->GetCell(*m_pItems, nIndex));
+
+    if (m_pIsSelectedProperty != nullptr)
+        oRow.bSelected = m_pItems->GetItemValue(nIndex, *m_pIsSelectedProperty);
 
     return oRow;
 }
@@ -472,10 +536,19 @@ void GridBinding::WriteCheck(gsl::index nRow, gsl::index nColumn, bool bChecked,
         m_pItems->SetItemValue(nRow, pColumn->GetBoundProperty(), bChecked);
 }
 
+void GridBinding::WriteSelected(gsl::index nRow, bool bSelected, unsigned int nShownStructure)
+{
+    if (nShownStructure != m_nStructure.load() || m_pIsSelectedProperty == nullptr)
+        return;
+
+    m_pItems->SetItemValue(nRow, *m_pIsSelectedProperty, bSelected);
+}
+
 void GridBinding::OnViewModelBoolValueChanged(gsl::index nIndex, const BoolModelProperty::ChangeArgs& args)
 {
-    if (std::any_of(m_vColumns.begin(), m_vColumns.end(),
-                    [&args](const auto& pColumn) { return pColumn->DependsOn(args.Property); }))
+    const bool bSelection = m_pIsSelectedProperty != nullptr && args.Property == *m_pIsSelectedProperty;
+    if (bSelection || std::any_of(m_vColumns.begin(), m_vColumns.end(),
+                                  [&args](const auto& pColumn) { return pColumn->DependsOn(args.Property); }))
     {
         PostRow(nIndex);
     }

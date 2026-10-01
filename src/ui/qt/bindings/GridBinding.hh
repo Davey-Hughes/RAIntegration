@@ -26,6 +26,7 @@ namespace detail {
 struct GridRow
 {
     std::vector<GridCell> vCells;
+    bool bSelected = false; // the bound IsSelected property; false when none is bound
 };
 
 class GridModel;
@@ -67,6 +68,12 @@ public:
     void BindItems(ViewModelCollectionBase& vmItems) noexcept;
 
     /// <summary>
+    /// Ties the rows' selection to <paramref name="pProperty" /> on each item: selecting a row sets it, and setting it
+    /// selects the row. Before SetControl.
+    /// </summary>
+    void BindIsSelected(const BoolModelProperty& pProperty) noexcept;
+
+    /// <summary>
     /// Attaches the view: gives it its model, header and widths, joins the notify targets, and shows the items. Qt
     /// thread, once, last. The view's selection mode is the caller's. The view must outlive the binding, or the binding
     /// be detached first.
@@ -100,10 +107,12 @@ private:
 
     // Qt thread: the user's changes, from the view's model.
     void WriteCheck(gsl::index nRow, gsl::index nColumn, bool bChecked, unsigned int nShownStructure);
+    void WriteSelected(gsl::index nRow, bool bSelected, unsigned int nShownStructure);
 
     // Set before SetControl and never changed after it.
     std::vector<std::unique_ptr<GridColumnBinding>> m_vColumns;
     ViewModelCollectionBase* m_pItems = nullptr;
+    const BoolModelProperty* m_pIsSelectedProperty = nullptr;
 
     std::atomic<detail::GridModel*> m_pModel{nullptr}; // written once, by SetControl
     std::atomic<unsigned int> m_nStructure{0};         // bumped by every add, remove, move and batch
