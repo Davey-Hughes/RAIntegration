@@ -17,6 +17,7 @@
 #include "ui/drawing/qt/OverlayImage.hh"
 #include "ui/drawing/qt/QtImageRepository.hh"
 #include "ui/drawing/qt/QtSurface.hh"
+#include "ui/drawing/qt/ScreenCapture.hh"
 #include "ui/qt/QtDesktop.hh"
 
 namespace ra {
@@ -127,6 +128,11 @@ void ProvidePlatformOverlayImage()
     // on the emulator's thread, from RA_Init: the thread OverlayImage draws on
     ra::services::ServiceLocator::Provide<ra::ui::drawing::qt::OverlayImage>(
         std::make_unique<ra::ui::drawing::qt::OverlayImage>());
+
+    // and the one ScreenCapture calls the emulator on. A new one each RA_Init, as OverlayImage: the loader hands the
+    // emulator's function over again after every init (RA_Interface_posix.cpp, ForwardScreenCapture).
+    ra::services::ServiceLocator::Provide<ra::ui::drawing::qt::ScreenCapture>(
+        std::make_unique<ra::ui::drawing::qt::ScreenCapture>());
 }
 
 void StopPlatformServices()
@@ -134,6 +140,10 @@ void StopPlatformServices()
     // no overlay once shutdown has begun: _RA_UpdateOverlayImage returns 0 from here on
     if (ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::OverlayImage>())
         ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::OverlayImage>().Shutdown();
+
+    // and no call to the emulator's screen capture
+    if (ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::ScreenCapture>())
+        ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::ScreenCapture>().Shutdown();
 
     if (ra::services::ServiceLocator::Exists<HostThreadDispatcher>())
         ra::services::ServiceLocator::GetMutable<HostThreadDispatcher>().Shutdown();

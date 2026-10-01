@@ -161,6 +161,9 @@ extern "C" {
     // The overlay as an image the emulator draws over its picture. RA_UpdateOverlayImage in RA_Interface.h has the
     // contract.
     API int CCONV _RA_UpdateOverlayImage(int nWidth, int nHeight, float fScale, const void** ppPixels, int* pStride);
+
+    // The emulator's picture for achievement screenshots. RA_InstallScreenCapture in RA_Interface.h has the contract.
+    API void CCONV _RA_InstallScreenCapture(int (*fpCapture)(int* pWidth, int* pHeight, const void** ppPixels, int* pStride));
 #endif
 
 #ifdef __cplusplus

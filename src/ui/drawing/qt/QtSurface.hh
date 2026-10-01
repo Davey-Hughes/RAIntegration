@@ -115,6 +115,9 @@ public:
     /// <summary>The pixels: device size, premultiplied ARGB32, rows top-down.</summary>
     const QImage& GetImage() const noexcept { return m_oImage; }
 
+    /// <summary>The pixels, to write directly (ScreenCapture copies the emulator's picture in).</summary>
+    QImage& GetMutableImage() noexcept { return m_oImage; }
+
 private:
     unsigned int m_nWidth;
     unsigned int m_nHeight;

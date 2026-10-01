@@ -36,6 +36,7 @@
 #ifndef _WIN32
 #include "services/impl/HostThreadDispatcher.hh"
 #include "ui/drawing/qt/OverlayImage.hh"
+#include "ui/drawing/qt/ScreenCapture.hh"
 #endif
 
 #include "ui/viewmodels/IntegrationMenuViewModel.hh"
@@ -788,5 +789,16 @@ API int CCONV _RA_UpdateOverlayImage(int nWidth, int nHeight, float fScale, cons
 
     return ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::OverlayImage>().Update(
         nWidth, nHeight, fScale, ppPixels, pStride);
+}
+
+API void CCONV _RA_InstallScreenCapture(int (*fpCapture)(int* pWidth, int* pHeight, const void** ppPixels, int* pStride))
+{
+    // Before RA_Init and after RA_Shutdown there is nothing to install it in: the loader hands it over again after
+    // every init (RA_Interface_posix.cpp, ForwardScreenCapture).
+    if (ra::services::ServiceLocator::IsInitialized() &&
+        ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::ScreenCapture>())
+    {
+        ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::ScreenCapture>().SetCaptureFunction(fpCapture);
+    }
 }
 #endif
