@@ -3,7 +3,9 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <memory>
+#include <string>
 #include <thread>
 
 namespace ra {
@@ -69,10 +71,26 @@ public:
     /// <summary>Why a capture did not happen, for a log line.</summary>
     static const char* Describe(Result nResult) noexcept;
 
+    /// <summary>
+    /// The headless gate's hook (checks/native-headless.sh run 5): OverlayImage, having queued the test popup because
+    /// RA_OVERLAY_TEST_POPUP is set, asks here for a screenshot of it into sPath when RA_OVERLAY_TEST_SCREENSHOT is.
+    /// DoFrame takes it once tDelay has passed on the registered IClock - as OverlayManager::CaptureScreenshot takes
+    /// an unlock's, from inside RA_DoAchievementsFrame.
+    /// </summary>
+    void RequestTestScreenshot(int nPopupId, const std::wstring& sPath, std::chrono::milliseconds tDelay);
+
+    /// <summary>_RA_DoAchievementsFrame: takes the test screenshot once it is due. Emulator's thread only.</summary>
+    void DoFrame();
+
 private:
     const std::thread::id m_nEmulatorThread;
     std::atomic<CaptureFunction> m_fpCapture{nullptr};
     std::atomic<bool> m_bShutdown{false};
+
+    // the test screenshot: set and taken on the emulator's thread (OverlayImage::Update, DoFrame)
+    int m_nTestPopupId = 0;
+    std::wstring m_sTestPath;
+    std::chrono::steady_clock::time_point m_tTestDue{};
 };
 
 } // namespace qt

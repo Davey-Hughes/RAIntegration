@@ -6,6 +6,7 @@
 
 #include "ui/drawing/qt/QtImageRepository.hh"
 #include "ui/drawing/qt/QtSurface.hh"
+#include "ui/drawing/qt/ScreenCapture.hh"
 #include "ui/viewmodels/OverlayManager.hh"
 
 #include "tests/devkit/context/mocks/MockRcClient.hh"
@@ -485,6 +486,30 @@ public:
         Assert::IsNotNull(pPopup);
         Assert::IsTrue(pPopup->GetImage().Type() == ra::ui::ImageType::Badge, L"the popup has no badge");
         Assert::AreEqual(std::string("o1btest"), pPopup->GetImage().Name());
+    }
+
+    TEST_METHOD(TestTheTestHookAsksForAScreenshotOfItsPopupLater)
+    {
+        // RA_OVERLAY_TEST_SCREENSHOT (native-headless.sh run 5): ScreenCapture takes it 2.5 seconds after the popup
+        // is queued, from inside RA_DoAchievementsFrame (ScreenCapture::DoFrame), as OverlayManager takes an
+        // unlock's: the screenshot job then waits in the pool
+        ScopedEnvironmentVariable oHook("RA_OVERLAY_TEST_POPUP", "Hook");
+        ScopedEnvironmentVariable oImage("RA_OVERLAY_TEST_POPUP_IMAGE", "o1btest");
+        ScopedEnvironmentVariable oShot("RA_OVERLAY_TEST_SCREENSHOT", "/shots/test.png");
+        OverlayImageHarness harness;
+        ScreenCapture screenCapture;
+        ra::services::ServiceLocator::ServiceOverride<ScreenCapture> oOverride(&screenCapture);
+
+        Assert::IsTrue(harness.Update(320, 240) > 0, L"the hook's popup was not shown");
+        const auto nBefore = harness.mockThreadPool.PendingTasks();
+
+        harness.mockClock.AdvanceTime(std::chrono::milliseconds(2499));
+        screenCapture.DoFrame();
+        Assert::AreEqual(nBefore, harness.mockThreadPool.PendingTasks(), L"the screenshot was taken early");
+
+        harness.mockClock.AdvanceTime(std::chrono::milliseconds(1));
+        screenCapture.DoFrame();
+        Assert::AreEqual(nBefore + 1, harness.mockThreadPool.PendingTasks(), L"no screenshot job once it was due");
     }
 
     TEST_METHOD(TestAPopupShowsItsBadge)

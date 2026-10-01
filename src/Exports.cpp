@@ -657,6 +657,10 @@ API void CCONV _RA_DoAchievementsFrame()
     // and only on the emulator's own thread.
     if (ra::services::ServiceLocator::Exists<ra::services::impl::HostThreadDispatcher>())
         ra::services::ServiceLocator::GetMutable<ra::services::impl::HostThreadDispatcher>().DrainIfOnHostThread();
+
+    // the headless gate's test screenshot, once it is due (ScreenCapture::RequestTestScreenshot)
+    if (ra::services::ServiceLocator::Exists<ra::ui::drawing::qt::ScreenCapture>())
+        ra::services::ServiceLocator::GetMutable<ra::ui::drawing::qt::ScreenCapture>().DoFrame();
 #endif
 
 #if !defined(RA_UTEST) && defined(_WIN32)

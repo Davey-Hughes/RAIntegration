@@ -457,6 +457,30 @@ public:
         _RA_InstallScreenCapture(nullptr);
     }
 
+    TEST_METHOD(TestTheTestScreenshotIsTakenOnceAndOnlyWhenDue)
+    {
+        ScreenshotHarness harness;
+        harness.SetPicture(320, 240, 0x206020);
+        const int nPopupId = harness.QueueBadgePopup();
+        const auto sPath = harness.PathFor("test.png");
+
+        harness.screenCapture.RequestTestScreenshot(nPopupId, sPath, std::chrono::milliseconds(2500));
+        harness.screenCapture.DoFrame();
+        harness.mockClock.AdvanceTime(std::chrono::milliseconds(2499));
+        harness.screenCapture.DoFrame();
+        Assert::AreEqual(0, harness.fake.nCalls.load(), L"taken before it was due");
+
+        harness.mockClock.AdvanceTime(std::chrono::milliseconds(1));
+        harness.screenCapture.DoFrame();
+        Assert::AreEqual(1, harness.fake.nCalls.load(), L"not taken when due");
+
+        harness.mockThreadPool.ExecuteNextTask(); // OverlayManager's screenshot job: renders and saves
+        Assert::IsTrue(QFileInfo::exists(QString::fromStdWString(sPath)), L"no file written");
+
+        harness.screenCapture.DoFrame();
+        Assert::AreEqual(1, harness.fake.nCalls.load(), L"taken twice");
+    }
+
     TEST_METHOD(TestAnUnlockScreenshotIsTheEmulatorsPictureWithThePopupOverIt)
     {
         // the whole Linux path from AchievementRuntime's call: OverlayManager::CaptureScreenshot -> QtDesktop ->

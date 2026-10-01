@@ -1,6 +1,7 @@
 #include "OverlayImage.hh"
 
 #include "QtSurface.hh"
+#include "ScreenCapture.hh"
 
 #include "services/ServiceLocator.hh"
 
@@ -29,6 +30,10 @@ namespace {
 // Windows shows its overlay window at 90% opacity while the theme is transparent (OverlayWindow.cpp:
 // SetLayeredWindowAttributes with LWA_ALPHA 255 * 90 / 100); the image the emulator gets has the same.
 constexpr int WINDOWS_OVERLAY_ALPHA = 255 * 90 / 100;
+
+// RA_OVERLAY_TEST_SCREENSHOT's delay: long enough for the test game to draw its title screen, well inside the five
+// seconds the test popup shows for.
+constexpr std::chrono::milliseconds TEST_SCREENSHOT_DELAY{2500};
 
 // One sequence for the whole process, not one per OverlayImage: a new RA_Init's image never repeats a serial the
 // emulator had from the last session's. Never 0, which says "nothing to draw".
@@ -195,21 +200,34 @@ int OverlayImage::Update(int nWidth, int nHeight, float fScale, const void** ppP
         // here rather than at Attach (RA_Init): a loading game clears every popup right after RA_Init
         // (RA_ActivateGame -> OverlayManager::ClearPopups), which would destroy one queued that early before it was
         // ever drawn. RA_OVERLAY_TEST_POPUP_IMAGE, also set: the name of a badge the popup shows, so the gate can
-        // find a badge drawn.
+        // find a badge drawn. RA_OVERLAY_TEST_SCREENSHOT, also set: a path for a screenshot of the popup (run 5),
+        // taken TEST_SCREENSHOT_DELAY later from inside RA_DoAchievementsFrame, as an unlock's is; the popup must
+        // have an image, as an unlock's does, or OverlayManager never renders the screenshot.
         const char* sTestPopup = std::getenv("RA_OVERLAY_TEST_POPUP");
         if (sTestPopup != nullptr && sTestPopup[0] != '\0')
         {
             RA_LOG_WARN("RA_OVERLAY_TEST_POPUP is set: showing a test popup");
             auto& pOverlayManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>();
             const char* sTestImage = std::getenv("RA_OVERLAY_TEST_POPUP_IMAGE");
+            int nPopupId = 0;
             if (sTestImage != nullptr && sTestImage[0] != '\0')
             {
-                pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP",
-                                             ra::ui::ImageType::Badge, sTestImage);
+                nPopupId = pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP",
+                                                        ra::ui::ImageType::Badge, sTestImage);
             }
             else
             {
-                pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+                nPopupId = pOverlayManager.QueueMessage(ra::util::String::Widen(sTestPopup), L"RA_OVERLAY_TEST_POPUP");
+            }
+
+            const char* sTestScreenshot = std::getenv("RA_OVERLAY_TEST_SCREENSHOT");
+            if (sTestScreenshot != nullptr && sTestScreenshot[0] != '\0' &&
+                ra::services::ServiceLocator::Exists<ScreenCapture>())
+            {
+                RA_LOG_WARN("RA_OVERLAY_TEST_SCREENSHOT is set: a screenshot of the test popup in %d ms to %s",
+                            static_cast<int>(TEST_SCREENSHOT_DELAY.count()), sTestScreenshot);
+                ra::services::ServiceLocator::GetMutable<ScreenCapture>().RequestTestScreenshot(
+                    nPopupId, ra::util::String::Widen(sTestScreenshot), TEST_SCREENSHOT_DELAY);
             }
         }
     }

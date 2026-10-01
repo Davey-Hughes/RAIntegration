@@ -2,7 +2,12 @@
 
 #include "QtSurface.hh"
 
+#include "services/IClock.hh"
 #include "services/ServiceLocator.hh"
+
+#include "ui/viewmodels/OverlayManager.hh"
+
+#include "util/Log.hh"
 
 #include <QImage>
 
@@ -90,6 +95,29 @@ const char* ScreenCapture::Describe(Result nResult) noexcept
     }
 
     return "unknown";
+}
+
+void ScreenCapture::RequestTestScreenshot(int nPopupId, const std::wstring& sPath, std::chrono::milliseconds tDelay)
+{
+    m_nTestPopupId = nPopupId;
+    m_sTestPath = sPath;
+    m_tTestDue = ra::services::ServiceLocator::Get<ra::services::IClock>().UpTime() + tDelay;
+}
+
+void ScreenCapture::DoFrame()
+{
+    if (m_nTestPopupId == 0 || std::this_thread::get_id() != m_nEmulatorThread)
+        return;
+
+    if (ra::services::ServiceLocator::Get<ra::services::IClock>().UpTime() < m_tTestDue)
+        return;
+
+    const int nPopupId = m_nTestPopupId;
+    m_nTestPopupId = 0;
+
+    RA_LOG_INFO("Taking the test screenshot %s", m_sTestPath);
+    ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().CaptureScreenshot(nPopupId,
+                                                                                                    m_sTestPath);
 }
 
 } // namespace qt
