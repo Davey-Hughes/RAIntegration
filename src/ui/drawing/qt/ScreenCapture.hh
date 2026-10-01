@@ -23,9 +23,10 @@ class QtSurface;
 /// <remarks>
 /// The emulator's function is called only on the emulator's thread - the one that constructed this, in RA_Init - and
 /// only while nothing has begun shutting the library down. OverlayManager::CaptureScreenshot asks from inside
-/// RA_DoAchievementsFrame for an unlock; a mastery can also arrive elsewhere (rc_client raises it from whichever call
-/// next raises pending events), and is then refused rather than marshalled: a wait for the emulator's thread could
-/// deadlock.
+/// RA_DoAchievementsFrame for an unlock. A mastery is raised by whichever call next raises rc_client's pending events:
+/// RA_DoAchievementsFrame, or the emulator's own RA_OnReset, RA_OnLoadState or RA_RestoreState, on its thread too,
+/// and is taken there, as on Windows. On any other thread (rc_client_set_hardcore_enabled from a worker, say) it is
+/// refused rather than marshalled: a wait for the emulator's thread could deadlock.
 /// </remarks>
 class ScreenCapture
 {

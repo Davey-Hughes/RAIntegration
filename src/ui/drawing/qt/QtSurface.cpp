@@ -296,6 +296,12 @@ bool QtSurfaceFactory::SaveImage(const ISurface& pSurface, const std::wstring& s
     // Opaque, as Windows writes it: WIC ignores the alpha of the premultiplied pixels, which leaves each one as it
     // shows over black. The screenshot under the popup is opaque anyway.
     QImage oOpaque(oImage.width(), oImage.height(), QImage::Format_RGB32);
+    if (oOpaque.isNull())
+    {
+        // Qt could not allocate the copy: scanLine would be null
+        RA_LOG_WARN("No memory to save %s", sPath);
+        return false;
+    }
     for (int nY = 0; nY < oImage.height(); ++nY)
     {
         const auto* pFrom = reinterpret_cast<const uint32_t*>(oImage.constScanLine(nY));
