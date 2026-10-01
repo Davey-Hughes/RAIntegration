@@ -8,13 +8,15 @@
 #include "ui/qt/bindings/TextBoxBinding.hh"
 #include "ui/viewmodels/LoginViewModel.hh"
 
+class QLabel;
+
 namespace ra {
 namespace ui {
 namespace qt {
 
 /// <summary>
 /// The Login dialog: the Qt counterpart of ui/win32/LoginDialog. OK logs in on the Qt thread, as Win32 logs in on its
-/// UI thread; a failure keeps the dialog open.
+/// UI thread; a failure keeps the dialog open and shows its reason in the box.
 /// </summary>
 class LoginDialog : public ModalDialogBase
 {
@@ -34,6 +36,7 @@ protected:
 
 private:
     ra::ui::viewmodels::LoginViewModel& m_vmLogin;
+    QLabel* m_pError = nullptr; // owned by the dialog
     ra::ui::qt::bindings::TextBoxBinding m_bindUsername;
     ra::ui::qt::bindings::TextBoxBinding m_bindPassword;
     ra::ui::qt::bindings::CheckBoxBinding m_bindRememberMe;

@@ -60,7 +60,8 @@ public:
         bool bWasMenuRebuilt = false;
         pLogin.mockEmulatorContext.SetRebuildMenuFunction([&bWasMenuRebuilt] { bWasMenuRebuilt = true; });
 
-        Assert::IsTrue(pLogin.Login("user", "Pa$$w0rd"));
+        std::wstring sError;
+        Assert::IsTrue(pLogin.Login("user", "Pa$$w0rd", sError));
         Assert::IsFalse(pLogin.mockDesktop.WasDialogShown());
 
         // values should be updated in UserContext, including API token and score
@@ -84,18 +85,15 @@ public:
         pLogin.mockRcClient.MockResponse("r=login2&u=User&p=Pa%24%24w0rd",
             "{\"Success\":false,\"Error\":\"Invalid User/Password combination. Please try again\"}");
 
-        pLogin.mockDesktop.ExpectWindow<MessageBoxViewModel>([](MessageBoxViewModel& vmMessageBox)
-        {
-            Assert::AreEqual(std::wstring(L"Failed to login"), vmMessageBox.GetHeader());
-            Assert::AreEqual(std::wstring(L"Invalid User/Password combination. Please try again"), vmMessageBox.GetMessage());
-            Assert::AreEqual(MessageBoxViewModel::Icon::Error, vmMessageBox.GetIcon());
-            return DialogResult::OK;
-        });
         bool bWasMenuRebuilt = false;
         pLogin.mockEmulatorContext.SetRebuildMenuFunction([&bWasMenuRebuilt] { bWasMenuRebuilt = true; });
 
-        Assert::IsFalse(pLogin.Login("User", "Pa$$w0rd"));
-        Assert::IsTrue(pLogin.mockDesktop.WasDialogShown());
+        std::wstring sError;
+        Assert::IsFalse(pLogin.Login("User", "Pa$$w0rd", sError));
+
+        // the service reports the reason; showing it is the caller's business
+        Assert::AreEqual(std::wstring(L"Invalid User/Password combination. Please try again"), sError);
+        Assert::IsFalse(pLogin.mockDesktop.WasDialogShown());
 
         // session tracker should not know user name
         Assert::AreEqual(std::wstring(L""), pLogin.mockSessionTracker.GetUsername());

@@ -29,7 +29,7 @@ bool LoginService::IsLoggedIn() const
     return !pUserContext.GetApiToken().empty();
 }
 
-bool LoginService::Login(const std::string& sUsername, const std::string& sPassword)
+bool LoginService::Login(const std::string& sUsername, const std::string& sPassword, std::wstring& sErrorMessage)
 {
     const auto pSynchronizer = std::make_shared<ra::services::AchievementRuntime::Synchronizer>();
 
@@ -42,17 +42,18 @@ bool LoginService::Login(const std::string& sUsername, const std::string& sPassw
 
     if (!pSynchronizer->Wait())
     {
-        // shutdown has begun: nobody should see a box for an abandoned login
+        // shutdown has begun: the login was abandoned, so there is no reason to show
+        sErrorMessage.clear();
         return false;
     }
 
     if (pSynchronizer->GetResult() != RC_OK)
     {
-        ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(L"Failed to login",
-            ra::util::String::Widen(pSynchronizer->GetErrorMessage()));
+        sErrorMessage = ra::util::String::Widen(pSynchronizer->GetErrorMessage());
         return false;
     }
 
+    sErrorMessage.clear();
     return true;
 }
 

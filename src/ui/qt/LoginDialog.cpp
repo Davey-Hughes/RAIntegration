@@ -8,6 +8,8 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QColor>
+#include <QPalette>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -40,6 +42,9 @@ LoginDialog::LoginDialog(LoginViewModel& vmLogin)
       m_bindPassword(vmLogin),
       m_bindRememberMe(vmLogin)
 {
+    // this box shows a failure's reason itself, and a successful login just closes it
+    m_vmLogin.SetShowsErrorsInline(true);
+
     // Win32's caption comes from the dialog resource; the view model has no title, so the WindowBinding keeps this.
     setWindowTitle(QStringLiteral("Login"));
 
@@ -71,6 +76,15 @@ LoginDialog::LoginDialog(LoginViewModel& vmLogin)
     pForm->addRow(pPasswordLabel, pPassword);
     pForm->addRow(QString(), pRememberMe);
 
+    m_pError = new QLabel(this);
+    m_pError->setObjectName(QStringLiteral("ErrorMessage"));
+    m_pError->setWordWrap(true);
+    // a fixed red reads on dark and light themes alike
+    auto oErrorPalette = m_pError->palette();
+    oErrorPalette.setColor(QPalette::WindowText, QColor(200, 0, 0));
+    m_pError->setPalette(oErrorPalette);
+    m_pError->hide();
+
     auto* pButtons = CreateButtons();
     pButtons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("&Login"));
     pButtons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("&Cancel"));
@@ -78,6 +92,7 @@ LoginDialog::LoginDialog(LoginViewModel& vmLogin)
     auto* pLayout = new QVBoxLayout(this);
     pLayout->addWidget(pInformation);
     pLayout->addLayout(pForm);
+    pLayout->addWidget(m_pError);
     pLayout->addWidget(pButtons);
 
     m_bindUsername.BindText(LoginViewModel::UsernameProperty);
@@ -97,9 +112,15 @@ LoginDialog::LoginDialog(LoginViewModel& vmLogin)
 
 bool LoginDialog::CanAccept()
 {
-    // As Win32's OnCommand(IDOK): Login() shows why it failed - nested, on this thread - and a failure keeps the
-    // dialog open.
-    return m_vmLogin.Login();
+    // As Win32's OnCommand(IDOK), except that a failure's reason is shown in the box (the view model is inline) and a
+    // failure keeps the dialog open.
+    const bool bResult = m_vmLogin.Login();
+
+    const auto sError = QString::fromStdWString(m_vmLogin.GetErrorMessage());
+    m_pError->setText(sError);
+    m_pError->setVisible(!sError.isEmpty());
+
+    return bResult;
 }
 
 } // namespace qt

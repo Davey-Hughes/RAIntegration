@@ -59,6 +59,28 @@ public:
     void SetPasswordRemembered(bool bValue) { SetValue(IsPasswordRememberedProperty, bValue); }
     
     /// <summary>
+    /// The <see cref="ModelProperty" /> for the reason the last login attempt failed.
+    /// </summary>
+    static const StringModelProperty ErrorMessageProperty;
+
+    /// <summary>
+    /// Gets the reason the last login attempt failed; empty if it did not (or has not been tried).
+    /// </summary>
+    const std::wstring& GetErrorMessage() const { return GetValue(ErrorMessageProperty); }
+
+    /// <summary>
+    /// Sets the reason the last login attempt failed.
+    /// </summary>
+    void SetErrorMessage(const std::wstring& sValue) { SetValue(ErrorMessageProperty, sValue); }
+
+    /// <summary>
+    /// Sets whether failures are reported through <see cref="ErrorMessageProperty" /> (and a successful login shows
+    /// no message). A view that can show the error itself turns it on; Windows' dialog does not, so it keeps its
+    /// message boxes.
+    /// </summary>
+    void SetShowsErrorsInline(bool bValue) noexcept { m_bShowsErrorsInline = bValue; }
+
+    /// <summary>
     /// Command handler for Login button.
     /// </summary>    
     /// <returns>
@@ -69,6 +91,9 @@ public:
 
 protected:
     LoginViewModel(const std::wstring&& sUsername); // alternate costructor for unit tests
+
+private:
+    bool m_bShowsErrorsInline = false;
 };
 
 } // namespace viewmodels

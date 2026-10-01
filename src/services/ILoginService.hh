@@ -30,9 +30,13 @@ public:
     void DisableLogin() noexcept { m_bDisableLogin = true; }
 
     /// <summary>
-    /// Logs a user in.
+    /// Logs a user in. The service shows no UI: the caller decides how to show a failure.
     /// </summary>
-    virtual bool Login(const std::string& sUsername, const std::string& sPassword) = 0;
+    /// <param name="sErrorMessage">
+    /// On failure, the reason. Empty when the login was abandoned because shutdown began (show nothing then).
+    /// </param>
+    /// <returns><c>true</c> if the user was logged in, <c>false</c> if not.</returns>
+    virtual bool Login(const std::string& sUsername, const std::string& sPassword, std::wstring& sErrorMessage) = 0;
 
     /// <summary>
     /// Logs the user out.

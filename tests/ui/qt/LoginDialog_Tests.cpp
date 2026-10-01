@@ -16,6 +16,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QFormLayout>
+#include <QLabel>
 #include <QLineEdit>
 
 #include <chrono>
@@ -164,37 +165,46 @@ public:
         auto* pDialog = Open(oQt, vmLogin);
 
         bool bVisible = false;
-        oQt.RunOnQt([pDialog, &bVisible]() {
+        std::wstring sError;
+        oQt.RunOnQt([pDialog, &bVisible, &sError]() {
             Fill(*pDialog, QStringLiteral("User"), QString(), false);
             pDialog->accept();
             bVisible = pDialog->isVisible();
+            sError = pDialog->findChild<QLabel*>(QStringLiteral("ErrorMessage"))->text().toStdWString();
         });
         Delete(oQt, pDialog);
 
         Assert::IsTrue(bVisible, L"closed without a password");
-        Assert::AreEqual(std::wstring(L"Password is required."), oServices.sLastMessage);
+        Assert::AreEqual(std::wstring(), oServices.sLastMessage, L"the box shows it inline: no message box");
+        Assert::AreEqual(std::wstring(L"Password is required."), sError);
         Assert::AreEqual(DialogResult::None, vmLogin.GetDialogResult()); // unanswered: still open
     }
 
     TEST_METHOD(TestAFailedLoginKeepsItOpen)
     {
         LoginServices oServices;
-        oServices.mockLoginService.MockLoginFailure(true);
+        oServices.mockLoginService.MockLoginFailure(true, L"Invalid username/password combination. Please try again.");
         LoginViewModel vmLogin;
         QtTestHost oQt;
         auto* pDialog = Open(oQt, vmLogin);
 
-        bool bVisible = false;
-        oQt.RunOnQt([pDialog, &bVisible]() {
+        bool bVisible = false, bLabelShown = false;
+        std::wstring sError;
+        oQt.RunOnQt([pDialog, &bVisible, &bLabelShown, &sError]() {
             Fill(*pDialog, QStringLiteral("User"), QStringLiteral("wrong"), false);
             pDialog->accept();
             bVisible = pDialog->isVisible();
+            auto* pLabel = pDialog->findChild<QLabel*>(QStringLiteral("ErrorMessage"));
+            bLabelShown = pLabel->isVisible();
+            sError = pLabel->text().toStdWString();
         });
         Delete(oQt, pDialog);
 
         Assert::IsTrue(bVisible, L"closed after a failed login");
         Assert::IsFalse(oServices.mockLoginService.IsLoggedIn());
-        Assert::AreEqual(std::wstring(), oServices.sLastMessage, L"a validation message: the login service was never asked");
+        Assert::IsTrue(bLabelShown, L"the error label is hidden");
+        Assert::AreEqual(std::wstring(L"Failed to login: Invalid username/password combination. Please try again."), sError);
+        Assert::AreEqual(std::wstring(), oServices.sLastMessage, L"the reason belongs inside the box, not in a message box");
         Assert::AreEqual(DialogResult::None, vmLogin.GetDialogResult());
     }
 
@@ -214,6 +224,7 @@ public:
         Delete(oQt, pDialog);
 
         Assert::IsFalse(bVisible, L"still open after a successful login");
+        Assert::AreEqual(std::wstring(), oServices.sLastMessage, L"a successful login closes the box without a message box");
         Assert::AreEqual(DialogResult::OK, vmLogin.GetDialogResult());
         Assert::IsTrue(oServices.mockLoginService.IsLoggedIn());
         Assert::AreEqual(std::string("APITOKEN"), oServices.mockConfiguration.GetApiToken());

@@ -24,18 +24,39 @@ public:
 
     void SetLoggedIn(bool bIsLoggedIn) noexcept { m_bIsLoggedIn = bIsLoggedIn; }
 
-    void MockLoginFailure(bool bIsFailure) noexcept { m_bFailLogin = bIsFailure; }
+    /// <summary>
+    /// Makes Login() fail with the given reason; an empty reason is an abandoned login (shutdown began).
+    /// </summary>
+    void MockLoginFailure(bool bIsFailure, const std::wstring& sErrorMessage = L"")
+    {
+        m_bFailLogin = bIsFailure;
+        m_sFailureMessage = sErrorMessage;
+    }
 
-    bool Login(const std::string& sUsername, const std::string&) override
+    bool Login(const std::string& sUsername, const std::string&, std::wstring& sErrorMessage) override
     {
         if (m_bFailLogin)
+        {
+            sErrorMessage = m_sFailureMessage;
             return false;
+        }
+
+        sErrorMessage.clear();
 
         if (ra::services::ServiceLocator::Exists<ra::context::UserContext>())
             ra::services::ServiceLocator::GetMutable<ra::context::UserContext>().Initialize(sUsername, sUsername + "_", "APITOKEN");
 
         m_bIsLoggedIn = true;
         return true;
+    }
+
+    /// <summary>
+    /// For tests that only want a logged-in user and have no use for the failure reason.
+    /// </summary>
+    bool Login(const std::string& sUsername, const std::string& sPassword)
+    {
+        std::wstring sErrorMessage;
+        return Login(sUsername, sPassword, sErrorMessage);
     }
 
     void Logout() override
@@ -51,6 +72,7 @@ private:
 
     bool m_bIsLoggedIn = false;
     bool m_bFailLogin = false;
+    std::wstring m_sFailureMessage;
 };
 
 } // namespace mocks

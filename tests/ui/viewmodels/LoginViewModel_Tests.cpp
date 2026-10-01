@@ -128,6 +128,115 @@ public:
         Assert::AreEqual(std::string(""), vmLogin.mockConfiguration.GetUsername());
         Assert::AreEqual(std::string(""), vmLogin.mockConfiguration.GetApiToken());
     }
+
+    TEST_METHOD(TestLoginFailureShowsTheReasonInABoxWhenNotInline)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.mockLoginService.MockLoginFailure(true, L"Invalid username/password combination. Please try again.");
+        vmLogin.mockDesktop.ExpectWindow<MessageBoxViewModel>([](MessageBoxViewModel& vmMessageBox)
+        {
+            Assert::AreEqual(std::wstring(L"Failed to login"), vmMessageBox.GetHeader());
+            Assert::AreEqual(std::wstring(L"Invalid username/password combination. Please try again."), vmMessageBox.GetMessage());
+            Assert::AreEqual(MessageBoxViewModel::Icon::Error, vmMessageBox.GetIcon());
+            return DialogResult::OK;
+        });
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsTrue(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L""), vmLogin.GetErrorMessage());
+    }
+
+    TEST_METHOD(TestAbandonedLoginShowsNothing)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.mockLoginService.MockLoginFailure(true);
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L""), vmLogin.GetErrorMessage());
+    }
+
+    TEST_METHOD(TestInlineNoUsername)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+
+        vmLogin.SetUsername(L"");
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L"Username is required."), vmLogin.GetErrorMessage());
+        vmLogin.mockRcClient.AssertNoPendingRequests();
+    }
+
+    TEST_METHOD(TestInlineNoPassword)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+
+        vmLogin.SetUsername(L"User");
+        vmLogin.SetPassword(L"");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L"Password is required."), vmLogin.GetErrorMessage());
+        vmLogin.mockRcClient.AssertNoPendingRequests();
+    }
+
+    TEST_METHOD(TestInlineLoginFailure)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+        vmLogin.mockLoginService.MockLoginFailure(true, L"Invalid username/password combination. Please try again.");
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L"Failed to login: Invalid username/password combination. Please try again."),
+                         vmLogin.GetErrorMessage());
+        Assert::AreEqual(std::string(""), vmLogin.mockConfiguration.GetUsername());
+    }
+
+    TEST_METHOD(TestInlineLoginSuccessful)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        vmLogin.SetPasswordRemembered(true);
+        Assert::IsTrue(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L""), vmLogin.GetErrorMessage());
+        Assert::AreEqual(std::string("User_"), vmLogin.mockConfiguration.GetUsername());
+        Assert::AreEqual(std::string("APITOKEN"), vmLogin.mockConfiguration.GetApiToken());
+    }
+
+    TEST_METHOD(TestInlineAbandonedLoginShowsNothing)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+        vmLogin.mockLoginService.MockLoginFailure(true);
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::IsFalse(vmLogin.mockDesktop.WasDialogShown());
+        Assert::AreEqual(std::wstring(L""), vmLogin.GetErrorMessage());
+    }
+
+    TEST_METHOD(TestInlineNewAttemptClearsThePreviousError)
+    {
+        LoginViewModelHarness vmLogin;
+        vmLogin.SetShowsErrorsInline(true);
+
+        vmLogin.SetPassword(L"");
+        Assert::IsFalse(vmLogin.Login());
+        Assert::AreEqual(std::wstring(L"Password is required."), vmLogin.GetErrorMessage());
+
+        vmLogin.SetPassword(L"Pa$$w0rd");
+        Assert::IsTrue(vmLogin.Login());
+        Assert::AreEqual(std::wstring(L""), vmLogin.GetErrorMessage());
+    }
 };
 
 } // namespace tests
