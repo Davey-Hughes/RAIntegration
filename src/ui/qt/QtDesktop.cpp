@@ -9,6 +9,7 @@
 #include "ui/drawing/qt/QtSurface.hh"
 #include "ui/drawing/qt/ScreenCapture.hh"
 #include "ui/qt/bindings/WindowBinding.hh"
+#include "ui/qt/BrokenAchievementsDialog.hh"
 #include "ui/qt/FileDialog.hh"
 #include "ui/qt/LoginDialog.hh"
 #include "ui/qt/MessageBoxDialog.hh"
@@ -94,6 +95,7 @@ QtDesktop::QtDesktop() : m_pState(std::make_shared<State>())
     m_pState->vPresenters.push_back(std::make_unique<FileDialog::Presenter>());
     m_pState->vPresenters.push_back(std::make_unique<LoginDialog::Presenter>());
     m_pState->vPresenters.push_back(std::make_unique<OverlaySettingsDialog::Presenter>());
+    m_pState->vPresenters.push_back(std::make_unique<BrokenAchievementsDialog::Presenter>());
 
     // A second _RA_Init restarts the Qt host in place, without Shutdown(): the
     // host's Stop() runs this before its application goes, and before
