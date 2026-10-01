@@ -18,7 +18,10 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QColor>
+#include <QDir>
+#include <QFileInfo>
 #include <QImage>
+#include <QTemporaryDir>
 
 #include <atomic>
 #include <cstdio>
@@ -423,6 +426,110 @@ public:
         const auto pNoScale = oFactory.CreateDeviceSurface(64, 48, 0.0); // treated as 1
         Assert::AreEqual(64U, pNoScale->GetWidth());
         Assert::AreEqual(48U, pNoScale->GetHeight());
+    }
+
+    TEST_METHOD(TestSaveImageWritesTheDevicePixelsAsAnOpaquePng)
+    {
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        auto pSurface = MakeSurface(oFactory, 4, 2);
+        pSurface->FillRectangle(0, 0, 4, 2, Color(0xFF0000FF));
+        pSurface->FillRectangle(1, 0, 1, 1, Color(0x80FF0000)); // half red: premultiplied 0x80800000
+        pSurface->FillRectangle(2, 0, 1, 1, Color::Transparent);
+        pSurface->FillRectangle(3, 1, 1, 1, Color(0xFF20C040));
+
+        QTemporaryDir oDirectory;
+        Assert::IsTrue(oDirectory.isValid());
+        const QString sPath = oDirectory.filePath("12345.png");
+        Assert::IsTrue(oFactory.SaveImage(*pSurface, sPath.toStdWString()));
+
+        const QImage oSaved(sPath, "PNG");
+        Assert::IsFalse(oSaved.isNull(), L"no PNG written");
+        Assert::AreEqual(4, oSaved.width());
+        Assert::AreEqual(2, oSaved.height());
+        Assert::IsFalse(oSaved.hasAlphaChannel(), L"the PNG has an alpha channel");
+        // each pixel as it shows over black, as Windows writes it (WICBitmapIgnoreAlpha)
+        Assert::AreEqual(0xFF0000FFU, static_cast<unsigned>(oSaved.pixel(0, 0)));
+        Assert::AreEqual(0xFF800000U, static_cast<unsigned>(oSaved.pixel(1, 0)));
+        Assert::AreEqual(0xFF000000U, static_cast<unsigned>(oSaved.pixel(2, 0)));
+        Assert::AreEqual(0xFF20C040U, static_cast<unsigned>(oSaved.pixel(3, 1)));
+    }
+
+    TEST_METHOD(TestSaveImageAtScaleTwoWritesEveryDevicePixel)
+    {
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        oFactory.SetScale(2.0);
+        auto pSurface = MakeSurface(oFactory, 3, 2);
+        pSurface->FillRectangle(0, 0, 3, 2, Color(0xFF102030));
+
+        QTemporaryDir oDirectory;
+        const QString sPath = oDirectory.filePath("Game1.png");
+        Assert::IsTrue(oFactory.SaveImage(*pSurface, sPath.toStdWString()));
+
+        const QImage oSaved(sPath, "PNG");
+        Assert::AreEqual(6, oSaved.width());
+        Assert::AreEqual(4, oSaved.height());
+        Assert::AreEqual(0xFF102030U, static_cast<unsigned>(oSaved.pixel(5, 3)));
+    }
+
+    TEST_METHOD(TestSaveImageReplacesAnExistingFile)
+    {
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        QTemporaryDir oDirectory;
+        const QString sPath = oDirectory.filePath("12345.png");
+
+        auto pFirst = MakeSurface(oFactory, 2, 2);
+        pFirst->FillRectangle(0, 0, 2, 2, Color(0xFFFF0000));
+        Assert::IsTrue(oFactory.SaveImage(*pFirst, sPath.toStdWString()));
+
+        auto pSecond = MakeSurface(oFactory, 3, 1);
+        pSecond->FillRectangle(0, 0, 3, 1, Color(0xFF00FF00));
+        Assert::IsTrue(oFactory.SaveImage(*pSecond, sPath.toStdWString()));
+
+        const QImage oSaved(sPath, "PNG");
+        Assert::AreEqual(3, oSaved.width());
+        Assert::AreEqual(0xFF00FF00U, static_cast<unsigned>(oSaved.pixel(0, 0)));
+    }
+
+    TEST_METHOD(TestSaveImageRefusesAnEmptySurface)
+    {
+        // what every failed capture comes to: OverlayManager renders over QtDesktop's empty surface
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        const auto pEmpty = oFactory.CreateSurface(0, 0);
+        QTemporaryDir oDirectory;
+        const QString sPath = oDirectory.filePath("12345.png");
+
+        Assert::IsFalse(oFactory.SaveImage(*pEmpty, sPath.toStdWString()));
+        Assert::IsFalse(QFileInfo::exists(sPath), L"a file was written for an empty surface");
+    }
+
+    TEST_METHOD(TestSaveImageRefusesAnotherFactorysSurface)
+    {
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        const ra::ui::drawing::null::NullSurface oOther(4, 4);
+        QTemporaryDir oDirectory;
+        const QString sPath = oDirectory.filePath("12345.png");
+
+        Assert::IsFalse(oFactory.SaveImage(oOther, sPath.toStdWString()));
+        Assert::IsFalse(QFileInfo::exists(sPath));
+    }
+
+    TEST_METHOD(TestSaveImageIntoAMissingFolderFailsAndMakesNoFolder)
+    {
+        // as on Windows: the folder is the player's to make (Overlay Settings' Browse picks an existing one)
+        QtTestHost oQt;
+        QtSurfaceFactory oFactory;
+        auto pSurface = MakeSurface(oFactory, 2, 2);
+        pSurface->FillRectangle(0, 0, 2, 2, Color(0xFFFF0000));
+        QTemporaryDir oDirectory;
+        const QString sMissing = oDirectory.filePath("missing");
+
+        Assert::IsFalse(oFactory.SaveImage(*pSurface, (sMissing + "/12345.png").toStdWString()));
+        Assert::IsFalse(QDir(sMissing).exists(), L"SaveImage made the folder");
     }
 
     TEST_METHOD(TestDrawSurfaceOfASurfaceWithoutPixelsDoesNothing)

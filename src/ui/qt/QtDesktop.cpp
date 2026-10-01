@@ -5,6 +5,9 @@
 #include "services/ServiceLocator.hh"
 #include "services/impl/HostThreadDispatcher.hh"
 
+#include "ui/drawing/null/NullSurface.hh"
+#include "ui/drawing/qt/QtSurface.hh"
+#include "ui/drawing/qt/ScreenCapture.hh"
 #include "ui/qt/bindings/WindowBinding.hh"
 #include "ui/qt/FileDialog.hh"
 #include "ui/qt/LoginDialog.hh"
@@ -555,6 +558,29 @@ void QtDesktop::OpenUrl(const std::string& sUrl) const
         if (!QDesktopServices::openUrl(QUrl(QString::fromStdString(sUrl))))
             RA_LOG_WARN("Could not open %s", sUrl.c_str());
     });
+}
+
+std::unique_ptr<ra::ui::drawing::ISurface> QtDesktop::CaptureClientArea(const WindowViewModelBase&) const
+{
+    using ra::ui::drawing::qt::ScreenCapture;
+
+    if (!ra::services::ServiceLocator::Exists<ScreenCapture>())
+    {
+        RA_LOG_INFO("No screen capture: no ScreenCapture registered");
+        return std::make_unique<ra::ui::drawing::null::NullSurface>(0, 0);
+    }
+
+    std::unique_ptr<ra::ui::drawing::qt::QtSurface> pSurface;
+    const auto nResult = ra::services::ServiceLocator::Get<ScreenCapture>().Capture(pSurface);
+    if (nResult != ScreenCapture::Result::Captured)
+    {
+        RA_LOG_INFO("No screen capture: %s", ScreenCapture::Describe(nResult));
+        return std::make_unique<ra::ui::drawing::null::NullSurface>(0, 0);
+    }
+
+    RA_LOG_INFO("Screen capture: %dx%d device pixels from the emulator", pSurface->GetImage().width(),
+                pSurface->GetImage().height());
+    return pSurface;
 }
 
 bool QtDesktop::IsOnUIThread() const

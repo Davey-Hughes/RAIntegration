@@ -136,8 +136,12 @@ public:
     std::unique_ptr<ISurface> CreateSurface(int nWidth, int nHeight) const override;
     std::unique_ptr<ISurface> CreateTransparentSurface(int nWidth, int nHeight) const override;
 
-    // Achievement screenshots arrive in O1c.
-    bool SaveImage(const ISurface&, const std::wstring&) const noexcept override { return false; }
+    /// <summary>
+    /// Writes a QtSurface's device pixels to sPath as an opaque PNG - each pixel as it shows over black, as Windows
+    /// writes it (WICBitmapIgnoreAlpha). Any other surface, an empty one, or a file that cannot be written: false.
+    /// No folder is created. Any thread: a pool worker saves achievement screenshots (OverlayManager).
+    /// </summary>
+    bool SaveImage(const ISurface& pSurface, const std::wstring& sPath) const override;
 
     /// <summary>
     /// A surface of exactly nDeviceWidth x nDeviceHeight device pixels at fScale: the image OverlayImage hands the

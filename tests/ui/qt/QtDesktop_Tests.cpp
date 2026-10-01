@@ -4,6 +4,8 @@
 
 #include "services/impl/HostThreadDispatcher.hh"
 
+#include "ui/drawing/qt/QtSurface.hh"
+#include "ui/drawing/qt/ScreenCapture.hh"
 #include "ui/qt/DialogBase.hh"
 #include "ui/qt/bindings/WindowBinding.hh"
 #include "ui/viewmodels/MessageBoxViewModel.hh"
@@ -278,6 +280,17 @@ public:
 private:
     ra::services::ServiceLocator::ServiceOverride<ra::services::IQtApplicationHost> m_Override;
 };
+
+// A 2 x 1 emulator picture for CaptureClientArea, alpha 0 as a core's RGBX frame can be.
+int CaptureTwoPixels(int* pWidth, int* pHeight, const void** ppPixels, int* pStride)
+{
+    static const uint32_t pPixels[2] = {0x00112233, 0x00445566};
+    *pWidth = 2;
+    *pHeight = 1;
+    *ppPixels = pPixels;
+    *pStride = 8;
+    return 1;
+}
 
 } // namespace
 
@@ -1231,6 +1244,52 @@ public:
         QtDesktop oDesktop;
 
         Assert::IsTrue(oDesktop.CanShowWindow(vmWindow));
+    }
+
+    // --- CaptureClientArea: what OverlayManager::CaptureScreenshot stores, and draws over, unchecked ---
+
+    TEST_METHOD(TestCaptureClientAreaIsEmptyNotNullWithoutAScreenCapture)
+    {
+        TestViewModel vmEmulator(L"Emulator");
+        QtDesktop oDesktop;
+
+        const auto pSurface = oDesktop.CaptureClientArea(vmEmulator);
+        Assert::IsNotNull(pSurface.get());
+        Assert::AreEqual(0U, pSurface->GetWidth());
+        Assert::AreEqual(0U, pSurface->GetHeight());
+    }
+
+    TEST_METHOD(TestCaptureClientAreaIsEmptyNotNullWhenTheCaptureIsRefused)
+    {
+        TestViewModel vmEmulator(L"Emulator");
+        ra::ui::drawing::qt::QtSurfaceFactory oFactory;
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::ISurfaceFactory> oFactoryOverride(&oFactory);
+        ra::ui::drawing::qt::ScreenCapture oCapture; // nothing installed
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::qt::ScreenCapture> oCaptureOverride(&oCapture);
+        QtDesktop oDesktop;
+
+        const auto pSurface = oDesktop.CaptureClientArea(vmEmulator);
+        Assert::IsNotNull(pSurface.get());
+        Assert::AreEqual(0U, pSurface->GetWidth());
+    }
+
+    TEST_METHOD(TestCaptureClientAreaIsTheEmulatorsPicture)
+    {
+        TestViewModel vmEmulator(L"Emulator");
+        ra::ui::drawing::qt::QtSurfaceFactory oFactory;
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::ISurfaceFactory> oFactoryOverride(&oFactory);
+        ra::ui::drawing::qt::ScreenCapture oCapture;
+        oCapture.SetCaptureFunction(CaptureTwoPixels);
+        ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::qt::ScreenCapture> oCaptureOverride(&oCapture);
+        QtDesktop oDesktop;
+
+        const auto pSurface = oDesktop.CaptureClientArea(vmEmulator);
+        const auto* pQtSurface = dynamic_cast<const ra::ui::drawing::qt::QtSurface*>(pSurface.get());
+        Assert::IsNotNull(pQtSurface, L"not the captured surface");
+        Assert::AreEqual(2U, pQtSurface->GetWidth());
+        Assert::AreEqual(1U, pQtSurface->GetHeight());
+        Assert::AreEqual(0xFF112233U, pQtSurface->GetImage().pixel(0, 0));
+        Assert::AreEqual(0xFF445566U, pQtSurface->GetImage().pixel(1, 0));
     }
 };
 

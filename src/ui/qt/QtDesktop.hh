@@ -50,6 +50,14 @@ public:
     ra::ui::DialogResult ShowModal(WindowViewModelBase& vmWindow, const WindowViewModelBase& vmParentWindow) const override;
     void CloseWindow(WindowViewModelBase& vmWindow) const override;
     void OpenUrl(const std::string& sUrl) const override;
+
+    /// <summary>
+    /// The emulator's picture, for an achievement screenshot: what the emulator hands over through ScreenCapture,
+    /// where Windows BitBlts its window. vmViewModel is ignored: OverlayManager only ever asks for the emulator's. Any
+    /// failure - logged - is an empty surface, never nullptr: OverlayManager draws over the result unchecked.
+    /// </summary>
+    std::unique_ptr<ra::ui::drawing::ISurface> CaptureClientArea(const WindowViewModelBase& vmViewModel) const override;
+
     bool IsOnUIThread() const override;
     void InvokeOnUIThread(std::function<void()> fAction) const override;
     void InvokeOnHostThread(std::function<void()> fAction) const override;

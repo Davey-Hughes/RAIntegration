@@ -5,6 +5,7 @@
 #include "services/ServiceLocator.hh"
 
 #include "util/EnumOps.hh"
+#include "util/Log.hh"
 
 #include <QCoreApplication>
 #include <QFontMetrics>
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace ra {
 namespace ui {
@@ -274,6 +276,41 @@ std::unique_ptr<ISurface> QtSurfaceFactory::CreateSurface(int nWidth, int nHeigh
 std::unique_ptr<ISurface> QtSurfaceFactory::CreateTransparentSurface(int nWidth, int nHeight) const
 {
     return CreateSurface(nWidth, nHeight);
+}
+
+bool QtSurfaceFactory::SaveImage(const ISurface& pSurface, const std::wstring& sPath) const
+{
+    // as GDISurfaceFactory::SaveImage: only this factory's own surfaces
+    const auto* pQtSurface = dynamic_cast<const QtSurface*>(&pSurface);
+    if (pQtSurface == nullptr)
+        return false;
+
+    const QImage& oImage = pQtSurface->GetImage();
+    if (oImage.isNull())
+    {
+        // every failed capture ends here: the screenshot was rendered over QtDesktop's empty surface
+        RA_LOG_WARN("No picture to save %s", sPath);
+        return false;
+    }
+
+    // Opaque, as Windows writes it: WIC ignores the alpha of the premultiplied pixels, which leaves each one as it
+    // shows over black. The screenshot under the popup is opaque anyway.
+    QImage oOpaque(oImage.width(), oImage.height(), QImage::Format_RGB32);
+    for (int nY = 0; nY < oImage.height(); ++nY)
+    {
+        const auto* pFrom = reinterpret_cast<const uint32_t*>(oImage.constScanLine(nY));
+        auto* pTo = reinterpret_cast<uint32_t*>(oOpaque.scanLine(nY));
+        for (int nX = 0; nX < oImage.width(); ++nX)
+            pTo[nX] = pFrom[nX] | 0xFF000000U;
+    }
+
+    if (!oOpaque.save(QString::fromStdWString(sPath), "PNG"))
+    {
+        RA_LOG_WARN("Could not save %s", sPath);
+        return false;
+    }
+
+    return true;
 }
 
 std::unique_ptr<QtSurface> QtSurfaceFactory::CreateDeviceSurface(int nDeviceWidth, int nDeviceHeight,

@@ -7,11 +7,34 @@
 #include "services/ServiceLocator.hh"
 
 #include "ui/drawing/null/NullSurface.hh"
+#include "ui/drawing/qt/QtImageRepository.hh"
 #include "ui/drawing/qt/QtSurface.hh"
+#include "ui/qt/QtDesktop.hh"
+#include "ui/viewmodels/OverlayManager.hh"
 
 #include "util/Strings.hh"
 
+#include "tests/devkit/context/mocks/MockRcClient.hh"
+#include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockClock.hh"
+#include "tests/devkit/services/mocks/MockConfiguration.hh"
+#include "tests/devkit/services/mocks/MockFileSystem.hh"
+#include "tests/devkit/services/mocks/MockHttpRequester.hh"
+#include "tests/devkit/services/mocks/MockThreadPool.hh"
+#include "tests/mocks/MockAchievementRuntime.hh"
+#include "tests/mocks/MockEmulatorContext.hh"
+#include "tests/mocks/MockGameContext.hh"
+#include "tests/mocks/MockOverlayTheme.hh"
+#include "tests/mocks/MockWindowConfiguration.hh"
+#include "tests/mocks/MockWindowManager.hh"
+#include "tests/ui/qt/QtTestHost.hh"
+
+#include <QBuffer>
+#include <QByteArray>
+#include <QColor>
+#include <QFileInfo>
 #include <QImage>
+#include <QTemporaryDir>
 
 #include <atomic>
 #include <set>
@@ -26,6 +49,11 @@ namespace ui {
 namespace drawing {
 namespace qt {
 namespace tests {
+
+using ra::ui::qt::tests::QtTestHost;
+using ra::ui::viewmodels::OverlayManager;
+using ra::ui::viewmodels::Popup;
+using ra::ui::viewmodels::PopupLocation;
 
 namespace {
 
@@ -114,6 +142,94 @@ public:
 
 private:
     ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::ISurfaceFactory> m_oFactoryOverride;
+};
+
+// a 64 x 64 opaque magenta PNG
+std::string MagentaPng()
+{
+    QImage oImage(64, 64, QImage::Format_ARGB32);
+    oImage.fill(QColor(255, 0, 255));
+    QByteArray oBytes;
+    QBuffer oBuffer(&oBytes);
+    oBuffer.open(QIODevice::WriteOnly);
+    oImage.save(&oBuffer, "PNG");
+    return std::string(oBytes.constData(), static_cast<size_t>(oBytes.size()));
+}
+
+// A popup message: 4 + 64 + 4 pixels high, plus the theme's 2-pixel shadow; 10 pixels in from the left and up from
+// the bottom (PopupMessageViewModel).
+constexpr int POPUP_HEIGHT = 4 + 64 + 4 + 2;
+
+// The library as it runs a screenshot: OverlayManager, the real QtDesktop (CaptureClientArea), ScreenCapture with the
+// fake installed, a QtSurfaceFactory, a QtImageRepository over a mock file system holding badge 12345, and the mocks
+// OverlayManager's popups need (as OverlayImage_Tests' harness has them). The pool runs only when a test says so.
+class ScreenshotHarness
+{
+public:
+    // First, so it goes last: the factory's fonts and the popups' images must go while the application still runs.
+    QtTestHost oQt;
+
+    ra::context::mocks::MockRcClient mockRcClient;
+    ra::context::mocks::MockUserContext mockUserContext;
+    ra::data::context::mocks::MockEmulatorContext mockEmulatorContext;
+    ra::data::context::mocks::MockGameContext mockGameContext;
+    ra::services::mocks::MockAchievementRuntime mockAchievementRuntime;
+    ra::services::mocks::MockClock mockClock;
+    ra::services::mocks::MockConfiguration mockConfiguration;
+    ra::services::mocks::MockFileSystem mockFileSystem;
+    ra::services::mocks::MockHttpRequester mockHttpRequester;
+    ra::services::mocks::MockThreadPool mockThreadPool;
+    ra::services::mocks::MockWindowConfiguration mockWindowConfiguration;
+    ra::ui::mocks::MockOverlayTheme mockTheme;
+    ra::ui::viewmodels::mocks::MockWindowManager mockWindowManager;
+    ra::ui::qt::QtDesktop desktop;
+    QtSurfaceFactory surfaceFactory;
+    QtImageRepository imageRepository;
+    OverlayManager overlayManager;
+    ScreenCapture screenCapture; // made on this thread: the tests' emulator thread
+    FakePicture fake;
+    QTemporaryDir oDirectory;
+
+    ScreenshotHarness()
+        : m_oDesktopOverride(&desktop),
+          m_oFactoryOverride(&surfaceFactory),
+          m_oImagesOverride(&imageRepository),
+          m_oManagerOverride(&overlayManager),
+          m_oCaptureOverride(&screenCapture)
+    {
+        mockWindowConfiguration.SetPopupLocation(Popup::Message, PopupLocation::BottomLeft);
+        mockFileSystem.SetBaseDirectory(L"/base/");
+        mockFileSystem.MockFile(L"/base/RACache/Badge/12345.png", MagentaPng());
+        g_pFake = &fake;
+        screenCapture.SetCaptureFunction(FakeCapture);
+    }
+
+    ~ScreenshotHarness() noexcept { g_pFake = nullptr; }
+
+    ScreenshotHarness(const ScreenshotHarness&) noexcept = delete;
+    ScreenshotHarness& operator=(const ScreenshotHarness&) noexcept = delete;
+    ScreenshotHarness(ScreenshotHarness&&) noexcept = delete;
+    ScreenshotHarness& operator=(ScreenshotHarness&&) noexcept = delete;
+
+    // an nWidth x nHeight picture of one colour (alpha 0, as a core's RGBX frame can be)
+    void SetPicture(int nWidth, int nHeight, uint32_t nColor)
+    {
+        fake.nWidth = nWidth;
+        fake.nHeight = nHeight;
+        fake.nStride = nWidth * 4;
+        fake.vPixels.assign(static_cast<size_t>(nWidth) * static_cast<size_t>(nHeight), nColor & 0x00FFFFFFU);
+    }
+
+    int QueueBadgePopup() { return overlayManager.QueueMessage(L"Title", L"Description", ra::ui::ImageType::Badge, "12345"); }
+
+    std::wstring PathFor(const char* sName) const { return oDirectory.filePath(sName).toStdWString(); }
+
+private:
+    ra::services::ServiceLocator::ServiceOverride<ra::ui::IDesktop> m_oDesktopOverride;
+    ra::services::ServiceLocator::ServiceOverride<ra::ui::drawing::ISurfaceFactory> m_oFactoryOverride;
+    ra::services::ServiceLocator::ServiceOverride<ra::ui::IImageRepository> m_oImagesOverride;
+    ra::services::ServiceLocator::ServiceOverride<OverlayManager> m_oManagerOverride;
+    ra::services::ServiceLocator::ServiceOverride<ScreenCapture> m_oCaptureOverride;
 };
 
 } // namespace
@@ -339,6 +455,50 @@ public:
         // returns at all: ServiceLocator::Get on a service nobody registered aborts the run (control o).
         _RA_InstallScreenCapture(FakeCapture);
         _RA_InstallScreenCapture(nullptr);
+    }
+
+    TEST_METHOD(TestAnUnlockScreenshotIsTheEmulatorsPictureWithThePopupOverIt)
+    {
+        // the whole Linux path from AchievementRuntime's call: OverlayManager::CaptureScreenshot -> QtDesktop ->
+        // ScreenCapture -> the emulator; then the pool's job renders the popup over that and saves it
+        ScreenshotHarness harness;
+        harness.SetPicture(320, 240, 0x206020);
+        const int nPopupId = harness.QueueBadgePopup();
+        const auto sPath = harness.PathFor("12345.png");
+
+        harness.overlayManager.CaptureScreenshot(nPopupId, sPath);
+        Assert::AreEqual(1, harness.fake.nCalls.load(), L"the emulator was not asked at once");
+        harness.mockThreadPool.ExecuteNextTask();
+
+        const QImage oSaved(QString::fromStdWString(sPath), "PNG");
+        Assert::IsFalse(oSaved.isNull(), L"no screenshot written");
+        Assert::AreEqual(320, oSaved.width());
+        Assert::AreEqual(240, oSaved.height());
+        Assert::IsFalse(oSaved.hasAlphaChannel());
+
+        // the emulator's picture, opaque, where no popup is
+        Assert::AreEqual(0xFF206020U, static_cast<unsigned>(oSaved.pixel(310, 10)));
+        Assert::AreEqual(0xFF206020U, static_cast<unsigned>(oSaved.pixel(310, 230)));
+
+        // the popup's badge in the bottom-left corner, 4 pixels into the popup: magenta, over the picture
+        const QColor oBadge = oSaved.pixelColor(10 + 4 + 32, 240 - 10 - POPUP_HEIGHT + 4 + 32);
+        Assert::IsTrue(oBadge.red() >= 200 && oBadge.green() <= 40 && oBadge.blue() >= 200,
+                       ra::util::String::Printf(L"no badge in the popup: %d,%d,%d", oBadge.red(), oBadge.green(),
+                                                oBadge.blue())
+                           .c_str());
+    }
+
+    TEST_METHOD(TestAFailedCaptureWritesNothing)
+    {
+        ScreenshotHarness harness;
+        harness.screenCapture.SetCaptureFunction(nullptr);
+        const int nPopupId = harness.QueueBadgePopup();
+        const auto sPath = harness.PathFor("12345.png");
+
+        harness.overlayManager.CaptureScreenshot(nPopupId, sPath);
+        harness.mockThreadPool.ExecuteNextTask();
+
+        Assert::IsFalse(QFileInfo::exists(QString::fromStdWString(sPath)), L"a file was written with no picture");
     }
 };
 
