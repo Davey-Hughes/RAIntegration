@@ -268,6 +268,40 @@ public:
         Assert::AreEqual(std::string("http://host/achievement/4/report-issue"),
                          vmBrokenAchievements.mockDesktop.LastOpenedUrl());
     }
+
+    TEST_METHOD(TestTabLeavesTheListForTheReportButtonAndKeepsTheTick)
+    {
+        BrokenAchievementsViewModelHarness vmBrokenAchievements;
+        vmBrokenAchievements.MockAchievements();
+        QtTestHost oQt;
+        auto* pDialog = Open(oQt, vmBrokenAchievements);
+
+        // the cursor in the last column of the ticked row: a Tab that walked cells would cross into the next row
+        QPoint ptWhere;
+        oQt.RunOnQt([pDialog, &ptWhere]() {
+            ptWhere = CellCentre(List(*pDialog), 1, 3);
+            PressMouse(List(*pDialog), ptWhere);
+        });
+        oQt.RunOnQt([pDialog, ptWhere]() { ReleaseMouse(List(*pDialog), ptWhere); });
+        oQt.RunOnQt([]() {});
+
+        // focus arrives only once the window is active: wait for it, or the test checks nothing
+        oQt.RunOnQt([pDialog]() {
+            pDialog->activateWindow();
+            List(*pDialog).setFocus(Qt::TabFocusReason);
+        });
+        const bool bListFocused = oQt.WaitOnQt([pDialog]() { return List(*pDialog).hasFocus(); });
+        oQt.RunOnQt([pDialog]() { PressKey(List(*pDialog), Qt::Key_Tab); });
+        oQt.RunOnQt([]() {});
+        bool bButtonFocused = false;
+        oQt.RunOnQt([pDialog, &bButtonFocused]() { bButtonFocused = ReportButton(*pDialog).hasFocus(); });
+        const int nSelected = vmBrokenAchievements.GetSelectedIndex();
+        Delete(oQt, pDialog);
+
+        Assert::IsTrue(bListFocused, L"the list never took the focus");
+        Assert::IsTrue(bButtonFocused, L"Tab did not move the focus to the Report Problem button");
+        Assert::AreEqual(1, nSelected, L"Tab moved or cleared the tick");
+    }
 };
 
 } // namespace tests

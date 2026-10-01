@@ -832,6 +832,63 @@ public:
         Assert::AreEqual(size_t{0}, vSelected.size(), L"the unticked row is still selected");
     }
 
+    TEST_METHOD(TestTabLeavesTheTickWhereItWas)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 3);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        // the cursor in the last column of the ticked row: a Tab that walked cells would cross into the next row
+        Click(oQt, pGrid, [](const QTableView& oView) {
+            return ra::ui::qt::tests::CellCentre(oView, 1, DoneColumn);
+        });
+        const bool bTicked = IsSelected(vmItems, 1);
+
+        // focus arrives only once the window is active: wait for it, or the test checks nothing
+        oQt.RunOnQt([pGrid]() {
+            pGrid->oView.activateWindow();
+            pGrid->oView.setFocus(Qt::TabFocusReason);
+        });
+        const bool bFocused = oQt.WaitOnQt([pGrid]() { return pGrid->oView.hasFocus(); });
+        oQt.RunOnQt([pGrid]() { ra::ui::qt::tests::PressKey(pGrid->oView, Qt::Key_Tab); });
+        oQt.RunOnQt([]() {});
+        std::vector<int> vSelected{-1};
+        oQt.RunOnQt([pGrid, &vSelected]() { vSelected = SelectedRows(pGrid->oView); });
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bTicked, L"the click did not tick the row");
+        Assert::IsTrue(bFocused, L"the view never took the focus");
+        Assert::IsTrue(IsSelected(vmItems, 1), L"Tab unticked the row");
+        Assert::IsFalse(IsSelected(vmItems, 0));
+        Assert::IsFalse(IsSelected(vmItems, 2), L"Tab ticked the next row");
+        Assert::IsTrue(vSelected == std::vector<int>{1});
+    }
+
+    TEST_METHOD(TestDownAfterClickingATickBoxMovesFromThatRow)
+    {
+        OwnerViewModel vmOwner;
+        Rows vmItems;
+        AddRows(vmItems, 4);
+        KeepOneSelected oKeepOne(vmItems);
+        QtTestHost oQt;
+        auto* pGrid = Create(oQt, vmOwner, vmItems, Selectable());
+
+        Click(oQt, pGrid, [](const QTableView& oView) { return TextCentre(oView, 0); });
+        Click(oQt, pGrid, [](const QTableView& oView) { return TickCentre(oView, 2); });
+        const bool bBoxTicked = IsSelected(vmItems, 2);
+        oQt.RunOnQt([pGrid]() { ra::ui::qt::tests::PressKey(pGrid->oView, Qt::Key_Down); });
+        oQt.RunOnQt([]() {});
+        Delete(oQt, pGrid);
+
+        Assert::IsTrue(bBoxTicked, L"clicking the box did not tick its row");
+        Assert::IsTrue(IsSelected(vmItems, 3), L"Down did not go on from the clicked row");
+        for (gsl::index nIndex = 0; nIndex < 3; ++nIndex)
+            Assert::IsFalse(IsSelected(vmItems, nIndex), L"a row other than 3 is ticked");
+    }
+
     TEST_METHOD(TestQueuedSelectionsAreShownNotWrittenBack)
     {
         OwnerViewModel vmOwner;

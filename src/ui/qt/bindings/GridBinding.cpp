@@ -123,6 +123,7 @@ GridModel::GridModel(QTableView& oView, std::vector<Column> vColumns, bool bSele
     oView.setSelectionBehavior(QAbstractItemView::SelectRows); // Win32's LVS_EX_FULLROWSELECT
     oView.setShowGrid(false);                                  // Win32 draws no grid lines unless asked
     oView.setWordWrap(false);
+    oView.setTabKeyNavigation(false);                          // Win32's list is one tab stop: Tab goes to the next control
     oView.verticalHeader()->hide();
 
     auto* pHeader = oView.horizontalHeader();
@@ -211,6 +212,8 @@ bool GridModel::setData(const QModelIndex& oIndex, const QVariant& vValue, int n
     }
 
     fWriteCheck(oIndex.row(), oIndex.column(), vValue.toInt() == Qt::Checked, m_nShownStructure);
+    // The delegate takes the press before the view moves its cursor: put it on the clicked cell, selecting nothing.
+    m_oView.selectionModel()->setCurrentIndex(oIndex, QItemSelectionModel::NoUpdate);
     return true;
 }
 
