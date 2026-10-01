@@ -99,6 +99,7 @@ public:
     size_t NotAvailableNoticeCount() const noexcept { return m_pState->nNotAvailableNotices.load(); }
     size_t AutoAnsweredCount() const noexcept { return m_pState->nAutoAnswered.load(); }
     size_t StillWaitingForHostCount() const noexcept { return m_pState->nStillWaitingForHost.load(); }
+    size_t UrlsOpenedWithoutFocusCount() const noexcept { return m_pState->nUrlsOpenedWithoutFocus.load(); }
 
     /// <summary>The objectName of the "not available" notice, for tests.</summary>
     static constexpr const char* NotAvailableNoticeName = "RANotAvailableNotice";
@@ -117,6 +118,7 @@ private:
         std::atomic<size_t> nNotAvailableNotices{0}; // "not available" notice boxes opened
         std::atomic<size_t> nAutoAnswered{0};        // modals answered unshown (RA_AUTO_ANSWER_DIALOGS)
         std::atomic<size_t> nStillWaitingForHost{0}; // borrowed waits that outlasted m_tModalStartTimeout
+        std::atomic<size_t> nUrlsOpenedWithoutFocus{0}; // URLs opened after UrlFocusWait with no focus window
 
         // The "not available" notice. Titles wait here for the Qt thread,
         // which lists them all in one box.
@@ -149,6 +151,7 @@ private:
 
     static void OpenUrlNow(State& oState, const std::string& sUrl); // Qt thread
     static void OpenUrlOnceFocused(const std::shared_ptr<State>& pState, const std::string& sUrl, QObject& oContext);
+    static QObject& PendingUrlContext(State& oState); // Qt thread
     static void ForgetModal(State& oState, const QDialog* pDialog);
     static void CloseAll(State& oState);
 

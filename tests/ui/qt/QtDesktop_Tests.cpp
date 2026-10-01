@@ -1311,17 +1311,56 @@ public:
             vOpened.push_back(oUrl.toString().toStdString());
             return true;
         });
+        QWidget* pMain = nullptr;
+        oQt.RunOnQt([&pMain]() {
+            pMain = new QWidget();
+            pMain->resize(200, 100);
+            pMain->show();
+            pMain->activateWindow();
+        });
+        const bool bFocused = oQt.WaitOnQt([]() { return QGuiApplication::focusWindow() != nullptr; });
 
+        const auto tAsked = std::chrono::steady_clock::now();
         oDesktop.OpenUrl("https://host/game/1");
         const bool bOpened = QtTestHost::WaitFor([&oMutex, &vOpened]() {
             std::lock_guard<std::mutex> oLock(oMutex);
             return !vOpened.empty();
         });
+        const auto tTaken = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - tAsked);
+        oQt.RunOnQt([pMain]() { delete pMain; });
 
+        Assert::IsTrue(bFocused, L"the main window never took the focus");
         Assert::IsTrue(bOpened, L"the URL was never opened");
         std::lock_guard<std::mutex> oLock(oMutex);
         Assert::AreEqual(size_t{1}, vOpened.size());
         Assert::AreEqual(std::string("https://host/game/1"), vOpened.front());
+        Assert::IsTrue(tTaken < std::chrono::milliseconds(300),
+                       (L"the URL waited " + std::to_wstring(tTaken.count()) + L" ms with a window focused").c_str());
+        Assert::AreEqual(size_t{0}, oDesktop.UrlsOpenedWithoutFocusCount());
+    }
+
+    TEST_METHOD(TestOpenUrlWithNoFocusWindowOpensAfterTheWait)
+    {
+        // As the update prompt asks: just after its box has gone, before any window has the focus. Offscreen, with no
+        // window at all, none ever takes it: the URL opens after the wait, without a token, and says so.
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+
+        const auto tAsked = std::chrono::steady_clock::now();
+        oDesktop.OpenUrl("https://host/download");
+        const bool bOpened = QtTestHost::WaitFor([&nOpened]() { return nOpened.load() > 0; }, std::chrono::seconds(3));
+        const auto tTaken = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - tAsked);
+
+        Assert::IsTrue(bOpened, L"the URL was never opened");
+        Assert::IsTrue(tTaken >= std::chrono::milliseconds(400),
+                       (L"the URL opened after " + std::to_wstring(tTaken.count()) + L" ms: it did not wait for a focus window").c_str());
+        Assert::AreEqual(1, nOpened.load());
+        Assert::AreEqual(size_t{1}, oDesktop.UrlsOpenedWithoutFocusCount());
     }
 
     TEST_METHOD(TestOpenUrlFromAModalOpensOnceTheModalIsGone)
@@ -1459,14 +1498,64 @@ public:
             bDone = true;
         });
         const bool bFinished = QtTestHost::WaitFor([&bDone]() { return bDone.load(); }, std::chrono::seconds(6));
+        Assert::IsTrue(bFinished, L"the Qt thread never finished the sequence"); // before reading what it wrote
         const auto tTaken = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - *tDestroyed);
 
-        Assert::IsTrue(bFinished, L"the Qt thread never finished the sequence");
         Assert::IsTrue(bMainFocused.load(), L"the main window never took the focus: not the case under test");
         Assert::AreEqual(0, nOpenedBeforeDestroyed.load(), L"the URL was opened before the dialog was destroyed");
         Assert::AreEqual(1, nOpened.load(), L"the URL was not opened once");
         Assert::IsTrue(tTaken < std::chrono::milliseconds(300),
                        (L"the URL waited " + std::to_wstring(tTaken.count()) + L" ms: the fallback, not the focus").c_str());
+    }
+
+    TEST_METHOD(TestAUrlWaitingForTheFocusIsDroppedAtShutdown)
+    {
+        // The second wait: no dialog, no focus window, the fallback still pending when shutdown comes.
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+
+        oQt.RunOnQt([&oDesktop]() { oDesktop.OpenUrl("https://host/download"); });
+        oDesktop.Shutdown();
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // past the wait for the focus
+        oQt.RunOnQt([]() {});
+
+        Assert::AreEqual(0, nOpened.load(), L"a URL opened after shutdown");
+    }
+
+    TEST_METHOD(TestOpenUrlAfterShutdownDoesNotWait)
+    {
+        // CloseAll has deleted what a wait would hang on: a URL asked for later opens at once, even with a modal up.
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+        oDesktop.Shutdown();
+
+        std::atomic<int> nOpenedWhileUp{-1};
+        std::atomic<bool> bDone{false};
+        oQt.Host().Invoke([&oDesktop, &nOpened, &nOpenedWhileUp, &bDone]() {
+            QDialog oDialog;
+            oDialog.setWindowModality(Qt::ApplicationModal);
+            QTimer::singleShot(0, &oDialog, [&oDesktop, &nOpened, &nOpenedWhileUp, &oDialog]() {
+                oDesktop.OpenUrl("https://host/game/1");
+                nOpenedWhileUp = nOpened.load();
+                oDialog.accept();
+            });
+            oDialog.exec();
+            bDone = true;
+        });
+        const bool bFinished = QtTestHost::WaitFor([&bDone]() { return bDone.load(); });
+
+        Assert::IsTrue(bFinished, L"the dialog never closed");
+        Assert::AreEqual(1, nOpenedWhileUp.load(), L"after shutdown the URL still waited for the dialog");
     }
 
     TEST_METHOD(TestAUrlWaitingForAModalIsDroppedAtShutdown)
