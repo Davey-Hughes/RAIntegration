@@ -10,10 +10,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
+
+class QUrl;
 
 namespace ra {
 namespace services {
@@ -77,6 +80,12 @@ public:
     void SetShutdownCloseTimeout(std::chrono::milliseconds tTimeout) noexcept { m_tShutdownCloseTimeout = tTimeout; }
 
     /// <summary>
+    /// What opens a URL in place of QDesktopServices::openUrl, answering whether it did. For tests: call before
+    /// anything opens one.
+    /// </summary>
+    void SetUrlOpener(std::function<bool(const QUrl&)> fOpener) { m_pState->fUrlOpener = std::move(fOpener); }
+
+    /// <summary>
     /// Whether Shutdown (or CloseAll) has closed the windows: from then on no dialog opens, and a modal dialog's OK
     /// cancels instead of starting its work. Any thread.
     /// </summary>
@@ -117,6 +126,9 @@ private:
         QPointer<QMessageBox> pNotice;           // Qt thread only
 
         std::atomic<bool> bClosed{false}; // set by Shutdown and CloseAll: from then on nothing opens
+
+        std::function<bool(const QUrl&)> fUrlOpener; // a test's stand-in for QDesktopServices::openUrl, set first
+        QPointer<QObject> pPendingUrls;              // Qt thread only: the context of URLs waiting for a modal to go
     };
 
     static ra::services::IQtApplicationHost* GetHost();
@@ -135,6 +147,8 @@ private:
     ra::ui::DialogResult ShowModalFromOtherThread(ra::services::IQtApplicationHost& oHost,
                                                   IDialogPresenter& oPresenter, WindowViewModelBase& vmWindow) const;
 
+    static void OpenUrlNow(State& oState, const std::string& sUrl); // Qt thread
+    static void OpenUrlOnceFocused(const std::shared_ptr<State>& pState, const std::string& sUrl, QObject& oContext);
     static void ForgetModal(State& oState, const QDialog* pDialog);
     static void CloseAll(State& oState);
 

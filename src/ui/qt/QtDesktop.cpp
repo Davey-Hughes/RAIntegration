@@ -19,12 +19,16 @@
 #include "util/Log.hh"
 #include "util/Strings.hh"
 
+#include <QApplication>
 #include <QDesktopServices>
 #include <QDialog>
+#include <QGuiApplication>
 #include <QMessageBox>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QWidget>
+#include <QWindow>
 
 #include <algorithm>
 #include <condition_variable>
@@ -37,6 +41,9 @@ namespace ui {
 namespace qt {
 
 namespace {
+
+// How long a URL asked for from a modal dialog waits, once the dialog is gone, for another window to take the focus.
+constexpr std::chrono::milliseconds UrlFocusWait{500};
 
 // A caller on another thread, waiting for its dialog to finish.
 struct ModalWait
@@ -401,6 +408,48 @@ ra::ui::DialogResult QtDesktop::ShowModalFromOtherThread(ra::services::IQtApplic
     return vmWindow.GetDialogResult();
 }
 
+void QtDesktop::OpenUrlNow(State& oState, const std::string& sUrl)
+{
+    RA_LOG_INFO("Opening %s", sUrl.c_str());
+    const QUrl oUrl(QString::fromStdString(sUrl));
+    const bool bOpened = oState.fUrlOpener ? oState.fUrlOpener(oUrl) : QDesktopServices::openUrl(oUrl);
+    if (!bOpened)
+        RA_LOG_WARN("Could not open %s", sUrl.c_str());
+}
+
+void QtDesktop::OpenUrlOnceFocused(const std::shared_ptr<State>& pState, const std::string& sUrl, QObject& oContext)
+{
+    // The focus reaches the next window a moment after the dialog goes (a Wayland focus event), and that window's
+    // token lets the browser come to the front. If no window takes it - an emulator whose window is not Qt's - the
+    // URL opens anyway after UrlFocusWait, without a token.
+    struct Pending
+    {
+        bool bDone = false;
+        QMetaObject::Connection oFocus;
+    };
+    auto pPending = std::make_shared<Pending>();
+    auto fOpen = [pState, sUrl, pPending]() {
+        if (pPending->bDone)
+            return;
+
+        pPending->bDone = true;
+        QObject::disconnect(pPending->oFocus);
+        OpenUrlNow(*pState, sUrl);
+    };
+
+    if (QGuiApplication::focusWindow() != nullptr)
+    {
+        QTimer::singleShot(0, &oContext, fOpen);
+        return;
+    }
+
+    pPending->oFocus = QObject::connect(qApp, &QGuiApplication::focusWindowChanged, &oContext, [fOpen](QWindow* pWindow) {
+        if (pWindow != nullptr)
+            fOpen();
+    });
+    QTimer::singleShot(UrlFocusWait, &oContext, fOpen);
+}
+
 void QtDesktop::ForgetModal(State& oState, const QDialog* pDialog)
 {
     auto& vOpenModals = oState.vOpenModals;
@@ -466,6 +515,10 @@ void QtDesktop::CloseAll(State& oState)
     // The "not available" notice answers nothing and has no view model: just delete it.
     if (!oState.pNotice.isNull())
         delete oState.pNotice.data();
+
+    // URLs still waiting for a modal dialog to go (OpenUrl) go with their context.
+    if (!oState.pPendingUrls.isNull())
+        delete oState.pPendingUrls.data();
 }
 
 void QtDesktop::NoticeNotAvailable(const ra::services::IQtApplicationHost& oHost, const std::wstring& sTitle) const
@@ -555,10 +608,26 @@ void QtDesktop::OpenUrl(const std::string& sUrl) const
         return;
     }
 
-    pHost->Invoke([sUrl]() {
-        RA_LOG_INFO("Opening %s", sUrl.c_str());
-        if (!QDesktopServices::openUrl(QUrl(QString::fromStdString(sUrl))))
-            RA_LOG_WARN("Could not open %s", sUrl.c_str());
+    pHost->Invoke([pState = m_pState, sUrl]() {
+        // On Wayland QDesktopServices::openUrl answers true at once and launches the browser only when an activation
+        // token for the focus window arrives. When that window is a modal dialog that closes straight away - Report
+        // Achievement Problem asks from its OK - the launch goes with the window and nothing opens (measured). So a URL
+        // asked for while a modal dialog is up waits until that dialog is gone and another window has the focus.
+        QWidget* pModal = QApplication::activeModalWidget();
+        if (pModal == nullptr)
+        {
+            OpenUrlNow(*pState, sUrl);
+            return;
+        }
+
+        // CloseAll deletes the context, and with it whatever still waits: nothing may call into the library after
+        // the loader's dlclose.
+        if (pState->pPendingUrls.isNull())
+            pState->pPendingUrls = new QObject();
+        QObject* pContext = pState->pPendingUrls.data();
+        QObject::connect(
+            pModal, &QObject::destroyed, pContext,
+            [pState, sUrl, pContext]() { OpenUrlOnceFocused(pState, sUrl, *pContext); }, Qt::SingleShotConnection);
     });
 }
 

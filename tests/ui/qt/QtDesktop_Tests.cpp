@@ -19,14 +19,19 @@
 #include <QAbstractButton>
 #include <QApplication>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QMessageBox>
 #include <QObject>
+#include <QPointer>
 #include <QString>
+#include <QTimer>
+#include <QUrl>
 
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <future>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -1291,6 +1296,206 @@ public:
         Assert::AreEqual(0xFF112233U, pQtSurface->GetImage().pixel(0, 0));
         Assert::AreEqual(0xFF445566U, pQtSurface->GetImage().pixel(1, 0));
     }
+    // --- OpenUrl. On Wayland QDesktopServices::openUrl launches the browser only when an activation token arrives for
+    // the focus window, so a modal dialog that asked for a URL and closed at once took the launch with it: Report
+    // Achievement Problem opened nothing (owner's L2 sign-off; measured under a headless KWin). ---
+
+    TEST_METHOD(TestOpenUrlWithNoModalOpensAtOnce)
+    {
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        std::mutex oMutex;
+        std::vector<std::string> vOpened;
+        oDesktop.SetUrlOpener([&oMutex, &vOpened](const QUrl& oUrl) {
+            std::lock_guard<std::mutex> oLock(oMutex);
+            vOpened.push_back(oUrl.toString().toStdString());
+            return true;
+        });
+
+        oDesktop.OpenUrl("https://host/game/1");
+        const bool bOpened = QtTestHost::WaitFor([&oMutex, &vOpened]() {
+            std::lock_guard<std::mutex> oLock(oMutex);
+            return !vOpened.empty();
+        });
+
+        Assert::IsTrue(bOpened, L"the URL was never opened");
+        std::lock_guard<std::mutex> oLock(oMutex);
+        Assert::AreEqual(size_t{1}, vOpened.size());
+        Assert::AreEqual(std::string("https://host/game/1"), vOpened.front());
+    }
+
+    TEST_METHOD(TestOpenUrlFromAModalOpensOnceTheModalIsGone)
+    {
+        // As Report Achievement Problem does: its OK asks for the URL, then the dialog closes, and the ShowModal that
+        // owns it deletes it.
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+        auto pDialog = std::make_shared<QPointer<QDialog>>();
+        std::atomic<int> nOpened{0};
+        std::atomic<bool> bDialogAliveAtOpen{false};
+        oDesktop.SetUrlOpener([&nOpened, &bDialogAliveAtOpen, pDialog](const QUrl&) {
+            bDialogAliveAtOpen = !pDialog->isNull();
+            ++nOpened;
+            return true;
+        });
+
+        std::atomic<int> nResult{-1};
+        oQt.Host().Invoke([&oDesktop, &vmWindow, &nResult]() { nResult = ra::etoi(oDesktop.ShowModal(vmWindow)); });
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        int nOpenedWhileUp = -1;
+        oQt.RunOnQt([&oDesktop, pDialog, &nOpened, &nOpenedWhileUp]() {
+            *pDialog = FindDialog(QStringLiteral("A"));
+            if (pDialog->isNull())
+                return;
+            oDesktop.OpenUrl("https://host/achievement/3/report-issue");
+            nOpenedWhileUp = nOpened.load();
+            (*pDialog)->accept();
+        });
+        const bool bOpened = QtTestHost::WaitFor([&nOpened]() { return nOpened.load() > 0; }, std::chrono::seconds(3));
+        oQt.RunOnQt([]() {});
+
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::AreEqual(0, nOpenedWhileUp, L"the URL was opened while the dialog that asked for it was up");
+        Assert::IsTrue(bOpened, L"the URL was never opened");
+        Assert::AreEqual(1, nOpened.load());
+        Assert::IsFalse(bDialogAliveAtOpen.load(), L"the URL was opened before the dialog was gone");
+    }
+
+    TEST_METHOD(TestOpenUrlFromAModalOpensAsSoonAsAnotherWindowHasTheFocus)
+    {
+        // The emulator's window takes the focus back when the dialog goes, and the URL opens then - with that window's
+        // activation token on Wayland - not after the fallback wait. Offscreen has no compositor to hand the focus
+        // back (measured: it stays with no window), so the test does what KWin does: it activates the main window
+        // once the dialog is gone.
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+        QWidget* pMain = nullptr;
+        oQt.RunOnQt([&pMain]() {
+            pMain = new QWidget();
+            pMain->resize(200, 100);
+            pMain->show();
+            pMain->activateWindow();
+        });
+        const bool bMainFocused = oQt.WaitOnQt([]() { return QGuiApplication::focusWindow() != nullptr; });
+
+        std::atomic<int> nResult{-1};
+        oQt.Host().Invoke([&oDesktop, &vmWindow, &nResult]() { nResult = ra::etoi(oDesktop.ShowModal(vmWindow)); });
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        auto tAccepted = std::chrono::steady_clock::now();
+        oQt.RunOnQt([&oDesktop, &tAccepted]() {
+            auto* pDialog = FindDialog(QStringLiteral("A"));
+            if (pDialog == nullptr)
+                return;
+            oDesktop.OpenUrl("https://host/achievement/3/report-issue");
+            tAccepted = std::chrono::steady_clock::now();
+            pDialog->accept();
+        });
+        const bool bGone = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) == nullptr; });
+        oQt.RunOnQt([pMain]() { pMain->activateWindow(); });
+        const bool bOpened = QtTestHost::WaitFor([&nOpened]() { return nOpened.load() > 0; }, std::chrono::seconds(3));
+        const auto tTaken = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - tAccepted);
+        oQt.RunOnQt([pMain]() { delete pMain; });
+
+        Assert::IsTrue(bMainFocused, L"the main window never took the focus");
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::IsTrue(bGone, L"the dialog never went");
+        Assert::IsTrue(bOpened, L"the URL was never opened");
+        Assert::IsTrue(tTaken < std::chrono::milliseconds(300),
+                       (L"the URL waited " + std::to_wstring(tTaken.count()) + L" ms: the fallback, not the focus").c_str());
+    }
+
+    TEST_METHOD(TestOpenUrlFromAModalOpensAtOnceWhenAnotherWindowAlreadyHasTheFocus)
+    {
+        // A dialog deleted later than it closes - a worker's, deleteLater after finished - can be destroyed with the
+        // focus already on another window: no focus change follows, and the URL must not wait for the fallback. The
+        // test orders it itself: the dialog closes, the main window takes the focus, then the dialog is destroyed.
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+
+        std::atomic<bool> bDone{false};
+        std::atomic<bool> bMainFocused{false};
+        std::atomic<int> nOpenedBeforeDestroyed{-1};
+        auto tDestroyed = std::make_shared<std::chrono::steady_clock::time_point>();
+        oQt.Host().Invoke([&oDesktop, &nOpened, &bDone, &bMainFocused, &nOpenedBeforeDestroyed, tDestroyed]() {
+            QWidget oMain;
+            oMain.resize(200, 100);
+            oMain.show();
+            auto pDialog = std::make_unique<QDialog>();
+            pDialog->setWindowModality(Qt::ApplicationModal);
+            QTimer::singleShot(0, pDialog.get(), [&oDesktop, pDialog = pDialog.get()]() {
+                oDesktop.OpenUrl("https://host/achievement/3/report-issue");
+                pDialog->accept();
+            });
+            pDialog->exec();
+
+            oMain.activateWindow();
+            QElapsedTimer oWait;
+            oWait.start();
+            while (QGuiApplication::focusWindow() != oMain.windowHandle() && oWait.elapsed() < 2000)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            bMainFocused = (QGuiApplication::focusWindow() == oMain.windowHandle());
+
+            nOpenedBeforeDestroyed = nOpened.load();
+            *tDestroyed = std::chrono::steady_clock::now();
+            pDialog.reset();
+
+            oWait.restart();
+            while (nOpened.load() == 0 && oWait.elapsed() < 2000)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            bDone = true;
+        });
+        const bool bFinished = QtTestHost::WaitFor([&bDone]() { return bDone.load(); }, std::chrono::seconds(6));
+        const auto tTaken = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - *tDestroyed);
+
+        Assert::IsTrue(bFinished, L"the Qt thread never finished the sequence");
+        Assert::IsTrue(bMainFocused.load(), L"the main window never took the focus: not the case under test");
+        Assert::AreEqual(0, nOpenedBeforeDestroyed.load(), L"the URL was opened before the dialog was destroyed");
+        Assert::AreEqual(1, nOpened.load(), L"the URL was not opened once");
+        Assert::IsTrue(tTaken < std::chrono::milliseconds(300),
+                       (L"the URL waited " + std::to_wstring(tTaken.count()) + L" ms: the fallback, not the focus").c_str());
+    }
+
+    TEST_METHOD(TestAUrlWaitingForAModalIsDroppedAtShutdown)
+    {
+        // Nothing may call into the library once it is unloaded: shutdown drops what still waits.
+        TestViewModel vmWindow(L"A");
+        QtTestHost oQt;
+        QtDesktop oDesktop;
+        oDesktop.AddPresenter(std::make_unique<TestPresenter>());
+        std::atomic<int> nOpened{0};
+        oDesktop.SetUrlOpener([&nOpened](const QUrl&) {
+            ++nOpened;
+            return true;
+        });
+
+        std::atomic<int> nResult{-1};
+        oQt.Host().Invoke([&oDesktop, &vmWindow, &nResult]() { nResult = ra::etoi(oDesktop.ShowModal(vmWindow)); });
+        const bool bShown = oQt.WaitOnQt([]() { return FindDialog(QStringLiteral("A")) != nullptr; });
+        oQt.RunOnQt([&oDesktop]() { oDesktop.OpenUrl("https://host/achievement/3/report-issue"); });
+        oDesktop.Shutdown(); // rejects the dialog, whose ShowModal then returns and deletes it
+        const bool bReturned = oQt.WaitOnQt([&nResult]() { return nResult.load() != -1; });
+        std::this_thread::sleep_for(std::chrono::seconds(1)); // past any wait for the focus
+        oQt.RunOnQt([]() {});
+
+        Assert::IsTrue(bShown, L"the dialog never appeared");
+        Assert::IsTrue(bReturned, L"ShowModal never returned");
+        Assert::AreEqual(0, nOpened.load(), L"a URL opened after shutdown");
+    }
+
 };
 
 } // namespace tests
