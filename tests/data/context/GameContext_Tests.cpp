@@ -1127,6 +1127,63 @@ public:
         Assert::IsFalse(vmAch2->IsModified());
     }
 
+    TEST_METHOD(TestLoadGameZeroBeforeMemoryNotesResponse)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+
+        // the memory notes request is not mocked, so it is still pending when the game is unloaded
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::AreEqual(1U, game.GameId());
+        Assert::IsTrue(game.IsGameLoading());
+
+        game.LoadGame(0U, "");
+        Assert::AreEqual(0U, game.GameId());
+        Assert::IsTrue(game.IsGameLoading());
+
+        // the response for the unloaded game must still release the load count. the model it was
+        // requested for has been destroyed: a response that reads or writes it does not fail this
+        // test, it is only reported by AddressSanitizer.
+        game.mockRcClient.MockResponse("r=codenotes2&g=1",
+            "{\"Success\":true,\"CodeNotes\":[{\"User\":\"Author\",\"Address\":\"0x0004d2\",\"Note\":\"Note1\"}]}");
+
+        Assert::IsFalse(game.IsGameLoading());
+    }
+
+    TEST_METHOD(TestLoadGameReplacedBeforeMemoryNotesResponse)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+
+        // the memory notes request is not mocked, so it is still pending when the game is replaced
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::AreEqual(1U, game.GameId());
+        Assert::IsTrue(game.IsGameLoading());
+
+        game.MockLoadGameAPIs(2U, "fedcba9876543210123456789abcdef");
+        game.mockRcClient.MockResponse("r=codenotes2&g=2",
+            "{\"Success\":true,\"CodeNotes\":[{\"User\":\"Author\",\"Address\":\"0x00162e\",\"Note\":\"Note2\"}]}");
+
+        game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+        Assert::AreEqual(2U, game.GameId());
+        Assert::IsTrue(game.IsGameLoading());
+
+        // the response for the replaced game must still release the load count and must not change
+        // the notes of the game that replaced it. the model it was requested for has been destroyed:
+        // a response that reads or writes it is only reported by AddressSanitizer.
+        game.mockRcClient.MockResponse("r=codenotes2&g=1",
+            "{\"Success\":true,\"CodeNotes\":[{\"User\":\"Author\",\"Address\":\"0x0004d2\",\"Note\":\"Note1\"}]}");
+
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(2U, game.GameId());
+
+        const auto* pNote = game.MemoryNotes().FindNote(0x162eU);
+        Assert::IsNotNull(pNote);
+        Ensures(pNote != nullptr);
+        Assert::AreEqual(std::wstring(L"Note2"), pNote->GetNote());
+        Assert::IsNull(game.MemoryNotes().FindNote(0x04d2U));
+    }
+
     TEST_METHOD(TestLoadGameZeroRemovesAchievements)
     {
         GameContextHarness game;

@@ -4,6 +4,9 @@
 
 #include "util/GSL.hh"
 
+#include <memory>
+#include <mutex>
+
 namespace ra {
 namespace data {
 

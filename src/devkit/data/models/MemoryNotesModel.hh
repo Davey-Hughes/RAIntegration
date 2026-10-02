@@ -2,6 +2,8 @@
 #define RA_DATA_MODELS_MEMORYNOTESMODEL_H
 #pragma once
 
+#include "data/AsyncObject.hh"
+
 #include "data/models/AssetModelBase.hh"
 
 #include "data/models/MemoryNoteModel.hh"
@@ -10,11 +12,15 @@ namespace ra {
 namespace data {
 namespace models {
 
-class MemoryNotesModel : public AssetModelBase
+class MemoryNotesModel : public AssetModelBase, protected ra::data::AsyncObject
 {
 public:
 	MemoryNotesModel() noexcept;
-	~MemoryNotesModel() = default;
+    ~MemoryNotesModel()
+    {
+        ra::data::AsyncObject::BeginDestruction();
+    }
+
 	MemoryNotesModel(const MemoryNotesModel&) noexcept = delete;
 	MemoryNotesModel& operator=(const MemoryNotesModel&) noexcept = delete;
 	MemoryNotesModel(MemoryNotesModel&&) noexcept = delete;

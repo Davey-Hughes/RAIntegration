@@ -8,8 +8,13 @@
 #include "tests/devkit/context/mocks/MockEmulatorMemoryContext.hh"
 #include "tests/devkit/context/mocks/MockRcClient.hh"
 #include "tests/devkit/context/mocks/MockUserContext.hh"
+#include "tests/devkit/services/mocks/MockMessageDispatcher.hh"
 #include "tests/devkit/testutil/AssetAsserts.hh"
 #include "tests/devkit/testutil/MemoryAsserts.hh"
+
+#include <chrono>
+#include <future>
+#include <thread>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -200,6 +205,112 @@ private:
             sResponse.append("]}");
             return sResponse;
         }
+    };
+
+    class MessageDispatcherHarness : public ra::services::mocks::MockMessageDispatcher
+    {
+    public:
+        void ReportErrorMessage(const std::wstring& sSummary, const std::wstring& sDetail) const override
+        {
+            MockMessageDispatcher::ReportErrorMessage(sSummary, sDetail);
+
+            ++m_nErrorMessages;
+
+            if (m_fOnErrorMessage)
+                m_fOnErrorMessage();
+        }
+
+        unsigned GetErrorMessageCount() const noexcept { return m_nErrorMessages; }
+
+        void OnErrorMessage(std::function<void()>&& fHandler) noexcept { m_fOnErrorMessage = std::move(fHandler); }
+
+    private:
+        mutable unsigned m_nErrorMessages = 0;
+        std::function<void()> m_fOnErrorMessage;
+    };
+
+    // MemoryNotesModelHarness owns the MockRcClient that holds the pending request. to destroy the
+    // model before the response is delivered, the model has to be separate from the mocks.
+    class PendingRefreshHarness
+    {
+    public:
+        GSL_SUPPRESS_F6
+        PendingRefreshHarness() noexcept
+        {
+            pNotes = std::make_unique<MemoryNotesModel>();
+        }
+
+        GSL_SUPPRESS_F6
+        ~PendingRefreshHarness() noexcept
+        {
+            WaitForDestroyNotesThread();
+        }
+
+        PendingRefreshHarness(const PendingRefreshHarness&) noexcept = delete;
+        PendingRefreshHarness& operator=(const PendingRefreshHarness&) noexcept = delete;
+        PendingRefreshHarness(PendingRefreshHarness&&) noexcept = delete;
+        PendingRefreshHarness& operator=(PendingRefreshHarness&&) noexcept = delete;
+
+        ra::context::mocks::MockConsoleContext mockConsoleContext;
+        ra::context::mocks::MockEmulatorMemoryContext mockEmulatorMemoryContext;
+        ra::context::mocks::MockRcClient mockRcClient;
+        ra::context::mocks::MockUserContext mockUserContext;
+        MessageDispatcherHarness mockMessageDispatcher;
+
+        std::unique_ptr<MemoryNotesModel> pNotes;
+
+        unsigned nNotesChanged = 0;
+        unsigned nNotesMoved = 0;
+        unsigned nRefreshCompleted = 0;
+        std::function<void()> fOnRefreshCompleted;
+        std::function<void()> fOnNoteChanged;
+        bool bNotesDestroyed = false;
+
+        void Refresh()
+        {
+            pNotes->Refresh(1U,
+                [this](ra::data::ByteAddress, const std::wstring&) {
+                    ++nNotesChanged;
+
+                    if (fOnNoteChanged)
+                        fOnNoteChanged();
+                },
+                [this](ra::data::ByteAddress, ra::data::ByteAddress, const std::wstring&) { ++nNotesMoved; },
+                [this]() {
+                    ++nRefreshCompleted;
+
+                    if (fOnRefreshCompleted)
+                        fOnRefreshCompleted();
+                });
+        }
+
+        // destroys the model on another thread and sets bNotesDestroyed if that finishes while the
+        // caller is waiting. gives up after the timeout so a caller that is preventing the model
+        // from being destroyed fails the test instead of deadlocking.
+        void DestroyNotesOnThread(std::chrono::milliseconds tTimeout = std::chrono::seconds(5))
+        {
+            // assigning to a thread that has not been joined would terminate the test host
+            Assert::IsFalse(m_tDestroyNotes.joinable(), L"Model is already being destroyed on another thread");
+
+            std::promise<void> pDestroyed;
+            auto fDestroyed = pDestroyed.get_future();
+
+            m_tDestroyNotes = std::thread([this, pDestroyed = std::move(pDestroyed)]() mutable {
+                pNotes.reset();
+                pDestroyed.set_value();
+            });
+
+            bNotesDestroyed = (fDestroyed.wait_for(tTimeout) == std::future_status::ready);
+        }
+
+        void WaitForDestroyNotesThread()
+        {
+            if (m_tDestroyNotes.joinable())
+                m_tDestroyNotes.join();
+        }
+
+    private:
+        std::thread m_tDestroyNotes;
     };
 
 public:
@@ -1507,6 +1618,102 @@ public:
     //        Assert::AreEqual(reinterpret_cast<std::uintptr_t>(pLeaf), reinterpret_cast<std::uintptr_t>(vChain.at(2)));
     //    }
     //}
+
+    TEST_METHOD(TestRefreshResponseAfterDestroyed)
+    {
+        PendingRefreshHarness harness;
+        harness.Refresh();
+        Assert::AreEqual(0U, harness.nRefreshCompleted);
+
+        harness.pNotes.reset();
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", MemoryNotesModelHarness::MockNotesResponse({
+            { 1234, "Note1", "Author" },
+        }));
+
+        Assert::AreEqual(0U, harness.nNotesChanged);
+        Assert::AreEqual(0U, harness.nNotesMoved);
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+    }
+
+    TEST_METHOD(TestRefreshFailedResponseAfterDestroyed)
+    {
+        PendingRefreshHarness harness;
+        harness.Refresh();
+        Assert::AreEqual(0U, harness.nRefreshCompleted);
+
+        harness.pNotes.reset();
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", "", 504);
+
+        Assert::AreEqual(0U, harness.mockMessageDispatcher.GetErrorMessageCount());
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+    }
+
+    TEST_METHOD(TestRefreshFailedResponse)
+    {
+        PendingRefreshHarness harness;
+        harness.Refresh();
+        Assert::AreEqual(0U, harness.nRefreshCompleted);
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", "", 504);
+
+        Assert::AreEqual(1U, harness.mockMessageDispatcher.GetErrorMessageCount());
+        harness.mockMessageDispatcher.AssertErrorMessageReported(
+            L"Failed to download memory notes", L"Request has timed out.");
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+        Assert::AreEqual({0U}, harness.pNotes->NoteCount());
+    }
+
+    TEST_METHOD(TestRefreshFailedResponseDestroyedWhileReportingError)
+    {
+        PendingRefreshHarness harness;
+        harness.Refresh();
+
+        // the error is reported in a modal dialog. the model may be destroyed while it is open.
+        harness.mockMessageDispatcher.OnErrorMessage([&harness]() { harness.DestroyNotesOnThread(); });
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", "", 504);
+        harness.WaitForDestroyNotesThread();
+
+        Assert::AreEqual(1U, harness.mockMessageDispatcher.GetErrorMessageCount());
+        Assert::IsTrue(harness.bNotesDestroyed, L"Model could not be destroyed while the error was being reported");
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+    }
+
+    TEST_METHOD(TestRefreshDestroyedWhileProcessingResponse)
+    {
+        PendingRefreshHarness harness;
+        harness.Refresh();
+
+        // the model cannot be destroyed while the response is being applied to it
+        harness.fOnNoteChanged = [&harness]() { harness.DestroyNotesOnThread(std::chrono::milliseconds(100)); };
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", MemoryNotesModelHarness::MockNotesResponse({
+            { 1234, "Note1", "Author" },
+        }));
+        harness.WaitForDestroyNotesThread();
+
+        Assert::AreEqual(1U, harness.nNotesChanged);
+        Assert::IsFalse(harness.bNotesDestroyed, L"Model was destroyed while the response was being processed");
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+    }
+
+    TEST_METHOD(TestRefreshDestroyedDuringCallback)
+    {
+        PendingRefreshHarness harness;
+        harness.fOnRefreshCompleted = [&harness]() { harness.DestroyNotesOnThread(); };
+        harness.Refresh();
+
+        harness.mockRcClient.MockResponse("r=codenotes2&g=1", MemoryNotesModelHarness::MockNotesResponse({
+            { 1234, "Note1", "Author" },
+        }));
+        harness.WaitForDestroyNotesThread();
+
+        Assert::AreEqual(1U, harness.nNotesChanged);
+        Assert::AreEqual(1U, harness.nRefreshCompleted);
+        Assert::IsTrue(harness.bNotesDestroyed, L"Model could not be destroyed while the callback was running");
+    }
 };
 
 } // namespace tests

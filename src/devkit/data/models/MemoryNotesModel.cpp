@@ -60,58 +60,74 @@ void MemoryNotesModel::Refresh(unsigned int nGameId,
     const auto nResult = rc_api_init_fetch_code_notes_request_hosted(&request, &api_params, pClient.GetHost());
     Expects(nResult == RC_OK);
 
-    pClient.DispatchRequest(request, [this, callback](const rc_api_server_response_t& api_response, void*) {
-        rc_api_fetch_code_notes_response_t response;
-        const auto nResult = rc_api_process_fetch_code_notes_server_response(&response, &api_response);
-        if (nResult != RC_OK)
-        {
-            ra::services::ServiceLocator::Get<ra::services::IMessageDispatcher>()
-                .ReportErrorMessage(L"Failed to download memory notes",
-                    ra::context::IRcClient::GetErrorMessage(nResult, response.response));
-        }
-        else
-        {
-            const auto* pNote = response.notes;
-            const auto* pStop = pNote + response.num_notes;
-            for (; pNote < pStop; ++pNote)
-            {
-                auto sNote = ra::util::String::Widen(pNote->note);
-                ra::util::String::NormalizeLineEndings(sNote);
+    pClient.DispatchRequest(request, [this, callback, pAsyncHandle = CreateAsyncHandle()](const rc_api_server_response_t& api_response, void*) {
+        bool bFailed = false;
+        std::wstring sErrorMessage;
 
+        {
+            ra::data::AsyncKeepAlive pKeepAlive(*pAsyncHandle);
+            if (!pAsyncHandle->IsDestroyed())
+            {
+                rc_api_fetch_code_notes_response_t response;
+                const auto nResult = rc_api_process_fetch_code_notes_server_response(&response, &api_response);
+                if (nResult != RC_OK)
                 {
-                    std::unique_lock<std::mutex> lock(m_oMutex);
-                    const auto pIter = m_mOriginalNotes.find(pNote->address);
-                    if (pIter != m_mOriginalNotes.end())
+                    bFailed = true;
+                    sErrorMessage = ra::context::IRcClient::GetErrorMessage(nResult, response.response);
+                }
+                else
+                {
+                    const auto* pNote = response.notes;
+                    const auto* pStop = pNote + response.num_notes;
+                    for (; pNote < pStop; ++pNote)
                     {
-                        pIter->second.first = pNote->author;
-                        pIter->second.second = sNote;
-                        continue;
+                        auto sNote = ra::util::String::Widen(pNote->note);
+                        ra::util::String::NormalizeLineEndings(sNote);
+
+                        {
+                            std::unique_lock<std::mutex> lock(m_oMutex);
+                            const auto pIter = m_mOriginalNotes.find(pNote->address);
+                            if (pIter != m_mOriginalNotes.end())
+                            {
+                                pIter->second.first = pNote->author;
+                                pIter->second.second = sNote;
+                                continue;
+                            }
+                        }
+
+                        AddMemoryNote(pNote->address, pNote->author, sNote);
                     }
                 }
 
-                AddMemoryNote(pNote->address, pNote->author, sNote);
+                rc_api_destroy_fetch_code_notes_response(&response);
+
+                std::map<ra::data::ByteAddress, std::wstring> mPendingNotes;
+                {
+                    std::unique_lock<std::mutex> lock(m_oMutex);
+                    mPendingNotes.swap(m_mPendingNotes);
+                    m_bRefreshing = false;
+                }
+
+                for (const auto& pNote : mPendingNotes)
+                    SetNote(pNote.first, pNote.second);
+
+                for (const auto& pNote : m_vMemoryNotes)
+                {
+                    if (pNote->GetType() == MemoryNoteType::Pointer)
+                    {
+                        m_bHasPointers = true;
+                        break;
+                    }
+                }
             }
         }
 
-        rc_api_destroy_fetch_code_notes_response(&response);
-
-        std::map<ra::data::ByteAddress, std::wstring> mPendingNotes;
+        // the error message is modal and the callback may wait on another thread. neither can be
+        // done while holding the keep alive as that would block the destructor.
+        if (bFailed)
         {
-            std::unique_lock<std::mutex> lock(m_oMutex);
-            mPendingNotes.swap(m_mPendingNotes);
-            m_bRefreshing = false;
-        }
-
-        for (const auto& pNote : mPendingNotes)
-            SetNote(pNote.first, pNote.second);
-
-        for (const auto& pNote : m_vMemoryNotes)
-        {
-            if (pNote->GetType() == MemoryNoteType::Pointer)
-            {
-                m_bHasPointers = true;
-                break;
-            }
+            ra::services::ServiceLocator::Get<ra::services::IMessageDispatcher>()
+                .ReportErrorMessage(L"Failed to download memory notes", sErrorMessage);
         }
 
         callback();
