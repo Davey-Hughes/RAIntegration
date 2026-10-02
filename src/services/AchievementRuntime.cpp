@@ -162,8 +162,12 @@ static int RichPresenceOverride(rc_client_t*, char buffer[], size_t buffer_size)
 }
 
 
-static uint32_t IdentifyUnknownHash(uint32_t console_id, const char* hash, rc_client_t*, void*)
+GSL_SUPPRESS_CON3
+uint32_t AchievementRuntime::IdentifyUnknownHash(uint32_t console_id, const char* hash, rc_client_t*, void* pUserdata)
 {
+    const auto* wrapper = static_cast<LoadGameCallbackWrapper*>(pUserdata);
+    Expects(wrapper != nullptr);
+
     RA_LOG_INFO("Could not identify game with hash %s", hash);
 
     const auto& pEmulatorContext = ra::services::ServiceLocator::Get<ra::data::context::EmulatorContext>();
@@ -183,10 +187,17 @@ static uint32_t IdentifyUnknownHash(uint32_t console_id, const char* hash, rc_cl
     {
         if (vmUnknownGame.GetTestMode())
         {
-            ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>().SetMode(
-                ra::data::context::GameContext::Mode::CompatibilityTest);
+            // the game may have been unloaded or replaced while the dialog was open. only change the mode while
+            // holding the load lock and while the load is still current. the mode is set without a
+            // notification, which must not be raised while holding the lock: the load raises it when it completes.
+            auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+            auto pLock = pGameContext.LockLoad();
+            if (pGameContext.IsLoadCurrent(wrapper->m_nLoadGeneration))
+                pGameContext.InitializeMode(ra::data::context::GameContext::Mode::CompatibilityTest);
         }
 
+        // a load that is no longer current is still given the selected game: rc_client drops that load when its
+        // next response arrives. returning 0 would make rc_client load an unknown game over whatever replaced it.
         return vmUnknownGame.GetSelectedGameId();
     }
 
@@ -480,26 +491,21 @@ void AchievementRuntime::LoginCallback(int nResult, const char* sErrorMessage, r
 
 /* ---- Load Game ----- */
 
-void AchievementRuntime::BeginLoadGame(const std::string& sHash, unsigned id, rc_client_callback_t fCallback,
+void AchievementRuntime::BeginLoadGame(const std::string& sHash, unsigned id, LoadGameCallbackFunction fCallback,
                                    void* pCallbackData)
 {
-    auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-
     GSL_SUPPRESS_R3
-    auto* pCallbackWrapper = new LoadGameCallbackWrapper(pClient, fCallback, pCallbackData);
+    auto* pCallbackWrapper = new LoadGameCallbackWrapper(fCallback, pCallbackData);
     BeginLoadGame(sHash.c_str(), id, pCallbackWrapper);
 }
 
-static void ProcessPatchData(const rc_api_server_response_t* server_response,
-                             const rc_api_fetch_game_sets_response_t* game_data_response)
+static void ProcessPatchData(const rc_api_server_response_t* server_response, uint32_t nGameId,
+                             uint32_t nLoadGeneration)
 {
-    Expects(game_data_response != nullptr);
-    auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
-
     // extract the old rich presence script from the last cached server response so we can tell if the
     // local value has changed. store it as the local value, and we'll merge in the real local value later.
     auto& pLocalStorage = ra::services::ServiceLocator::GetMutable<ra::services::ILocalStorage>();
-    auto pOldData = pLocalStorage.ReadText(StorageItemType::GameData, std::to_wstring(pGameContext.ActiveGameId()));
+    auto pOldData = pLocalStorage.ReadText(StorageItemType::GameData, std::to_wstring(nGameId));
     if (pOldData != nullptr)
     {
         ra::util::Json::Reader pJson;
@@ -508,16 +514,22 @@ static void ProcessPatchData(const rc_api_server_response_t* server_response,
             std::string sRichPresencePatch;
             if (pJson.TryGetString("RichPresencePatch", sRichPresencePatch))
             {
-                auto* pRichPresence = pGameContext.Assets().FindRichPresence();
-                Expects(pRichPresence != nullptr);
-                pRichPresence->SetScript(sRichPresencePatch);
-                pRichPresence->UpdateLocalCheckpoint();
+                // the game may have been unloaded or replaced while the file was being read
+                auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+                auto pLock = pGameContext.LockLoad();
+                if (pGameContext.IsLoadCurrent(nLoadGeneration))
+                {
+                    auto* pRichPresence = pGameContext.Assets().FindRichPresence();
+                    Expects(pRichPresence != nullptr);
+                    pRichPresence->SetScript(sRichPresencePatch);
+                    pRichPresence->UpdateLocalCheckpoint();
+                }
             }
         }
     }
 
     // cache the patchdata so it can be used in offline mode or by external tools
-    auto pData = pLocalStorage.WriteText(StorageItemType::GameData, std::to_wstring(pGameContext.ActiveGameId()));
+    auto pData = pLocalStorage.WriteText(StorageItemType::GameData, std::to_wstring(nGameId));
     if (pData != nullptr)
     {
         std::string sPatchData(server_response->body, server_response->body_length);
@@ -540,7 +552,21 @@ void AchievementRuntime::PostProcessGameDataResponse(const rc_api_server_respons
     pRichPresence->InitializeFromPublishedScript(nullptr, game_data_response->rich_presence_script);
     pRichPresence->CreateServerCheckpoint();
     pRichPresence->CreateLocalCheckpoint();
-    pGameContext.Assets().Append(std::move(pRichPresence));
+
+    // another thread can unload or replace the game while it is loading. only write to the game context while
+    // holding the load lock and while this load is still current.
+    bool bCurrent = false;
+    uint32_t nActiveGameId = 0;
+    {
+        auto pLock = pGameContext.LockLoad();
+        if (pGameContext.IsLoadCurrent(wrapper->m_nLoadGeneration))
+        {
+            bCurrent = true;
+            pGameContext.Assets().Append(std::move(pRichPresence));
+            pGameContext.InitializeAchievementSets(game_data_response);
+            nActiveGameId = pGameContext.ActiveGameId();
+        }
+    }
 
 #ifndef RA_UTEST
     // prefetch the game icon
@@ -568,21 +594,26 @@ void AchievementRuntime::PostProcessGameDataResponse(const rc_api_server_respons
             wrapper->m_mLeaderboardDefinitions[pLeaderboard->id] = pLeaderboard->definition;
     }
 
-    pGameContext.InitializeAchievementSets(game_data_response);
-
-    // don't write virtual game data to disc
-    if (!ra::data::context::GameContext::IsVirtualGameId(game_data_response->id))
-        ProcessPatchData(server_response, game_data_response);
+    // don't write virtual game data to disc. a load that is no longer current has no game to file the data under.
+    if (bCurrent && !ra::data::context::GameContext::IsVirtualGameId(game_data_response->id))
+        ProcessPatchData(server_response, nActiveGameId, wrapper->m_nLoadGeneration);
 }
 
 rc_client_async_handle_t* AchievementRuntime::BeginLoadGame(const char* sHash, unsigned id,
-                                                            CallbackWrapper* pCallbackWrapper)
+                                                            LoadGameCallbackWrapper* pCallbackWrapper)
 {
+    Expects(pCallbackWrapper != nullptr);
+
     auto* client = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
 
-    // unload the game and free any additional memory we allocated for local changes
-    UnloadGame();
-
+    // unload the game and free any additional memory we allocated for local changes. the new load belongs to
+    // the load generation that follows the unload.
+    {
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        auto pLock = pGameContext.LockLoad();
+        UnloadGame();
+        pCallbackWrapper->m_nLoadGeneration = pGameContext.BeginPendingLoad();
+    }
 
     // if an ID was provided, store the hash->id mapping
     if (id != 0)
@@ -600,9 +631,17 @@ rc_client_async_handle_t* AchievementRuntime::BeginLoadGame(const char* sHash, u
 
 rc_client_async_handle_t* AchievementRuntime::BeginIdentifyAndLoadGame(uint32_t console_id, const char* file_path,
                                                                        const uint8_t* data, size_t data_size,
-                                                                       CallbackWrapper* pCallbackWrapper)
+                                                                       LoadGameCallbackWrapper* pCallbackWrapper)
 {
-    UnloadGame();
+    Expects(pCallbackWrapper != nullptr);
+
+    // the new load belongs to the load generation that follows the unload
+    {
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        auto pLock = pGameContext.LockLoad();
+        UnloadGame();
+        pCallbackWrapper->m_nLoadGeneration = pGameContext.BeginPendingLoad();
+    }
 
     // start the load process
     auto* client = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
@@ -618,71 +657,131 @@ void AchievementRuntime::LoadGameCallback(int nResult, const char* sErrorMessage
     auto* wrapper = static_cast<LoadGameCallbackWrapper*>(pUserdata);
     Expects(wrapper != nullptr);
 
+    auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+
+    {
+        // a call that holds the load lock may have completed the load before returning. finish it once the lock
+        // has been released.
+        auto pLock = pGameContext.LockLoad();
+        auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
+        if (pRuntime.m_tDeferLoadCallbacks == std::this_thread::get_id())
+        {
+            const bool bHasErrorMessage = (sErrorMessage != nullptr);
+            std::string sErrorMessageCopy = bHasErrorMessage ? sErrorMessage : "";
+            pRuntime.m_vDeferredLoadCallbacks.emplace_back(
+                [nResult, bHasErrorMessage, sErrorMessageCopy, pClient, pUserdata]() {
+                    LoadGameCallback(nResult, bHasErrorMessage ? sErrorMessageCopy.c_str() : nullptr, pClient,
+                                     pUserdata);
+                });
+            return;
+        }
+    }
+
     if (nResult == RC_OK || nResult == RC_NO_GAME_LOADED)
     {
-        if (pClient->game && ra::data::context::GameContext::IsVirtualGameId(pClient->game->public_.id))
+        // rc_client is done with the game, but another thread can unload or replace it at any time. only read it
+        // while holding the load lock and while this load is still current. the dialog and the console change
+        // below must not run while holding the lock, so copy what they need.
+        bool bCurrent = false;
+        uint32_t nGameId = 0;
+        uint32_t nConsoleId = 0;
+        std::string sHash;
+        {
+            auto pLock = pGameContext.LockLoad();
+            bCurrent = pGameContext.IsLoadCurrent(wrapper->m_nLoadGeneration);
+            if (bCurrent && pClient->game)
+            {
+                nGameId = pClient->game->public_.id;
+                nConsoleId = pClient->game->public_.console_id;
+                if (pClient->game->public_.hash)
+                    sHash = pClient->game->public_.hash;
+            }
+        }
+
+        if (bCurrent && ra::data::context::GameContext::IsVirtualGameId(nGameId))
         {
             ra::ui::viewmodels::UnknownGameViewModel vmUnknownGame;
 
-            const auto nGameId = ra::data::context::GameContext::GetRealGameId(pClient->game->public_.id);
-            const auto nHashCompatibility = ra::data::context::GameContext::GetHashCompatibility(pClient->game->public_.id);
+            const auto nRealGameId = ra::data::context::GameContext::GetRealGameId(nGameId);
+            const auto nHashCompatibility = ra::data::context::GameContext::GetHashCompatibility(nGameId);
             if (nHashCompatibility == ra::data::context::GameContext::HashCompatibility::Untested)
                 vmUnknownGame.SetProblemHeader(L"The compatibility of the provided game is unknown.");
             else
                 vmUnknownGame.SetProblemHeader(L"The provided game has been marked as incompatible.");
-            RA_LOG_INFO("Hash %s identified as unsupported for game %u", pClient->game->public_.hash, nGameId);
+            RA_LOG_INFO("Hash %s identified as unsupported for game %u", sHash.c_str(), nRealGameId);
 
             // we don't have the actual game title, so we can't just call InitializeTestCompatibilityMode
-            vmUnknownGame.InitializeGameTitles(ra::itoe<ConsoleID>(pClient->game->public_.console_id));
-            vmUnknownGame.SetSystemName(ra::util::String::Widen(rc_console_name(pClient->game->public_.console_id)));
-            vmUnknownGame.SetChecksum(ra::util::String::Widen(pClient->game->public_.hash));
-            vmUnknownGame.SetSelectedGameId(nGameId);
+            vmUnknownGame.InitializeGameTitles(ra::itoe<ConsoleID>(nConsoleId));
+            vmUnknownGame.SetSystemName(ra::util::String::Widen(rc_console_name(nConsoleId)));
+            vmUnknownGame.SetChecksum(ra::util::String::Widen(sHash));
+            vmUnknownGame.SetSelectedGameId(nRealGameId);
 
             const auto& pEmulatorContext = ra::services::ServiceLocator::Get<ra::data::context::EmulatorContext>();
             auto sEstimatedGameTitle = ra::util::String::Widen(pEmulatorContext.GetGameTitle());
             vmUnknownGame.SetEstimatedGameName(sEstimatedGameTitle);
 
-            if (vmUnknownGame.ShowModal() == ra::ui::DialogResult::OK)
-            {
-                if (vmUnknownGame.GetTestMode())
-                {
-                    ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>().SetMode(
-                        ra::data::context::GameContext::Mode::CompatibilityTest);
+            const bool bTestMode =
+                (vmUnknownGame.ShowModal() == ra::ui::DialogResult::OK && vmUnknownGame.GetTestMode());
 
-                    auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
+            // the game may have been unloaded or replaced while the dialog was open. restarting the load
+            // unloads it, which this completion may only do while the load is still current. the mode is set
+            // without a notification, which must not be raised while holding the lock: the new load raises it
+            // when it completes.
+            auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
+            bool bRestarted = false;
+            {
+                auto pLock = pGameContext.LockLoad();
+                bCurrent = pGameContext.IsLoadCurrent(wrapper->m_nLoadGeneration);
+                if (bCurrent && bTestMode)
+                {
+                    pGameContext.InitializeMode(ra::data::context::GameContext::Mode::CompatibilityTest);
 
                     // create the virtual association so rc_client will fetch by game id instead of by hash
-                    auto* client_hash = rc_client_find_game_hash(pClient, pClient->game->public_.hash);
-                    client_hash->game_id = nGameId;
+                    auto* client_hash = rc_client_find_game_hash(pClient, sHash.c_str());
+                    client_hash->game_id = nRealGameId;
                     client_hash->is_unknown = 1;
 
-                    pRuntime.BeginLoadGame(pClient->game->public_.hash, nGameId, wrapper);
-                    return;
+                    // the new load may complete before BeginLoadGame returns. it must not do so while holding the
+                    // load lock.
+                    pRuntime.DeferLoadCallbacks();
+
+                    // this completion is over once the new load starts: it reuses the wrapper
+                    pRuntime.BeginLoadGame(sHash.c_str(), nRealGameId, wrapper);
+                    bRestarted = true;
                 }
+            }
+
+            if (bRestarted)
+            {
+                pRuntime.RunDeferredLoadCallbacks();
+                return;
             }
         }
 
         // this has to be done before calling InitializeFromAchievementRuntime so the address validation
         // doesn't flag every achievement as invalid.
-        if (IsExternalRcheevosClient() && pClient->game)
+        if (bCurrent && IsExternalRcheevosClient() && nConsoleId != 0)
         {
-            const auto& pConsoleContext = ra::services::ServiceLocator::Get<ra::context::IConsoleContext>();
-            if (pConsoleContext.Id() != ra::itoe<ConsoleID>(pClient->game->public_.console_id) &&
-                pClient->game->public_.console_id != 0)
-            {
-                _RA_SetConsoleID(pClient->game->public_.console_id);
-            }
+            pGameContext.ChangeConsoleIfLoadCurrent(wrapper->m_nLoadGeneration, [nConsoleId]() {
+                const auto& pConsoleContext = ra::services::ServiceLocator::Get<ra::context::IConsoleContext>();
+                if (pConsoleContext.Id() != ra::itoe<ConsoleID>(nConsoleId))
+                    _RA_SetConsoleID(nConsoleId);
+            });
         }
 
         // initialize the game context
-        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
-        pGameContext.InitializeFromAchievementRuntime(wrapper->m_mAchievementDefinitions,
-                                                      wrapper->m_mLeaderboardDefinitions);
-    }
-    else
-    {
+        if (bCurrent)
+        {
+            auto pLock = pGameContext.LockLoad();
+            if (pGameContext.IsLoadCurrent(wrapper->m_nLoadGeneration))
+            {
+                pGameContext.InitializeFromAchievementRuntime(wrapper->m_mAchievementDefinitions,
+                                                              wrapper->m_mLeaderboardDefinitions);
+            }
+        }
     }
 
+    // a load that is no longer current is discarded by the callback
     wrapper->DoCallback(nResult, sErrorMessage);
 
     delete wrapper;
@@ -713,6 +812,20 @@ void AchievementRuntime::ChangeMediaCallback(int nResult, const char* sErrorMess
     wrapper->DoCallback(nResult, sErrorMessage);
 
     delete wrapper;
+}
+
+void AchievementRuntime::RunDeferredLoadCallbacks()
+{
+    std::vector<std::function<void()>> vCallbacks;
+    {
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        auto pLock = pGameContext.LockLoad();
+        m_tDeferLoadCallbacks = std::thread::id();
+        vCallbacks.swap(m_vDeferredLoadCallbacks);
+    }
+
+    for (const auto& fCallback : vCallbacks)
+        fCallback();
 }
 
 void AchievementRuntime::UnloadGame()

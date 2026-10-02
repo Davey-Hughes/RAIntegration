@@ -42,7 +42,7 @@ namespace ra {
 namespace data {
 namespace context {
 
-static bool ValidateConsole(int nServerConsoleId)
+static bool IsConsoleCompatible(int nServerConsoleId)
 {
     const auto& pConsoleContext = ra::services::ServiceLocator::Get<ra::context::IConsoleContext>();
     if (ra::etoi(pConsoleContext.Id()) != nServerConsoleId)
@@ -87,18 +87,31 @@ static bool ValidateConsole(int nServerConsoleId)
                 break;
         }
 
-        ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(
-            L"Identified game does not match expected console.",
-            ra::util::String::Printf(
-                L"The game being loaded is associated to the %s console, but the emulator has initialized "
-                "the %s console. This is not allowed as the memory maps may not be compatible between "
-                "consoles.",
-                rc_console_name(nServerConsoleId), pConsoleContext.Name()));
-
         return false;
     }
 
     return true;
+}
+
+static void ShowConsoleMismatch(int nServerConsoleId)
+{
+    const auto& pConsoleContext = ra::services::ServiceLocator::Get<ra::context::IConsoleContext>();
+    ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(
+        L"Identified game does not match expected console.",
+        ra::util::String::Printf(
+            L"The game being loaded is associated to the %s console, but the emulator has initialized "
+            "the %s console. This is not allowed as the memory maps may not be compatible between "
+            "consoles.",
+            rc_console_name(nServerConsoleId), pConsoleContext.Name()));
+}
+
+static void UnpauseRuntime()
+{
+    ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>().SetPaused(false);
+#ifndef RA_UTEST
+    auto& pAssetList = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>().AssetList;
+    pAssetList.SetProcessingActive(true);
+#endif
 }
 
 bool GameContext::BeginLoadGame(unsigned int nGameId, Mode nMode, bool& bWasPaused)
@@ -109,60 +122,71 @@ bool GameContext::BeginLoadGame(unsigned int nGameId, Mode nMode, bool& bWasPaus
     auto& vmWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
     vmWindowManager.AssetEditor.LoadAsset(nullptr, true);
 
-    // a load that is still completing on another thread belongs to the game being torn down. wait for it to
-    // stop using the game, and tell it not to touch the game again.
-    auto pLock = LockLoad();
-    InvalidatePendingLoads();
-
-    // reset the runtime
-    auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
-    pRuntime.ResetRuntime();
-
-    // reset the GameContext
-    m_nMode = nMode;
-    m_sGameTitle.clear();
-    m_vAssets.ClearAchievementSets();
-    m_vAssets.ResetLocalId();
-
-    m_vAssets.BeginUpdate();
-
-    m_vAssets.Clear();
-
-    // if not loading a game, finish up and return
-    if (nGameId == 0)
+    bool bGameUnloaded = false;
     {
-        m_vAssets.EndUpdate();
-        m_vAssets.DetachFromRuntime();
+        // a load that is still completing on another thread belongs to the game being torn down. wait for it to
+        // stop using the game, and tell it not to touch the game again.
+        std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
+        InvalidatePendingLoads();
 
-        m_sGameHash.clear();
-        m_nActiveGameId = 0;
+        // reset the runtime
+        auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
+        pRuntime.ResetRuntime();
 
-        if (m_nGameId != 0)
+        // reset the GameContext
+        m_nMode = nMode;
+        m_sGameTitle.clear();
+        m_vAssets.ClearAchievementSets();
+        m_vAssets.ResetLocalId();
+
+        m_vAssets.BeginUpdate();
+
+        m_vAssets.Clear();
+
+        // if not loading a game, finish up and return
+        if (nGameId == 0)
         {
-            m_nGameId = 0;
+            m_vAssets.EndUpdate();
+            m_vAssets.DetachFromRuntime();
 
-            ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>().UnloadGame();
+            m_sGameHash.clear();
+            m_nActiveGameId = 0;
 
-            pLock.unlock();
-            OnActiveGameChanged();
+            if (m_nGameId != 0)
+            {
+                m_nGameId = 0;
+
+                ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>().UnloadGame();
+
+                bGameUnloaded = true;
+            }
         }
-        return false;
+        else
+        {
+            // start the load process. the load is pending from here on: it pauses the runtime below, and a load that
+            // is discarded before this one is given its own generation must leave the unpause to it.
+            BeginLoad();
+            BeginPendingLoad();
+            m_nGameId = m_nActiveGameId = GetRealGameId(nGameId);
+
+            // create a model for managing badges
+            auto pLocalBadges = std::make_unique<ra::data::models::LocalBadgesModel>();
+            pLocalBadges->CreateServerCheckpoint();
+            pLocalBadges->CreateLocalCheckpoint();
+            m_vAssets.Append(std::move(pLocalBadges));
+
+            bWasPaused = pRuntime.IsPaused();
+            pRuntime.SetPaused(true);
+
+            return true;
+        }
     }
 
-    // start the load process
-    BeginLoad();
-    m_nGameId = m_nActiveGameId = GetRealGameId(nGameId);
+    // the targets update windows, which must not be done while holding the load lock
+    if (bGameUnloaded)
+        OnActiveGameChanged();
 
-    // create a model for managing badges
-    auto pLocalBadges = std::make_unique<ra::data::models::LocalBadgesModel>();
-    pLocalBadges->CreateServerCheckpoint();
-    pLocalBadges->CreateLocalCheckpoint();
-    m_vAssets.Append(std::move(pLocalBadges));
-
-    bWasPaused = pRuntime.IsPaused();
-    pRuntime.SetPaused(true);
-
-    return true;
+    return false;
 }
 
 void GameContext::LoadGame(unsigned int nGameId, const std::string& sGameHash, Mode nMode)
@@ -182,183 +206,244 @@ void GameContext::LoadGame(unsigned int nGameId, const std::string& sGameHash, M
 
     auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
     pRuntime.BeginLoadGame(sGameHash, nGameId,
-        [](int nResult, const char* sErrorMessage, rc_client_t*, void* pUserdata) {
+        [](int nResult, const char* sErrorMessage, uint32_t nLoadGeneration, void* pUserdata) {
             auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
             auto* pLoadGameUserData = static_cast<struct LoadGameUserData*>(pUserdata);
-            pGameContext.FinishLoadGame(nResult, sErrorMessage, pLoadGameUserData->bWasPaused);
+            pGameContext.FinishLoadGame(nResult, sErrorMessage, pLoadGameUserData->bWasPaused, nLoadGeneration);
             delete pLoadGameUserData;
         },
         pLoadGameUserData);
 }
 
-void GameContext::FinishLoadGame(int nResult, const char* sErrorMessage, bool bWasPaused)
+void GameContext::FinishLoadGame(int nResult, const char* sErrorMessage, bool bWasPaused, uint32_t nLoadGeneration)
 {
-    if (nResult != RC_OK)
+    // another thread can unload or replace the game at any time. read it while holding the load lock, then
+    // show the results without holding it.
+    const bool bLoadFailed = (nResult != RC_OK);
+    bool bConsoleMismatch = false;
+    int nMismatchedConsoleId = 0;
+    std::wstring sPopupTitle, sPopupDescription, sPopupDetail;
+    std::string sPopupImage;
+    bool bDiscarded = false;
+    bool bLoadEnded = false;
     {
-        m_nGameId = 0;
-
-        ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(L"Failed to load game data",
-                                                                    ra::util::String::Widen(sErrorMessage));
-    }
-    else
-    {
-        const auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-        const auto* pGame = rc_client_get_game_info(pClient);
-        if (pGame == nullptr || pGame->id == 0)
+        std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
+        if (!IsLoadCurrent(nLoadGeneration))
         {
-            // invalid hash
-            m_nGameId = m_nActiveGameId = 0;
-            m_sGameTitle.clear();
-            m_sGameHash.clear();
-            nResult = RC_NO_GAME_LOADED;
+            bDiscarded = true;
+            bLoadEnded = DiscardLoad(nLoadGeneration, bWasPaused);
         }
-        else if (!ValidateConsole(pGame->console_id))
+        else if (bLoadFailed)
         {
-            m_nGameId = m_nActiveGameId = 0;
-            m_sGameTitle.clear();
-            m_sGameHash.clear();
-            nResult = RC_INVALID_STATE;
+            m_nGameId = 0;
         }
         else
         {
-            rc_client_user_game_summary_t pSummary;
-            rc_client_get_user_game_summary(pClient, &pSummary);
-
-            // show "game loaded" popup
-            ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\info.wav");
-            std::wstring sDescription = ra::util::String::Printf(L"%u achievements, %u points",
-                                                            pSummary.num_promoted_achievements, pSummary.points_available);
-            if (pSummary.num_unsupported_achievements)
-                sDescription += ra::util::String::Printf(L" (%u unsupported)", pSummary.num_unsupported_achievements);
-
-            ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(
-                ra::util::String::Printf(L"Loaded %s", pGame->title), sDescription,
-                ra::util::String::Printf(L"You have earned %u achievements", pSummary.num_unlocked_achievements),
-                ra::ui::ImageType::Icon, pGame->badge_name);
-        }
-    }
-
-    EndLoadGame(nResult, bWasPaused, true);
-}
-
-void GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowCasualWarning)
-{
-    {
-        ra::data::models::RichPresenceModel* pRichPresence = nullptr;
-        std::string sOldRichPresence;
-        const auto nGameId = m_nGameId;
-
-        std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
-
-        if (m_nGameId != nGameId)
-            return;
-
-        if (nResult == RC_OK && m_nGameId > 0)
-        {
-            BeginLoad();
-
-            auto pMemoryNotes = std::make_unique<ra::data::models::MemoryNotesModel>();
-            pMemoryNotes->Refresh(
-                m_nGameId,
-                [this](ra::data::ByteAddress nAddress, const std::wstring& sNewNote) {
-                    OnMemoryNoteChanged(nAddress, sNewNote);
-                },
-                [this](ra::data::ByteAddress nOldAddress, ra::data::ByteAddress nNewAddress, const std::wstring sNote) {
-                    OnMemoryNoteMoved(nOldAddress, nNewAddress, sNote);
-                },
-                [this]() {
-                    EndLoad();
-                });
-
-            m_vAssets.Append(std::move(pMemoryNotes));
-
-            // the old server value (if different from current server value) will be stored as Local modification.
-            // capture it now. ReloadAssets will load the XXX-Rich.txt file and replace it
-            pRichPresence = m_vAssets.FindRichPresence();
-            if (pRichPresence)
-                sOldRichPresence = pRichPresence->GetScript();
-
-            // merge local assets
-            std::vector<ra::data::models::AssetModelBase*> vEmptyAssetsList;
-            m_vAssets.ReloadAssets(vEmptyAssetsList);
-        }
-
-        if (!bWasPaused)
-        {
-            ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>().SetPaused(false);
-#ifndef RA_UTEST
-            auto& pAssetList = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>().AssetList;
-            pAssetList.SetProcessingActive(true);
-#endif
-        }
-
-        // activate rich presence (or remove if not defined)
-        if (pRichPresence && nResult == RC_OK)
-        {
-            pRichPresence->SetSubsetID(Assets().AchievementSets().GetItemAt(0)->GetID());
-
-            // if the server value differs from the local value, the model will appear as Unpublished
-            if (pRichPresence->GetChanges() != ra::data::models::AssetChanges::None)
+            const auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+            const auto* pGame = rc_client_get_game_info(pClient);
+            if (pGame == nullptr || pGame->id == 0)
             {
-                // populate another model with the old script so the string gets normalized correctly
-                ra::data::models::RichPresenceModel pOldRichPresenceModel;
-                pOldRichPresenceModel.SetScript(sOldRichPresence);
-
-                // if the old value matches the current value, then the value on the server changed and
-                // there are no local modifications. revert to the server state.
-                if (pRichPresence->GetScript() == pOldRichPresenceModel.GetScript())
-                    pRichPresence->RestoreServerCheckpoint();
+                // invalid hash
+                m_nGameId = m_nActiveGameId = 0;
+                m_sGameTitle.clear();
+                m_sGameHash.clear();
+                nResult = RC_NO_GAME_LOADED;
             }
-
-            if (pRichPresence->GetScript().empty() &&
-                pRichPresence->GetChanges() == ra::data::models::AssetChanges::None)
+            else if (!IsConsoleCompatible(pGame->console_id))
             {
-                const auto nIndex = m_vAssets.FindItemIndex(ra::data::models::AssetModelBase::TypeProperty,
-                                                            ra::etoi(ra::data::models::AssetType::RichPresence));
-                m_vAssets.RemoveAt(nIndex);
+                m_nGameId = m_nActiveGameId = 0;
+                m_sGameTitle.clear();
+                m_sGameHash.clear();
+                nResult = RC_INVALID_STATE;
+                bConsoleMismatch = true;
+                nMismatchedConsoleId = pGame->console_id;
             }
             else
             {
-                pRichPresence->Activate();
+                rc_client_user_game_summary_t pSummary;
+                rc_client_get_user_game_summary(pClient, &pSummary);
+
+                sPopupTitle = ra::util::String::Printf(L"Loaded %s", pGame->title);
+                sPopupDescription = ra::util::String::Printf(L"%u achievements, %u points",
+                                                             pSummary.num_promoted_achievements,
+                                                             pSummary.points_available);
+                if (pSummary.num_unsupported_achievements)
+                {
+                    sPopupDescription +=
+                        ra::util::String::Printf(L" (%u unsupported)", pSummary.num_unsupported_achievements);
+                }
+                sPopupDetail = ra::util::String::Printf(L"You have earned %u achievements",
+                                                        pSummary.num_unlocked_achievements);
+                sPopupImage = pGame->badge_name;
             }
         }
+    }
 
-        // modified assets should start in the inactive state
-        size_t nLocalAssets = 0;
-        for (auto& pAsset : m_vAssets)
+    if (bDiscarded)
+    {
+        // the targets update windows, which must not be done while holding the load lock
+        if (bLoadEnded)
+            OnEndGameLoad();
+        return;
+    }
+
+    if (bLoadFailed)
+    {
+        ra::ui::viewmodels::MessageBoxViewModel::ShowErrorMessage(L"Failed to load game data",
+                                                                    ra::util::String::Widen(sErrorMessage));
+    }
+    else if (bConsoleMismatch)
+    {
+        ShowConsoleMismatch(nMismatchedConsoleId);
+    }
+    else if (!sPopupTitle.empty())
+    {
+        // show "game loaded" popup
+        ra::services::ServiceLocator::Get<ra::services::IAudioSystem>().PlayAudioFile(L"Overlay\\info.wav");
+        ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::OverlayManager>().QueueMessage(
+            sPopupTitle, sPopupDescription, sPopupDetail, ra::ui::ImageType::Icon, sPopupImage);
+    }
+
+    EndLoadGame(nResult, bWasPaused, true, nLoadGeneration);
+}
+
+bool GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowCasualWarning, uint32_t nLoadGeneration)
+{
+    bool bHasPromotedAssets = false;
+    bool bLoadEnded = false;
+    bool bDiscarded = false;
+    {
+        ra::data::models::RichPresenceModel* pRichPresence = nullptr;
+        std::string sOldRichPresence;
+
+        std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
+
+        if (!IsLoadCurrent(nLoadGeneration))
         {
-            if (pAsset.GetChanges() != ra::data::models::AssetChanges::None)
+            bDiscarded = true;
+            bLoadEnded = DiscardLoad(nLoadGeneration, bWasPaused);
+        }
+        else
+        {
+            if (nResult == RC_OK && m_nGameId > 0)
             {
-                if (pAsset.HasUnpublishedChanges())
-                    ++nLocalAssets;
+                BeginLoad();
 
-                if (pAsset.IsActive())
+                auto pMemoryNotes = std::make_unique<ra::data::models::MemoryNotesModel>();
+                pMemoryNotes->Refresh(
+                    m_nGameId,
+                    [this](ra::data::ByteAddress nAddress, const std::wstring& sNewNote) {
+                        OnMemoryNoteChanged(nAddress, sNewNote);
+                    },
+                    [this](ra::data::ByteAddress nOldAddress, ra::data::ByteAddress nNewAddress,
+                           const std::wstring sNote) {
+                        OnMemoryNoteMoved(nOldAddress, nNewAddress, sNote);
+                    },
+                    [this]() {
+                        EndLoad();
+                    });
+
+                m_vAssets.Append(std::move(pMemoryNotes));
+
+                // the old server value (if different from current server value) will be stored as Local modification.
+                // capture it now. ReloadAssets will load the XXX-Rich.txt file and replace it
+                pRichPresence = m_vAssets.FindRichPresence();
+                if (pRichPresence)
+                    sOldRichPresence = pRichPresence->GetScript();
+
+                // merge local assets
+                std::vector<ra::data::models::AssetModelBase*> vEmptyAssetsList;
+                m_vAssets.ReloadAssets(vEmptyAssetsList);
+            }
+
+            if (m_bLoadPending && m_nPendingLoadGeneration == nLoadGeneration)
+                m_bLoadPending = false;
+
+            // a discarded load may have left the runtime paused for this one
+            if (!bWasPaused || m_bUnpauseOwed)
+            {
+                m_bUnpauseOwed = false;
+                UnpauseRuntime();
+            }
+
+            // activate rich presence (or remove if not defined)
+            if (pRichPresence && nResult == RC_OK)
+            {
+                pRichPresence->SetSubsetID(Assets().AchievementSets().GetItemAt(0)->GetID());
+
+                // if the server value differs from the local value, the model will appear as Unpublished
+                if (pRichPresence->GetChanges() != ra::data::models::AssetChanges::None)
                 {
-                    if (pAsset.GetType() == ra::data::models::AssetType::RichPresence &&
-                        ra::services::ServiceLocator::Get<ra::ui::viewmodels::WindowManager>()
-                            .RichPresenceMonitor.IsVisible())
-                    {
-                        // if rich presence monitor is open, allow modified rich presence to remain active. otherwise,
-                        // it will be activated when the monitor is opened. it cannot be activated from the list.
-                        continue;
-                    }
+                    // populate another model with the old script so the string gets normalized correctly
+                    ra::data::models::RichPresenceModel pOldRichPresenceModel;
+                    pOldRichPresenceModel.SetScript(sOldRichPresence);
 
-                    pAsset.SetState(ra::data::models::AssetState::Inactive);
+                    // if the old value matches the current value, then the value on the server changed and
+                    // there are no local modifications. revert to the server state.
+                    if (pRichPresence->GetScript() == pOldRichPresenceModel.GetScript())
+                        pRichPresence->RestoreServerCheckpoint();
+                }
+
+                if (pRichPresence->GetScript().empty() &&
+                    pRichPresence->GetChanges() == ra::data::models::AssetChanges::None)
+                {
+                    const auto nIndex = m_vAssets.FindItemIndex(ra::data::models::AssetModelBase::TypeProperty,
+                                                                ra::etoi(ra::data::models::AssetType::RichPresence));
+                    m_vAssets.RemoveAt(nIndex);
+                }
+                else
+                {
+                    pRichPresence->Activate();
                 }
             }
+
+            // modified assets should start in the inactive state
+            size_t nLocalAssets = 0;
+            for (auto& pAsset : m_vAssets)
+            {
+                if (pAsset.GetChanges() != ra::data::models::AssetChanges::None)
+                {
+                    if (pAsset.HasUnpublishedChanges())
+                        ++nLocalAssets;
+
+                    if (pAsset.IsActive())
+                    {
+                        if (pAsset.GetType() == ra::data::models::AssetType::RichPresence &&
+                            ra::services::ServiceLocator::Get<ra::ui::viewmodels::WindowManager>()
+                                .RichPresenceMonitor.IsVisible())
+                        {
+                            // if rich presence monitor is open, allow modified rich presence to remain active.
+                            // otherwise, it will be activated when the monitor is opened. it cannot be activated from
+                            // the list.
+                            continue;
+                        }
+
+                        pAsset.SetState(ra::data::models::AssetState::Inactive);
+                    }
+                }
+            }
+            if (nLocalAssets > 0)
+            {
+                RA_LOG_INFO("%d unpublished assets loaded", nLocalAssets);
+            }
+
+            // finish up
+            m_vAssets.EndUpdate();
+
+            m_vAssets.SyncAssetsToRuntime();
+
+            bLoadEnded = DecrementLoadCount();
+
+            bHasPromotedAssets = Assets().HasPromotedAssets();
         }
-        if (nLocalAssets > 0)
-        {
-            RA_LOG_INFO("%d unpublished assets loaded", nLocalAssets);
-        }
-
-        // finish up
-        m_vAssets.EndUpdate();
-
-        m_vAssets.SyncAssetsToRuntime();
-
-        EndLoad();
     }
+
+    // the targets update windows, which must not be done while holding the load lock
+    if (bLoadEnded)
+        OnEndGameLoad();
+
+    if (bDiscarded)
+        return false;
 
     // non-hardcore warning
     auto& pConfiguration = ra::services::ServiceLocator::Get<ra::services::IConfiguration>();
@@ -366,7 +451,7 @@ void GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowCasualWarn
     {
         bool bShowHardcorePrompt = false;
         if (pConfiguration.IsFeatureEnabled(ra::services::Feature::NonHardcoreWarning))
-            bShowHardcorePrompt = Assets().HasPromotedAssets();
+            bShowHardcorePrompt = bHasPromotedAssets;
 
         if (bShowHardcorePrompt)
         {
@@ -392,22 +477,61 @@ void GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowCasualWarn
     }
 
     OnActiveGameChanged();
+
+    return true;
+}
+
+bool GameContext::DiscardLoad([[maybe_unused]] uint32_t nLoadGeneration, bool bWasPaused)
+{
+    // the game was unloaded or replaced while this load was completing. leave the game alone, and undo what the
+    // load's BeginLoadGame did: the asset update it opened, the load count it raised and the pause.
+    RA_LOG_INFO("Discarding a game load that was superseded (load %u, now %u)", nLoadGeneration, GetLoadGeneration());
+    m_vAssets.EndUpdate();
+    const bool bLoadEnded = DecrementLoadCount();
+
+    if (!bWasPaused || m_bUnpauseOwed)
+    {
+        if (IsLoadPending())
+        {
+            // a load that began while this one had the runtime paused will not unpause it. tell it to.
+            m_bUnpauseOwed = true;
+        }
+        else
+        {
+            m_bUnpauseOwed = false;
+            UnpauseRuntime();
+        }
+    }
+
+    return bLoadEnded;
+}
+
+void GameContext::ChangeConsoleIfLoadCurrent(uint32_t nLoadGeneration, const std::function<void()>& fChangeConsole)
+{
+    std::lock_guard<std::mutex> pConsoleLock(m_mConsoleChangeMutex);
+
+    {
+        std::lock_guard<std::recursive_mutex> pLock(m_mLoadMutex);
+        if (!IsLoadCurrent(nLoadGeneration))
+            return;
+    }
+
+    // changing the console updates the memory regions, which must not be done while holding the load lock
+    fChangeConsole();
 }
 
 void GameContext::InitializeFromAchievementRuntime(const std::map<uint32_t, std::string> mAchievementDefinitions,
                                                    const std::map<uint32_t, std::string> mLeaderboardDefinitions)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
+
     auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
     const auto* pGame = rc_client_get_game_info(pClient);
     m_nGameId = GetRealGameId(pGame->id);
     m_sGameTitle = ra::util::String::Widen(pGame->title);
     m_sGameHash = pGame->hash ? pGame->hash : "";
 
-#ifndef RA_UTEST
     auto& pImageRepository = ra::services::ServiceLocator::GetMutable<ra::ui::IImageRepository>();
-#endif
-
-    std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
 
     for (auto* pSubset = pClient->game->subsets; pSubset; pSubset = pSubset->next)
     {
@@ -457,7 +581,6 @@ void GameContext::InitializeFromAchievementRuntime(const std::map<uint32_t, std:
 
                 m_vAssets.Append(std::move(vmAchievement));
 
-#ifndef RA_UTEST
                 // prefetch the achievement image
                 pImageRepository.FetchImage(ra::ui::ImageType::Badge, pAchievementData->public_.badge_name,
                     pAchievementData->public_.badge_url ? pAchievementData->public_.badge_url : "");
@@ -468,7 +591,6 @@ void GameContext::InitializeFromAchievementRuntime(const std::map<uint32_t, std:
                         std::string(pAchievementData->public_.badge_name) + "_lock",
                         pAchievementData->public_.badge_locked_url ? pAchievementData->public_.badge_locked_url : "");
                 }
-#endif
             }
         }
 
@@ -671,18 +793,29 @@ void GameContext::BeginLoad()
 
 void GameContext::EndLoad()
 {
-    if (m_nLoadCount.fetch_sub(1) == 1)
+    if (DecrementLoadCount())
+        OnEndGameLoad();
+}
+
+bool GameContext::DecrementLoadCount()
+{
+    if (m_nLoadCount.fetch_sub(1) != 1)
+        return false;
+
+    for (auto& pAsset : m_vAssets)
+        pAsset.Validate();
+
+    return true;
+}
+
+void GameContext::OnEndGameLoad()
+{
+    if (m_vNotifyTargets.LockIfNotEmpty())
     {
-        for (auto& pAsset : m_vAssets)
-            pAsset.Validate();
+        for (auto& target : m_vNotifyTargets.Targets())
+            target.OnEndGameLoad();
 
-        if (m_vNotifyTargets.LockIfNotEmpty())
-        {
-            for (auto& target : m_vNotifyTargets.Targets())
-                target.OnEndGameLoad();
-
-            m_vNotifyTargets.Unlock();
-        }
+        m_vNotifyTargets.Unlock();
     }
 }
 

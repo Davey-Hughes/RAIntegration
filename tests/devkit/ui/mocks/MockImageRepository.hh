@@ -8,6 +8,7 @@
 
 #include "util/Strings.hh"
 
+#include <functional>
 #include <map>
 #include <set>
 #include <string>
@@ -45,9 +46,18 @@ public:
         pIter->second.insert(sName);
     }
 
-    void FetchImage(_UNUSED ImageType nType, _UNUSED const std::string& sName, _UNUSED const std::string& sSourceUrl, _UNUSED time_t tLastModified = 0) noexcept override
+    void FetchImage(ImageType nType, const std::string& sName, _UNUSED const std::string& sSourceUrl, _UNUSED time_t tLastModified = 0) override
     {
+        if (m_fFetchImageHandler)
+            m_fFetchImageHandler(nType, sName);
+    }
 
+    /// <summary>
+    /// Sets a function to call whenever an image is fetched.
+    /// </summary>
+    void SetFetchImageHandler(std::function<void(ImageType, const std::string&)>&& fHandler) noexcept
+    {
+        m_fFetchImageHandler = std::move(fHandler);
     }
 
     std::string StoreImage(_UNUSED ImageType nType, _UNUSED const std::wstring& sPath) override
@@ -77,6 +87,7 @@ public:
 
 private:
     std::map<ImageType, std::set<std::string>> m_vAvailableImages;
+    std::function<void(ImageType, const std::string&)> m_fFetchImageHandler;
 
     ra::services::ServiceLocator::ServiceOverride<ra::ui::IImageRepository> m_Override;
 };

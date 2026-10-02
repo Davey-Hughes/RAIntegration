@@ -1,15 +1,21 @@
 #include "CppUnitTest.h"
 
+#include "Exports.hh"
+
 #include "data\context\GameContext.hh"
 
 #include "data\models\AchievementModel.hh"
 
 #include "services\AchievementRuntime.hh"
+#include "services\AchievementRuntimeExports.hh"
 
 #include "ui\viewmodels\MessageBoxViewModel.hh"
+#include "ui\viewmodels\UnknownGameViewModel.hh"
 
 #include <rcheevos\src\rc_version.h>
 #include <rcheevos\include\rc_api_runtime.h>
+#include <rcheevos\src\rc_client_external.h>
+#include <rcheevos\src\rc_client_internal.h>
 
 #include "tests\RA_UnitTestHelpers.h"
 #include "tests\data\DataAsserts.hh"
@@ -34,10 +40,20 @@
 #include "tests\mocks\MockDesktop.hh"
 #include "tests\mocks\MockFrameEventQueue.hh"
 #include "tests\mocks\MockGameContext.hh"
+#include "tests\mocks\MockLoginService.hh"
 #include "tests\mocks\MockOverlayManager.hh"
 #include "tests\mocks\MockServer.hh"
 #include "tests\mocks\MockSessionTracker.hh"
 #include "tests\mocks\MockWindowManager.hh"
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <thread>
+
+extern "C" API int CCONV _Rcheevos_GetExternalClient(rc_client_external_t* pClientExternal, int nVersion);
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
@@ -146,6 +162,15 @@ public:
             const std::string& sLeaderboards = "", const std::string& sRichPresence = "",
             ConsoleID nConsoleID = ConsoleID::MegaDrive)
         {
+            MockLoadGameAPIsWithoutSession(nGameID, sHash, sAchievements, sLeaderboards, sRichPresence, nConsoleID);
+            MockStartSession(nGameID, sHash, sUnlocks);
+        }
+
+        // mocks everything a load needs but the session, so the load waits for MockStartSession
+        void MockLoadGameAPIsWithoutSession(unsigned nGameID, const std::string& sHash,
+            const std::string& sAchievements = "", const std::string& sLeaderboards = "",
+            const std::string& sRichPresence = "", ConsoleID nConsoleID = ConsoleID::MegaDrive)
+        {
             mockConsoleContext.SetId(nConsoleID);
             mockConsoleContext.SetName(ra::util::String::Widen(rc_console_name(static_cast<int>(nConsoleID))));
 
@@ -166,6 +191,11 @@ public:
                     "\"Achievements\":[" + sAchievements + "],"
                     "\"Leaderboards\":[" + sLeaderboards + "]"
                 "}]}");
+        }
+
+        // mocks the session request. a load that is waiting for it completes inside this call.
+        void MockStartSession(unsigned nGameID, const std::string& sHash, const std::string& sUnlocks = "")
+        {
             mockRcClient.MockResponse(
                 "r=startsession&u=Username&t=ApiToken&g=" + std::to_string(nGameID) +
                     "&h=1&m=" + sHash + "&l=" RCHEEVOS_VERSION_STRING,
@@ -204,6 +234,165 @@ public:
         ra::services::ServiceLocator::ServiceOverride<ra::data::context::GameContext> m_OverrideGameContext;
     };
 
+    // holds a load's completion inside its first badge prefetch, where it is walking the loaded game while
+    // holding the load lock
+    class PrefetchGate
+    {
+    public:
+        explicit PrefetchGate(ra::ui::mocks::MockImageRepository& pImageRepository)
+        {
+            pImageRepository.SetFetchImageHandler([this](ra::ui::ImageType, const std::string&) { Hold(); });
+        }
+
+        // waits for the completion running on tCompletion to reach the prefetch. if it never does, fails the test
+        // instead of waiting forever.
+        void WaitUntilHeld(std::thread& tCompletion)
+        {
+            bool bHeld = false;
+            {
+                std::unique_lock<std::mutex> lock(m_mMutex);
+                bHeld = m_cvChanged.wait_for(lock, std::chrono::seconds(10), [this]() noexcept { return m_bHeld; });
+            }
+
+            if (!bHeld)
+            {
+                // the completion uses the test's objects. let it through and wait for it before failing.
+                Release();
+                tCompletion.join();
+                Assert::Fail(L"the load's completion did not reach the badge prefetch");
+            }
+        }
+
+        void Release()
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_mMutex);
+                m_bReleased = true;
+            }
+            m_cvChanged.notify_all();
+        }
+
+    private:
+        void Hold()
+        {
+            std::unique_lock<std::mutex> lock(m_mMutex);
+            if (m_bHeld)
+                return;
+
+            m_bHeld = true;
+            m_cvChanged.notify_all();
+            m_cvChanged.wait(lock, [this]() noexcept { return m_bReleased; });
+        }
+
+        std::mutex m_mMutex;
+        std::condition_variable m_cvChanged;
+        bool m_bHeld = false;
+        bool m_bReleased = false;
+    };
+
+    // records whether the load lock is free when a notification is raised, by having another thread take it
+    class LoadLockProbe : public GameContext::NotifyTarget
+    {
+    public:
+        explicit LoadLockProbe(GameContext& pGameContext) noexcept : m_pGameContext(pGameContext) {}
+        GSL_SUPPRESS_F6 ~LoadLockProbe() noexcept { Join(); }
+
+        LoadLockProbe(const LoadLockProbe&) noexcept = delete;
+        LoadLockProbe& operator=(const LoadLockProbe&) noexcept = delete;
+        LoadLockProbe(LoadLockProbe&&) noexcept = delete;
+        LoadLockProbe& operator=(LoadLockProbe&&) noexcept = delete;
+
+        int nNotified = 0;
+        bool bLockWasFree = false;
+
+        // waits for the other thread. call after the load lock has been released, and before asserting. the
+        // destructor does it too, so that a test that throws first fails instead of ending the process.
+        void Join()
+        {
+            if (m_tProbe.joinable())
+                m_tProbe.join();
+        }
+
+    protected:
+        // call from the notification being probed
+        void Probe()
+        {
+            if (++nNotified > 1)
+                return;
+
+            m_tProbe = std::thread([this]() {
+                auto pLock = m_pGameContext.LockLoad();
+                {
+                    std::lock_guard<std::mutex> lock(m_mMutex);
+                    m_bLocked = true;
+                }
+                m_cvChanged.notify_all();
+            });
+
+            // if this thread is holding the load lock, the other thread cannot take it until this returns
+            std::unique_lock<std::mutex> lock(m_mMutex);
+            bLockWasFree = m_cvChanged.wait_for(lock, std::chrono::seconds(5), [this]() noexcept { return m_bLocked; });
+        }
+
+    private:
+        GameContext& m_pGameContext;
+        std::thread m_tProbe;
+        std::mutex m_mMutex;
+        std::condition_variable m_cvChanged;
+        bool m_bLocked = false;
+    };
+
+    class EndGameLoadLockProbe : public LoadLockProbe
+    {
+    public:
+        using LoadLockProbe::LoadLockProbe;
+
+    protected:
+        void OnEndGameLoad() override { Probe(); }
+    };
+
+    class ActiveGameChangedLockProbe : public LoadLockProbe
+    {
+    public:
+        using LoadLockProbe::LoadLockProbe;
+
+    protected:
+        void OnActiveGameChanged() override { Probe(); }
+    };
+
+    // counts OnActiveGameChanged, and records whether the last one found achievement 5 loaded in compatibility mode
+    class CompatibilityModeObserver : public GameContext::NotifyTarget
+    {
+    public:
+        explicit CompatibilityModeObserver(const GameContext& pGameContext) noexcept : m_pGameContext(pGameContext) {}
+
+        int nNotified = 0;
+        bool bLoadedForTesting = false;
+
+    protected:
+        void OnActiveGameChanged() override
+        {
+            ++nNotified;
+            bLoadedForTesting = (m_pGameContext.GetMode() == GameContext::Mode::CompatibilityTest &&
+                m_pGameContext.Assets().FindAchievement(5U) != nullptr);
+        }
+
+    private:
+        const GameContext& m_pGameContext;
+    };
+
+    // _Rcheevos_GetExternalClient puts the library in external client mode. leaves it as the next test expects.
+    struct ExternalClientReset
+    {
+        ExternalClientReset() noexcept = default;
+        ~ExternalClientReset() noexcept { ResetExternalRcheevosClient(); }
+
+        ExternalClientReset(const ExternalClientReset&) noexcept = delete;
+        ExternalClientReset& operator=(const ExternalClientReset&) noexcept = delete;
+        ExternalClientReset(ExternalClientReset&&) noexcept = delete;
+        ExternalClientReset& operator=(ExternalClientReset&&) noexcept = delete;
+    };
+
     class GameContextNotifyTarget : public GameContext::NotifyTarget
     {
     public:
@@ -235,6 +424,33 @@ public:
         std::map<ra::data::ByteAddress, std::wstring> m_vNotesChanged;
     };
 
+private:
+    // loads game 1, and has a load of game 2 replace it while the first load is completing: after it has read the
+    // game for its popup, and before it merges the assets. unless the test has mocked the second load's session,
+    // the first load is discarded while the second load is still waiting for it.
+    static void LoadGameReplacedWhileCompleting(GameContextHarness& game)
+    {
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+        game.MockLoadGameAPIsWithoutSession(2U, "fedcba9876543210123456789abcdef", game.MockAchievementJson(7U, 10U));
+
+        // a completion fetches the game's icon for its popup while it is not holding the load lock
+        bool bReplaced = false;
+        game.mockImageRepository.SetFetchImageHandler([&game, &bReplaced](ra::ui::ImageType nType, const std::string&) {
+            if (nType == ra::ui::ImageType::Icon && !bReplaced)
+            {
+                bReplaced = true;
+                game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+            }
+        });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        game.mockImageRepository.SetFetchImageHandler(nullptr);
+
+        Assert::IsTrue(bReplaced);
+        Assert::AreEqual(2U, game.GameId());
+    }
+
+public:
     TEST_METHOD(TestLoadGameTitle)
     {
         GameContextHarness game;
@@ -288,6 +504,31 @@ public:
         Assert::IsTrue(bDialogShown);
         Assert::AreEqual(0U, game.GameId());
         Assert::AreEqual(ra::data::context::GameContext::Mode::Normal, game.GetMode());
+        Assert::AreEqual(std::wstring(L""), game.GameTitle());
+    }
+
+    TEST_METHOD(TestLoadGameTitleConsoleMismatchUnknownConsole)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", "", "", "", ConsoleID::UnknownConsoleID);
+
+        game.mockConsoleContext.SetId(ConsoleID::MasterSystem);
+        game.mockConsoleContext.SetName(L"Master System");
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::MessageBoxViewModel>([&bDialogShown](ra::ui::viewmodels::MessageBoxViewModel& vmMessageBox)
+        {
+            Assert::AreEqual(std::wstring(L"Identified game does not match expected console."), vmMessageBox.GetHeader());
+            Assert::AreEqual(std::wstring(L"The game being loaded is associated to the Unknown console, but the emulator has initialized "
+                "the Master System console. This is not allowed as the memory maps may not be compatible between consoles."), vmMessageBox.GetMessage());
+            bDialogShown = true;
+            return ra::ui::DialogResult::OK;
+        });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual(0U, game.GameId());
         Assert::AreEqual(std::wstring(L""), game.GameTitle());
     }
 
@@ -1221,6 +1462,821 @@ public:
 
         Assert::IsTrue(observer.bCalled);
         Assert::IsFalse(observer.bWasCurrent);
+    }
+
+    TEST_METHOD(TestLoadGameSupersededBeforeCompletionIsDiscarded)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321",
+            game.MockAchievementJson(5U, 5U) + "," + game.MockAchievementJson(7U, 10U));
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.IsGameLoading());
+
+        // something unloads or replaces the game before the load's completion gets to it
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsNull(game.Assets().FindAchievement(7U));
+        Assert::IsNull(game.mockOverlayManager.GetMessage(1));
+        Assert::IsFalse(game.mockDesktop.WasDialogShown());
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::AreEqual(1U, game.GameId());
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededBeforeGameDataIsNotInitializedFromIt)
+    {
+        GameContextHarness game;
+
+        // the server knows the hash as game 5, so the game data carries other ids than the load began with
+        game.MockLoadGameAPIsWithoutSession(5U, "0123456789abcdeffedcba987654321",
+            game.MockAchievementJson(5U, 5U), "", "Display:\nTest\n");
+
+        // something unloads or replaces the game while the load is waiting for the game data
+        game.mockRcClient.OnBeforeResponse("r=achievementsets&u=Username&t=ApiToken&m=0123456789abcdeffedcba987654321&v=2",
+            [&game]() {
+                auto pLock = game.LockLoad();
+                game.InvalidatePendingLoads();
+            });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        // the game data has been processed, and the load is waiting for its session
+        Assert::IsTrue(game.IsGameLoading());
+        Assert::IsFalse(game.HasRichPresence());
+        Assert::AreEqual(1U, game.GameId());
+        Assert::AreEqual(1U, game.ActiveGameId());
+        Assert::AreEqual({ 0U }, game.Assets().AchievementSets().Count());
+        Assert::IsFalse(game.mockStorage.HasStoredData(ra::services::StorageItemType::GameData, L"0"));
+        Assert::IsFalse(game.mockStorage.HasStoredData(ra::services::StorageItemType::GameData, L"1"));
+        Assert::IsFalse(game.mockStorage.HasStoredData(ra::services::StorageItemType::GameData, L"5"));
+
+        // let the load finish. it is discarded.
+        game.MockStartSession(5U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededWhileRuntimePausedStaysPaused)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321", game.MockAchievementJson(5U, 5U));
+        game.mockAchievementRuntime.SetPaused(true);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+
+        // the runtime was paused before the load began, so discarding the load must not unpause it
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededByLoadInProgressLeavesUnpauseToIt)
+    {
+        GameContextHarness game;
+        game.mockRcClient.MockResponse("r=codenotes2&g=2", "{\"Success\":true,\"CodeNotes\":[]}");
+        LoadGameReplacedWhileCompleting(game);
+
+        // the second load is still in progress, and it began while the first load had the runtime paused
+        Assert::IsTrue(game.IsGameLoading());
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused(), L"unpaused while a load was in progress");
+        Assert::IsTrue(game.Assets().IsUpdating(), L"asset update closed while a load was in progress");
+
+        game.MockStartSession(2U, "fedcba9876543210123456789abcdef");
+
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsNotNull(game.Assets().FindAchievement(7U));
+        Assert::AreEqual(2U, game.GameId());
+
+        // nothing is owed any more: a load that begins while the runtime is paused leaves it paused
+        game.mockAchievementRuntime.SetPaused(true);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+    }
+
+    TEST_METHOD(TestLoadGameSupersededByLoadThatIsAlsoDiscardedUnpausesRuntime)
+    {
+        GameContextHarness game;
+        LoadGameReplacedWhileCompleting(game);
+        Assert::IsTrue(game.IsGameLoading());
+
+        // something unloads the game before the second load's completion gets to it
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(2U, "fedcba9876543210123456789abcdef");
+
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+
+        // nothing is owed any more: a load that begins while the runtime is paused leaves it paused
+        game.mockAchievementRuntime.SetPaused(true);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+    }
+
+    TEST_METHOD(TestLoadGameSupersededByLoadThatIsDiscardedFirstUnpausesRuntime)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+        game.MockLoadGameAPIsWithoutSession(2U, "fedcba9876543210123456789abcdef", game.MockAchievementJson(7U, 10U));
+
+        // a load of game 2 replaces game 1 while the first load is completing, as in
+        // LoadGameReplacedWhileCompleting. something then unloads the game, and the second load's completion
+        // arrives and is discarded, all before the first load gets to its own discard.
+        bool bReplaced = false;
+        game.mockImageRepository.SetFetchImageHandler([&game, &bReplaced](ra::ui::ImageType nType, const std::string&) {
+            if (nType == ra::ui::ImageType::Icon && !bReplaced)
+            {
+                bReplaced = true;
+                game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+                {
+                    auto pLock = game.LockLoad();
+                    game.InvalidatePendingLoads();
+                }
+                game.MockStartSession(2U, "fedcba9876543210123456789abcdef");
+            }
+        });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        game.mockImageRepository.SetFetchImageHandler(nullptr);
+
+        Assert::IsTrue(bReplaced);
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+
+        // nothing is owed any more: a load that begins while the runtime is paused leaves it paused
+        game.mockAchievementRuntime.SetPaused(true);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+    }
+
+    TEST_METHOD(TestLoadGameSupersededByLoadThatCompletesFirstUnpausesRuntime)
+    {
+        GameContextHarness game;
+
+        // the second load has everything it needs, so it completes before the first load is discarded. it began
+        // while the first load had the runtime paused, so it does not unpause it.
+        game.MockStartSession(2U, "fedcba9876543210123456789abcdef");
+        game.mockRcClient.MockResponse("r=codenotes2&g=2", "{\"Success\":true,\"CodeNotes\":[]}");
+        LoadGameReplacedWhileCompleting(game);
+
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsNotNull(game.Assets().FindAchievement(7U));
+
+        // nothing is owed any more: a load that begins while the runtime is paused leaves it paused
+        game.mockAchievementRuntime.SetPaused(true);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+    }
+
+    TEST_METHOD(TestLoadGameSupersededWhileCodeNotesAreLoadingUnpausesRuntime)
+    {
+        GameContextHarness game;
+
+        // the first game is loaded, but its code notes are still being fetched
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.IsGameLoading());
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused());
+
+        game.MockLoadGameAPIsWithoutSession(2U, "fedcba9876543210123456789abcdef", game.MockAchievementJson(7U, 10U));
+        game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+        Assert::IsTrue(game.mockAchievementRuntime.IsPaused());
+
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(2U, "fedcba9876543210123456789abcdef");
+
+        // a code notes fetch is not a load that will unpause the runtime when it completes
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededWhileUnknownGameDialogIsOpenIsDiscarded)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // the server knows the hash as an untested version of game 1
+        game.MockLoadGameAPIs(1100000001U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [&game, &bDialogShown](ra::ui::viewmodels::UnknownGameViewModel& vmUnknownGame) {
+                bDialogShown = true;
+                vmUnknownGame.SetTestMode(true);
+
+                // something unloads or replaces the game while the dialog is open
+                auto pLock = game.LockLoad();
+                game.InvalidatePendingLoads();
+                return ra::ui::DialogResult::OK;
+            });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual(ra::data::context::GameContext::Mode::Normal, game.GetMode());
+        game.mockRcClient.AssertNumRequestsHandled(3); // game data, session, the dialog's game list: no second load
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+    }
+
+    TEST_METHOD(TestExternalLoadGameSupersededWhileUnknownGameDialogIsOpenKeepsConsole)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // the server knows the hash as an untested version of game 1. the emulator has another console active
+        // than the one the game belongs to.
+        game.MockLoadGameAPIs(1100000001U, "0123456789abcdeffedcba987654321");
+        game.mockConsoleContext.SetId(ConsoleID::MasterSystem);
+
+        rc_client_external_t pExternalClient;
+        memset(&pExternalClient, 0, sizeof(pExternalClient));
+        _Rcheevos_GetExternalClient(&pExternalClient, 1);
+        ExternalClientReset pExternalClientReset;
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [&game, &bDialogShown](ra::ui::viewmodels::UnknownGameViewModel&) {
+                bDialogShown = true;
+
+                // something unloads or replaces the game while the dialog is open
+                auto pLock = game.LockLoad();
+                game.InvalidatePendingLoads();
+                return ra::ui::DialogResult::Cancel;
+            });
+
+        int nLoadResult = RC_OK;
+        pExternalClient.begin_load_game(game.mockAchievementRuntime.GetClient(), "0123456789abcdeffedcba987654321",
+            [](int nResult, const char*, rc_client_t*, void* pUserdata) noexcept {
+                *static_cast<int*>(pUserdata) = nResult;
+            },
+            &nLoadResult);
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual((int)RC_ABORTED, nLoadResult);
+        Assert::AreEqual(ra::etoi(ConsoleID::MasterSystem),
+            ra::etoi(ra::services::ServiceLocator::Get<ra::context::IConsoleContext>().Id()));
+    }
+
+    TEST_METHOD(TestLoadGameUnknownGameDialogTestModeReloadsInCompatibilityMode)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // the server knows the hash as an untested version of game 1. loading it for testing fetches game 1 by id.
+        game.MockLoadGameAPIs(1100000001U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=achievementsets&u=Username&t=ApiToken&g=1&v=2",
+            "{\"Success\":true,\"GameId\":1,\"Title\":\"GameTitle\",\"ConsoleId\":1,"
+              "\"ImageIconUrl\":\"http://server/Images/9743.png\",\"RichPresencePatch\":\"\","
+              "\"Sets\":[{\"AchievementSetId\":1111,\"GameId\":1,\"Title\":null,\"Type\":\"core\","
+                "\"ImageIconUrl\":\"http://server/Images/9743.png\","
+                "\"Achievements\":[" + game.MockAchievementJson(5U, 5U) + "],\"Leaderboards\":[]"
+            "}]}");
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [&bDialogShown](ra::ui::viewmodels::UnknownGameViewModel& vmUnknownGame) {
+                bDialogShown = true;
+                vmUnknownGame.SetTestMode(true);
+                return ra::ui::DialogResult::OK;
+            });
+
+        // the mode must change without a notification of its own: the load that follows raises it when it is done
+        CompatibilityModeObserver observer(game);
+        game.AddNotifyTarget(observer);
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual(ra::data::context::GameContext::Mode::CompatibilityTest, game.GetMode());
+        Assert::IsNotNull(game.Assets().FindAchievement(5U));
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, observer.nNotified);
+        Assert::IsTrue(observer.bLoadedForTesting);
+    }
+
+    TEST_METHOD(TestLoadGameUnknownGameDialogTestModeRaisesEndGameLoadWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // every response is mocked, so the load restarted for testing completes before BeginLoadGame returns
+        game.MockLoadGameAPIs(1100000001U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=achievementsets&u=Username&t=ApiToken&g=1&v=2",
+            "{\"Success\":true,\"GameId\":1,\"Title\":\"GameTitle\",\"ConsoleId\":1,"
+              "\"ImageIconUrl\":\"http://server/Images/9743.png\",\"RichPresencePatch\":\"\","
+              "\"Sets\":[{\"AchievementSetId\":1111,\"GameId\":1,\"Title\":null,\"Type\":\"core\","
+                "\"ImageIconUrl\":\"http://server/Images/9743.png\","
+                "\"Achievements\":[" + game.MockAchievementJson(5U, 5U) + "],\"Leaderboards\":[]"
+            "}]}");
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [](ra::ui::viewmodels::UnknownGameViewModel& vmUnknownGame) {
+                vmUnknownGame.SetTestMode(true);
+                return ra::ui::DialogResult::OK;
+            });
+
+        EndGameLoadLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        probe.Join();
+
+        Assert::AreEqual(ra::data::context::GameContext::Mode::CompatibilityTest, game.GetMode());
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnEndGameLoad raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededWhileUnidentifiedHashDialogIsOpenKeepsMode)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // the server does not know the hash, so rc_client asks which game it is while the load is in progress.
+        // once the dialog says that it is game 1, rc_client fetches game 1 by id.
+        game.MockLoadGameAPIsWithoutSession(0U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=achievementsets&u=Username&t=ApiToken&g=1&v=2",
+            "{\"Success\":true,\"GameId\":1,\"Title\":\"GameTitle\",\"ConsoleId\":1,"
+              "\"ImageIconUrl\":\"http://server/Images/9743.png\",\"RichPresencePatch\":\"\","
+              "\"Sets\":[{\"AchievementSetId\":1111,\"GameId\":1,\"Title\":null,\"Type\":\"core\","
+                "\"ImageIconUrl\":\"http://server/Images/9743.png\","
+                "\"Achievements\":[" + game.MockAchievementJson(5U, 5U) + "],\"Leaderboards\":[]"
+            "}]}");
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [&game, &bDialogShown](ra::ui::viewmodels::UnknownGameViewModel& vmUnknownGame) {
+                bDialogShown = true;
+                vmUnknownGame.SetSelectedGameId(1);
+                vmUnknownGame.SetTestMode(true);
+
+                // something unloads or replaces the game while the dialog is open
+                auto pLock = game.LockLoad();
+                game.InvalidatePendingLoads();
+                return ra::ui::DialogResult::OK;
+            });
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual(ra::data::context::GameContext::Mode::Normal, game.GetMode());
+
+        // rc_client was still given the selected game, and went on to fetch it. had it been told that the game is
+        // unknown, it would have made an unknown game the loaded game, over whatever replaced this load.
+        game.mockRcClient.AssertCalled("r=achievementsets&u=Username&t=ApiToken&g=1&v=2");
+        Assert::IsNull(rc_client_get_game_info(game.mockAchievementRuntime.GetClient()));
+
+        // let the load finish
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+    }
+
+    TEST_METHOD(TestLoadGameUnidentifiedHashDialogTestModeLoadsInCompatibilityMode)
+    {
+        GameContextHarness game;
+        ra::services::mocks::MockLoginService mockLoginService;
+        mockLoginService.SetLoggedIn(true);
+
+        // the server does not know the hash. once the dialog says that it is game 1, rc_client fetches game 1 by id.
+        game.MockLoadGameAPIsWithoutSession(0U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=achievementsets&u=Username&t=ApiToken&g=1&v=2",
+            "{\"Success\":true,\"GameId\":1,\"Title\":\"GameTitle\",\"ConsoleId\":1,"
+              "\"ImageIconUrl\":\"http://server/Images/9743.png\",\"RichPresencePatch\":\"\","
+              "\"Sets\":[{\"AchievementSetId\":1111,\"GameId\":1,\"Title\":null,\"Type\":\"core\","
+                "\"ImageIconUrl\":\"http://server/Images/9743.png\","
+                "\"Achievements\":[" + game.MockAchievementJson(5U, 5U) + "],\"Leaderboards\":[]"
+            "}]}");
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+
+        bool bDialogShown = false;
+        game.mockDesktop.ExpectWindow<ra::ui::viewmodels::UnknownGameViewModel>(
+            [&bDialogShown](ra::ui::viewmodels::UnknownGameViewModel& vmUnknownGame) {
+                bDialogShown = true;
+                vmUnknownGame.SetSelectedGameId(1);
+                vmUnknownGame.SetTestMode(true);
+                return ra::ui::DialogResult::OK;
+            });
+
+        // the mode must change without a notification of its own: the load raises it when it is done
+        CompatibilityModeObserver observer(game);
+        game.AddNotifyTarget(observer);
+
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(bDialogShown);
+        Assert::AreEqual(ra::data::context::GameContext::Mode::CompatibilityTest, game.GetMode());
+        Assert::IsNotNull(game.Assets().FindAchievement(5U));
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, observer.nNotified);
+        Assert::IsTrue(observer.bLoadedForTesting);
+    }
+
+    TEST_METHOD(TestLoadGameAbortedByRcClientIsDiscarded)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+
+        // without background memory reads, rc_client finishes a load in the next frame or idle call
+        auto* pClient = game.mockAchievementRuntime.GetClient();
+        rc_client_set_allow_background_memory_reads(pClient, 0);
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsTrue(game.IsGameLoading());
+
+        // the game is unloaded before that, so rc_client reports the load as aborted
+        game.LoadGame(0U, "");
+        rc_client_idle(pClient);
+
+        Assert::IsFalse(game.mockDesktop.WasDialogShown());
+        Assert::AreEqual(0U, game.GameId());
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::IsFalse(game.Assets().IsUpdating(), L"asset update left open");
+        Assert::IsFalse(game.mockAchievementRuntime.IsPaused(), L"runtime left paused");
+    }
+
+    TEST_METHOD(TestLoadGameRaisesEndGameLoadWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+
+        EndGameLoadLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        // the code notes are already there, so the load count reaches zero as the load merges its assets
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        probe.Join();
+
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnEndGameLoad raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestLoadGameSupersededRaisesEndGameLoadWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321", game.MockAchievementJson(5U, 5U));
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        EndGameLoadLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+        probe.Join();
+
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnEndGameLoad raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestExternalLoadGameSupersededRaisesEndGameLoadWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321", game.MockAchievementJson(5U, 5U));
+
+        rc_client_external_t pExternalClient;
+        memset(&pExternalClient, 0, sizeof(pExternalClient));
+        _Rcheevos_GetExternalClient(&pExternalClient, 1);
+        ExternalClientReset pExternalClientReset;
+
+        pExternalClient.begin_load_game(game.mockAchievementRuntime.GetClient(), "0123456789abcdeffedcba987654321",
+            [](int, const char*, rc_client_t*, void*) noexcept {}, nullptr);
+
+        EndGameLoadLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        // the external client's completion finds out that it is stale when it gets to the assets
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+        probe.Join();
+
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnEndGameLoad raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestLoadGameZeroRaisesActiveGameChangedWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321", "", game.MockAchievementJson(5U, 5U));
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsFalse(game.IsGameLoading());
+        Assert::AreEqual(1U, game.GameId());
+
+        // attached once the game is loaded, so that the load's own OnActiveGameChanged is not the one probed
+        ActiveGameChangedLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        game.LoadGame(0U, "");
+        probe.Join();
+
+        Assert::AreEqual(0U, game.GameId());
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnActiveGameChanged raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestUnloadWaitsForLoadCompletionInProgress)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321",
+            game.MockAchievementJson(5U, 5U) + "," + game.MockAchievementJson(7U, 10U));
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        PrefetchGate gate(game.mockImageRepository);
+
+        // rc_client completes the load on another thread, as it does when the server answers
+        std::thread tCompletion([&game]() { game.MockStartSession(1U, "0123456789abcdeffedcba987654321"); });
+        gate.WaitUntilHeld(tCompletion);
+
+        std::atomic<bool> bUnloaded{ false };
+        std::thread tUnload([&game, &bUnloaded]() {
+            game.LoadGame(0U, "");
+            bUnloaded = true;
+        });
+
+        // the unload must not free the game while the completion is walking it
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool bUnloadedWhileHeld = bUnloaded;
+
+        gate.Release();
+        tCompletion.join();
+        tUnload.join();
+
+        Assert::IsFalse(bUnloadedWhileHeld, L"unloaded while the completion was walking the game");
+        Assert::AreEqual(0U, game.GameId());
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsNull(game.Assets().FindAchievement(7U));
+        Assert::IsNull(rc_client_get_game_info(game.mockAchievementRuntime.GetClient()));
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+    }
+
+    TEST_METHOD(TestDirectUnloadWaitsForLoadCompletionInProgress)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321",
+            game.MockAchievementJson(5U, 5U) + "," + game.MockAchievementJson(7U, 10U));
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        PrefetchGate gate(game.mockImageRepository);
+
+        std::thread tCompletion([&game]() { game.MockStartSession(1U, "0123456789abcdeffedcba987654321"); });
+        gate.WaitUntilHeld(tCompletion);
+
+        // _RA_ActivateGame(0) unloads through the runtime directly, without GameContext::LoadGame
+        std::atomic<bool> bUnloaded{ false };
+        std::thread tUnload([&game, &bUnloaded]() {
+            game.mockAchievementRuntime.UnloadGame();
+            bUnloaded = true;
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool bUnloadedWhileHeld = bUnloaded;
+
+        gate.Release();
+        tCompletion.join();
+        tUnload.join();
+
+        Assert::IsFalse(bUnloadedWhileHeld, L"unloaded while the completion was walking the game");
+        Assert::IsNull(rc_client_get_game_info(game.mockAchievementRuntime.GetClient()));
+    }
+
+    TEST_METHOD(TestResetWaitsForLoadCompletionInProgressAndKeepsIt)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321",
+            game.MockAchievementJson(5U, 5U) + "," + game.MockAchievementJson(7U, 10U));
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        PrefetchGate gate(game.mockImageRepository);
+
+        std::thread tCompletion([&game]() { game.MockStartSession(1U, "0123456789abcdeffedcba987654321"); });
+        gate.WaitUntilHeld(tCompletion);
+
+        std::atomic<bool> bReset{ false };
+        std::thread tReset([&game, &bReset]() {
+            game.mockAchievementRuntime.ResetRuntime();
+            bReset = true;
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool bResetWhileHeld = bReset;
+
+        gate.Release();
+        tCompletion.join();
+        tReset.join();
+
+        // the reset keeps the game, so it must not discard the load that was completing
+        Assert::IsFalse(bResetWhileHeld, L"reset while the completion was walking the game");
+        Assert::AreEqual(1U, game.GameId());
+        Assert::IsNotNull(game.Assets().FindAchievement(5U));
+        Assert::IsNotNull(game.Assets().FindAchievement(7U));
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+    }
+
+    TEST_METHOD(TestExternalLoadGameSupersededReportsAborted)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIsWithoutSession(1U, "0123456789abcdeffedcba987654321", game.MockAchievementJson(5U, 5U));
+
+        rc_client_external_t pExternalClient;
+        memset(&pExternalClient, 0, sizeof(pExternalClient));
+        _Rcheevos_GetExternalClient(&pExternalClient, 1);
+
+        ExternalClientReset pExternalClientReset;
+
+        struct LoadResult
+        {
+            bool bCalled = false;
+            int nResult = 0;
+            std::string sErrorMessage;
+        } pLoadResult;
+
+        pExternalClient.begin_load_game(game.mockAchievementRuntime.GetClient(), "0123456789abcdeffedcba987654321",
+            [](int nResult, const char* sErrorMessage, rc_client_t*, void* pUserdata) {
+                auto* pResult = static_cast<LoadResult*>(pUserdata);
+                pResult->bCalled = true;
+                pResult->nResult = nResult;
+                pResult->sErrorMessage = sErrorMessage ? sErrorMessage : "";
+            },
+            &pLoadResult);
+
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+        game.MockStartSession(1U, "0123456789abcdeffedcba987654321");
+
+        Assert::IsTrue(pLoadResult.bCalled);
+        Assert::AreEqual((int)RC_ABORTED, pLoadResult.nResult);
+        Assert::AreEqual(std::string("The requested game is no longer active"), pLoadResult.sErrorMessage);
+        Assert::IsNull(game.Assets().FindAchievement(5U));
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+    }
+
+    TEST_METHOD(TestExternalLogoutWhileLoadAwaitsLoginRaisesEndGameLoadWithoutHoldingLoadLock)
+    {
+        GameContextHarness game;
+
+        rc_client_external_t pExternalClient;
+        memset(&pExternalClient, 0, sizeof(pExternalClient));
+        _Rcheevos_GetExternalClient(&pExternalClient, 1);
+        ExternalClientReset pExternalClientReset;
+
+        struct LoadResult
+        {
+            bool bCalled = false;
+            int nResult = 0;
+        } pLoadResult;
+
+        // the load waits for the login to complete
+        game.mockAchievementRuntime.GetClient()->state.user = RC_CLIENT_USER_STATE_LOGIN_REQUESTED;
+        pExternalClient.begin_load_game(game.mockAchievementRuntime.GetClient(), "0123456789abcdeffedcba987654321",
+            [](int nResult, const char*, rc_client_t*, void* pUserdata) {
+                auto* pResult = static_cast<LoadResult*>(pUserdata);
+                pResult->bCalled = true;
+                pResult->nResult = nResult;
+            },
+            &pLoadResult);
+        Assert::IsTrue(game.IsGameLoading());
+        Assert::IsFalse(pLoadResult.bCalled);
+
+        EndGameLoadLockProbe probe(game);
+        game.AddNotifyTarget(probe);
+
+        // rc_client_logout aborts the load before it returns
+        pExternalClient.logout();
+        probe.Join();
+
+        Assert::IsTrue(pLoadResult.bCalled);
+        Assert::AreEqual((int)RC_ABORTED, pLoadResult.nResult);
+        Assert::IsFalse(game.IsGameLoading(), L"load count not balanced");
+        Assert::AreEqual(1, probe.nNotified);
+        Assert::IsTrue(probe.bLockWasFree, L"OnEndGameLoad raised while holding the load lock");
+    }
+
+    TEST_METHOD(TestChangeConsoleIfLoadCurrent)
+    {
+        GameContextHarness game;
+        uint32_t nLoadGeneration = 0;
+        {
+            auto pLock = game.LockLoad();
+            nLoadGeneration = game.GetLoadGeneration();
+        }
+
+        int nChanges = 0;
+        game.ChangeConsoleIfLoadCurrent(nLoadGeneration, [&nChanges]() noexcept { ++nChanges; });
+        Assert::AreEqual(1, nChanges);
+
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+        }
+
+        // a load that was superseded must not change the console
+        game.ChangeConsoleIfLoadCurrent(nLoadGeneration, [&nChanges]() noexcept { ++nChanges; });
+        Assert::AreEqual(1, nChanges);
+    }
+
+    TEST_METHOD(TestChangeConsoleIfLoadCurrentWaitsForChangeInProgress)
+    {
+        GameContextHarness game;
+        uint32_t nFirstLoad = 0;
+        {
+            auto pLock = game.LockLoad();
+            nFirstLoad = game.GetLoadGeneration();
+        }
+
+        std::promise<void> pFirstStarted;
+        std::promise<void> pFirstRelease;
+        auto fFirstRelease = pFirstRelease.get_future();
+        std::mutex mOrder;
+        std::vector<int> vOrder;
+
+        // the first load has checked that it is current and is changing the console
+        std::thread tFirst([&]() {
+            game.ChangeConsoleIfLoadCurrent(nFirstLoad, [&]() {
+                pFirstStarted.set_value();
+                fFirstRelease.wait();
+                std::lock_guard<std::mutex> lock(mOrder);
+                vOrder.push_back(1);
+            });
+        });
+        pFirstStarted.get_future().wait();
+
+        // a second load replaces it, and gets to its own console change before the first one has finished
+        uint32_t nSecondLoad = 0;
+        {
+            auto pLock = game.LockLoad();
+            game.InvalidatePendingLoads();
+            nSecondLoad = game.GetLoadGeneration();
+        }
+        std::thread tSecond([&]() {
+            game.ChangeConsoleIfLoadCurrent(nSecondLoad, [&]() {
+                std::lock_guard<std::mutex> lock(mOrder);
+                vOrder.push_back(2);
+            });
+        });
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        bool bSecondWaited = false;
+        {
+            std::lock_guard<std::mutex> lock(mOrder);
+            bSecondWaited = vOrder.empty();
+        }
+
+        pFirstRelease.set_value();
+        tFirst.join();
+        tSecond.join();
+
+        Assert::IsTrue(bSecondWaited, L"second console change did not wait for the first");
+        Assert::AreEqual({2U}, vOrder.size());
+        Assert::AreEqual(1, vOrder.at(0));
+        Assert::AreEqual(2, vOrder.at(1));
     }
 
     TEST_METHOD(TestLoadGameUserUnlocks)

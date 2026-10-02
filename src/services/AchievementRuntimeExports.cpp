@@ -251,7 +251,7 @@ public:
                                                             void* callback_userdata)
     {
         GSL_SUPPRESS_R3
-        auto* pCallbackWrapper = new LoadGameCallbackWrapper(client, callback, callback_userdata);
+        auto* pCallbackWrapper = new CallbackWrapper(client, callback, callback_userdata);
 
         auto& pClient = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
         return pClient.BeginLoginWithToken(username, token, pCallbackWrapper);
@@ -265,13 +265,22 @@ public:
 
     static void logout()
     {
-        // rc_client_logout unloads the game
         auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
-        auto pLock = pGameContext.LockLoad();
-        pGameContext.InvalidatePendingLoads();
+        auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
+        {
+            // rc_client_logout unloads the game
+            auto pLock = pGameContext.LockLoad();
+            pGameContext.InvalidatePendingLoads();
 
-        auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-        return rc_client_logout(pClient);
+            // rc_client_logout aborts a load that is waiting for the login before it returns. that load's
+            // completion must not run while holding the load lock.
+            pRuntime.DeferLoadCallbacks();
+
+            auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+            rc_client_logout(pClient);
+        }
+
+        pRuntime.RunDeferredLoadCallbacks();
     }
 
     class LoadExternalGameCallbackWrapper : public CallbackWrapper
@@ -285,23 +294,38 @@ public:
         bool bWasPaused = false;
     };
 
-    static void load_game_callback(int nResult, const char* sErrorMessage, rc_client_t*, void* pUserdata)
+    static void load_game_callback(int nResult, const char* sErrorMessage, uint32_t nLoadGeneration, void* pUserdata)
     {
         auto* wrapper = static_cast<LoadExternalGameCallbackWrapper*>(pUserdata);
         Expects(wrapper != nullptr);
 
-        const auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
-        const auto* pGame = pClient->game;
-        if (pGame)
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+
+        // another thread can unload or replace the game at any time: only read it while this load is current
+        bool bHasGame = false;
+        uint32_t nConsoleId = 0;
         {
-            _RA_SetConsoleID(pGame->public_.console_id);
-            ResetMemory();
+            auto pLock = pGameContext.LockLoad();
+            const auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+            if (pGameContext.IsLoadCurrent(nLoadGeneration) && pClient->game)
+            {
+                bHasGame = true;
+                nConsoleId = pClient->game->public_.console_id;
+            }
         }
 
-        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
-        pGameContext.EndLoadGame(nResult, wrapper->bWasPaused, false);
+        if (bHasGame)
+        {
+            pGameContext.ChangeConsoleIfLoadCurrent(nLoadGeneration, [nConsoleId]() {
+                _RA_SetConsoleID(nConsoleId);
+                ResetMemory();
+            });
+        }
 
-        wrapper->DoCallback(nResult, sErrorMessage);
+        if (pGameContext.EndLoadGame(nResult, wrapper->bWasPaused, false, nLoadGeneration))
+            wrapper->DoCallback(nResult, sErrorMessage);
+        else
+            wrapper->DoCallback(RC_ABORTED, "The requested game is no longer active");
 
         delete wrapper;
     }
@@ -314,7 +338,7 @@ public:
         GSL_SUPPRESS_R3
         auto* pNestedCallbackData = new LoadExternalGameCallbackWrapper(client, callback, callback_userdata);
         GSL_SUPPRESS_R3
-        auto* pCallbackData = new LoadGameCallbackWrapper(client, load_game_callback, pNestedCallbackData);
+        auto* pCallbackData = new LoadGameCallbackWrapper(load_game_callback, pNestedCallbackData);
 
         auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
         pGameContext.BeginLoadGame(0xFFFFFFFF, ra::data::context::GameContext::Mode::Normal,
@@ -330,7 +354,7 @@ public:
         GSL_SUPPRESS_R3
         auto* pNestedCallbackData = new LoadExternalGameCallbackWrapper(client, callback, callback_userdata);
         GSL_SUPPRESS_R3
-        auto* pCallbackData = new LoadGameCallbackWrapper(client, load_game_callback, pNestedCallbackData);
+        auto* pCallbackData = new LoadGameCallbackWrapper(load_game_callback, pNestedCallbackData);
 
         auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
         pGameContext.BeginLoadGame(0xFFFFFFFF, ra::data::context::GameContext::Mode::Normal,

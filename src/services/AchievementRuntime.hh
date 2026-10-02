@@ -6,7 +6,10 @@
 #include "data\context\EmulatorContext.hh"
 #include "data\models\AchievementModel.hh"
 
+#include <functional>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <rcheevos\include\rc_client.h>
 
@@ -31,14 +34,38 @@ public:
     void BeginLoginWithPassword(const std::string& sUsername, const std::string& sPassword,
                                 rc_client_callback_t fCallback, void* pCallbackData);
 
+    /// <summary>
+    /// Receives the result of a game load started by <see cref="BeginLoadGame" />.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="nLoadGeneration" /> is the load generation the load belongs to. The game can be unloaded
+    /// or replaced from another thread at any time, so it must only be touched while holding
+    /// GameContext::LockLoad and while GameContext::IsLoadCurrent(nLoadGeneration) is true.
+    /// </remarks>
+    using LoadGameCallbackFunction = void (*)(int nResult, const char* sErrorMessage, uint32_t nLoadGeneration,
+                                              void* pUserdata);
+
     void BeginLoadGame(const std::string& sHash, unsigned id,
-                       rc_client_callback_t fCallback, void* pCallbackData);
+                       LoadGameCallbackFunction fCallback, void* pCallbackData);
     void UnloadGame();
 
     /// <summary>
     /// Clears all active achievements/leaderboards/rich presence from the runtime.
     /// </summary>
     void ResetRuntime();
+
+    /// <summary>
+    /// Holds back the load callbacks that rc_client raises on this thread until
+    /// <see cref="RunDeferredLoadCallbacks" />. Call while holding GameContext::LockLoad, before a call that can
+    /// complete a load before it returns.
+    /// </summary>
+    void DeferLoadCallbacks() noexcept { m_tDeferLoadCallbacks = std::this_thread::get_id(); }
+
+    /// <summary>
+    /// Runs the load callbacks held back by <see cref="DeferLoadCallbacks" />. Call after releasing
+    /// GameContext::LockLoad.
+    /// </summary>
+    void RunDeferredLoadCallbacks();
 
     static std::string GetAchievementBadge(const rc_client_achievement_t& pAchievement);
 
@@ -156,6 +183,11 @@ private:
     bool m_bPaused = false;
     DWORD m_hDoFrameThread = 0;
 
+    // the thread whose load callbacks are being held back, and the held back callbacks. only read or written while
+    // holding the load lock.
+    std::thread::id m_tDeferLoadCallbacks;
+    std::vector<std::function<void()>> m_vDeferredLoadCallbacks;
+
     int m_nRichPresenceParseResult = RC_OK;
     int m_nRichPresenceErrorLine = 0;
 
@@ -198,23 +230,36 @@ private:
                                                   CallbackWrapper* pCallbackWrapper);
     static void LoginCallback(int nResult, const char* sErrorMessage, rc_client_t* pClient, void* pUserdata);
 
-    class LoadGameCallbackWrapper : public CallbackWrapper
+    class LoadGameCallbackWrapper
     {
     public:
-        LoadGameCallbackWrapper(rc_client_t* client, rc_client_callback_t callback, void* callback_userdata) noexcept :
-            CallbackWrapper(client, callback, callback_userdata)
+        LoadGameCallbackWrapper(LoadGameCallbackFunction fCallback, void* pCallbackUserdata) noexcept :
+            m_fCallback(fCallback), m_pCallbackUserdata(pCallbackUserdata)
         {}
+
+        GSL_SUPPRESS_F6 void DoCallback(int nResult, const char* sErrorMessage) noexcept
+        {
+            m_fCallback(nResult, sErrorMessage, m_nLoadGeneration, m_pCallbackUserdata);
+        }
+
+        // the load generation this load belongs to. set when the load starts.
+        uint32_t m_nLoadGeneration = 0;
 
         std::map<uint32_t, std::string> m_mAchievementDefinitions;
         std::map<uint32_t, std::string> m_mLeaderboardDefinitions;
+
+    private:
+        LoadGameCallbackFunction m_fCallback;
+        void* m_pCallbackUserdata;
     };
 
-    rc_client_async_handle_t* BeginLoadGame(const char* sHash, unsigned id, CallbackWrapper* pCallbackWrapper);
+    rc_client_async_handle_t* BeginLoadGame(const char* sHash, unsigned id, LoadGameCallbackWrapper* pCallbackWrapper);
     static void LoadGameCallback(int nResult, const char* sErrorMessage, rc_client_t* pClient, void* pUserdata);
+    static uint32_t IdentifyUnknownHash(uint32_t console_id, const char* hash, rc_client_t* pClient, void* pUserdata);
 
     rc_client_async_handle_t* BeginIdentifyAndLoadGame(uint32_t console_id, const char* file_path,
                                                        const uint8_t* data, size_t data_size,
-                                                       CallbackWrapper* pCallbackWrapper);
+                                                       LoadGameCallbackWrapper* pCallbackWrapper);
 
     rc_client_async_handle_t* BeginIdentifyAndChangeMedia(const char* file_path, const uint8_t* data, size_t data_size,
                                                           CallbackWrapper* pCallbackWrapper);
