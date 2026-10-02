@@ -718,6 +718,11 @@ void AchievementRuntime::ChangeMediaCallback(int nResult, const char* sErrorMess
 void AchievementRuntime::UnloadGame()
 {
     auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+
+    // a load that is still completing on another thread must not touch the game while or after it is freed
+    auto pLock = pGameContext.LockLoad();
+    pGameContext.InvalidatePendingLoads();
+
     pGameContext.Assets().DetachFromRuntime();
 
     auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
@@ -1707,8 +1712,18 @@ void AchievementRuntime::EventHandler(const rc_client_event_t* pEvent, rc_client
 
 void AchievementRuntime::ResetRuntime()
 {
+    auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+    auto pLock = pGameContext.LockLoad();
+
     auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
+    const auto* pGame = pClient->game;
     rc_client_reset(pClient);
+
+    // rc_client_reset unloads the game if the current media is not for it. only then is a load that is still
+    // completing superseded: a normal reset must not discard it, and neither must a load that finishes
+    // while the reset is running.
+    if (pGame != nullptr && pClient->game == nullptr)
+        pGameContext.InvalidatePendingLoads();
 }
 
 static void ProcessStateString(ra::util::Tokenizer& pTokenizer, unsigned int nId, rc_trigger_t* pTrigger,

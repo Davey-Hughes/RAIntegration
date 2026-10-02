@@ -109,6 +109,11 @@ bool GameContext::BeginLoadGame(unsigned int nGameId, Mode nMode, bool& bWasPaus
     auto& vmWindowManager = ra::services::ServiceLocator::GetMutable<ra::ui::viewmodels::WindowManager>();
     vmWindowManager.AssetEditor.LoadAsset(nullptr, true);
 
+    // a load that is still completing on another thread belongs to the game being torn down. wait for it to
+    // stop using the game, and tell it not to touch the game again.
+    auto pLock = LockLoad();
+    InvalidatePendingLoads();
+
     // reset the runtime
     auto& pRuntime = ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>();
     pRuntime.ResetRuntime();
@@ -138,6 +143,7 @@ bool GameContext::BeginLoadGame(unsigned int nGameId, Mode nMode, bool& bWasPaus
 
             ra::services::ServiceLocator::GetMutable<ra::services::AchievementRuntime>().UnloadGame();
 
+            pLock.unlock();
             OnActiveGameChanged();
         }
         return false;
@@ -242,7 +248,7 @@ void GameContext::EndLoadGame(int nResult, bool bWasPaused, bool bShowCasualWarn
         std::string sOldRichPresence;
         const auto nGameId = m_nGameId;
 
-        std::lock_guard<std::mutex> lock(m_mLoadMutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
 
         if (m_nGameId != nGameId)
             return;
@@ -401,7 +407,7 @@ void GameContext::InitializeFromAchievementRuntime(const std::map<uint32_t, std:
     auto& pImageRepository = ra::services::ServiceLocator::GetMutable<ra::ui::IImageRepository>();
 #endif
 
-    std::lock_guard<std::mutex> lock(m_mLoadMutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
 
     for (auto* pSubset = pClient->game->subsets; pSubset; pSubset = pSubset->next)
     {
@@ -682,7 +688,7 @@ void GameContext::EndLoad()
 
 void GameContext::DoFrame()
 {
-    std::lock_guard<std::mutex> lock(m_mLoadMutex);
+    std::lock_guard<std::recursive_mutex> lock(m_mLoadMutex);
 
     for (auto& pAsset : m_vAssets)
         pAsset.DoFrame();

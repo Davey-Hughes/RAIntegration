@@ -11,6 +11,7 @@
 
 #include <string>
 #include <atomic>
+#include <mutex>
 
 struct rc_api_fetch_game_sets_response_t;
 
@@ -54,6 +55,34 @@ public:
     /// Determines whether a game is being loaded.
     /// </summary>
     bool IsGameLoading() const noexcept { return m_nLoadCount != 0; }
+
+    /// <summary>
+    /// Locks out anything that unloads or replaces the game while a load completion reads or writes it.
+    /// </summary>
+    /// <remarks>
+    /// Anything that unloads the game, resets the runtime or starts a new load holds this lock while it frees or
+    /// clears game state, and calls <see cref="InvalidatePendingLoads" /> first. A load completion holds it while
+    /// it reads or writes game state, and checks <see cref="IsLoadCurrent" /> first. The lock is recursive, so a
+    /// load completion must never call anything that can unload the game while holding it: it would not wait.
+    /// </remarks>
+    std::unique_lock<std::recursive_mutex> LockLoad() { return std::unique_lock<std::recursive_mutex>(m_mLoadMutex); }
+
+    /// <summary>
+    /// Marks every load that is still completing as superseded. Call while holding <see cref="LockLoad" />.
+    /// </summary>
+    void InvalidatePendingLoads() noexcept { ++m_nLoadGeneration; }
+
+    /// <summary>
+    /// Gets the generation that a load started now belongs to. Call while holding <see cref="LockLoad" />.
+    /// </summary>
+    uint32_t GetLoadGeneration() const noexcept { return m_nLoadGeneration; }
+
+    /// <summary>
+    /// Determines whether nothing has unloaded or replaced the game since the load that belongs to
+    /// <paramref name="nLoadGeneration" /> began. Call while holding <see cref="LockLoad" />, or the answer can
+    /// change before it is acted on.
+    /// </summary>
+    bool IsLoadCurrent(uint32_t nLoadGeneration) const noexcept { return nLoadGeneration == m_nLoadGeneration; }
 
     /// <summary>
     /// Sets the game title.
@@ -163,7 +192,8 @@ private:
     std::atomic<int> m_nLoadCount = 0;
     int m_nMasteryPopupId = 0;
 
-    std::mutex m_mLoadMutex;
+    std::recursive_mutex m_mLoadMutex;
+    std::atomic<uint32_t> m_nLoadGeneration = 0;
 
     // use the mock helper to register as both GameContext and IGameContext
     ra::services::ServiceLocator::ServiceOverride<ra::context::IGameContext> m_IGameContextOverride;

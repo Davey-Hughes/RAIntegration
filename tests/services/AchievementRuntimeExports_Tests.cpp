@@ -693,6 +693,39 @@ public:
 
         Assert::AreEqual(std::string("ABCDEF0123456789"), mockGameContext.GameHash());
     }
+
+    TEST_METHOD(TestLoadUnknownGameSupersedesPendingLoads)
+    {
+        AchievementRuntimeExportsHarness runtime;
+        ra::data::context::mocks::MockGameContext mockGameContext;
+        ra::context::mocks::MockConsoleContext mockConsoleContext;
+
+        rc_client_external_t pClient;
+        memset(&pClient, 0, sizeof(pClient));
+        _Rcheevos_GetExternalClient(&pClient, 2);
+
+        const auto nLoadGeneration = mockGameContext.GetLoadGeneration();
+
+        pClient.load_unknown_game("ABCDEF0123456789");
+
+        Assert::IsFalse(mockGameContext.IsLoadCurrent(nLoadGeneration));
+    }
+
+    TEST_METHOD(TestLogoutSupersedesPendingLoads)
+    {
+        AchievementRuntimeExportsHarness runtime;
+        ra::data::context::mocks::MockGameContext mockGameContext;
+
+        rc_client_external_t pClient;
+        memset(&pClient, 0, sizeof(pClient));
+        _Rcheevos_GetExternalClient(&pClient, 1);
+
+        const auto nLoadGeneration = mockGameContext.GetLoadGeneration();
+
+        pClient.logout();
+
+        Assert::IsFalse(mockGameContext.IsLoadCurrent(nLoadGeneration));
+    }
 };
 
 } // namespace tests

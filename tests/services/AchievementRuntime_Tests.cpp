@@ -3741,6 +3741,49 @@ public:
 
         Assert::IsTrue(bCallbackCalled);
     }
+
+    TEST_METHOD(TestUnloadGameSupersedesPendingLoads)
+    {
+        AchievementRuntimeHarness runtime;
+        const auto nLoadGeneration = runtime.mockGameContext.GetLoadGeneration();
+
+        runtime.UnloadGame();
+
+        Assert::IsNull(rc_client_get_game_info(runtime.GetClient()));
+        Assert::IsFalse(runtime.mockGameContext.IsLoadCurrent(nLoadGeneration));
+    }
+
+    TEST_METHOD(TestResetRuntimeKeepsPendingLoadsCurrent)
+    {
+        AchievementRuntimeHarness runtime;
+        const auto nLoadGeneration = runtime.mockGameContext.GetLoadGeneration();
+
+        // the media now loaded belongs to the loaded game, so rc_client_reset keeps it
+        auto* pClient = runtime.GetClient();
+        pClient->game->public_.hash = "0123456789abcdeffedcba987654321";
+        rc_client_add_game_hash(pClient, "0123456789abcdeffedcba987654321", pClient->game->public_.id);
+
+        runtime.ResetRuntime();
+
+        Assert::IsNotNull(rc_client_get_game_info(pClient));
+        Assert::IsTrue(runtime.mockGameContext.IsLoadCurrent(nLoadGeneration));
+    }
+
+    TEST_METHOD(TestResetRuntimeWithOtherMediaSupersedesPendingLoads)
+    {
+        AchievementRuntimeHarness runtime;
+        const auto nLoadGeneration = runtime.mockGameContext.GetLoadGeneration();
+
+        // the media now loaded belongs to another game, so rc_client_reset unloads the game
+        auto* pClient = runtime.GetClient();
+        pClient->game->public_.hash = "0123456789abcdeffedcba987654321";
+        rc_client_add_game_hash(pClient, "0123456789abcdeffedcba987654321", 99);
+
+        runtime.ResetRuntime();
+
+        Assert::IsNull(rc_client_get_game_info(pClient));
+        Assert::IsFalse(runtime.mockGameContext.IsLoadCurrent(nLoadGeneration));
+    }
 };
 
 } // namespace tests

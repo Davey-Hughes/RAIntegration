@@ -1155,6 +1155,74 @@ public:
         Assert::IsFalse(game.Assets().IsUpdating());
     }
 
+    TEST_METHOD(TestLoadGameZeroSupersedesPendingLoads)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        const auto nLoadGeneration = game.GetLoadGeneration();
+        Assert::IsTrue(game.IsLoadCurrent(nLoadGeneration));
+
+        game.LoadGame(0U, "");
+
+        Assert::IsFalse(game.IsLoadCurrent(nLoadGeneration));
+    }
+
+    TEST_METHOD(TestLoadGameSupersedesPendingLoads)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+
+        const auto nLoadGeneration = game.GetLoadGeneration();
+
+        game.MockLoadGameAPIs(2U, "fedcba9876543210123456789abcdef");
+        game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+
+        Assert::IsFalse(game.IsLoadCurrent(nLoadGeneration));
+    }
+
+    TEST_METHOD(TestLoadGameSupersedesPendingLoadsBeforeTearingDown)
+    {
+        GameContextHarness game;
+        game.MockLoadGameAPIs(1U, "0123456789abcdeffedcba987654321");
+        game.mockRcClient.MockResponse("r=codenotes2&g=1", "{\"Success\":true,\"CodeNotes\":[]}");
+        game.LoadGame(1U, "0123456789abcdeffedcba987654321");
+        Assert::IsFalse(game.IsGameLoading());
+
+        // OnBeginGameLoad is raised after the old game's assets are cleared, and before the old game is unloaded
+        class SupersededObserver : public GameContext::NotifyTarget
+        {
+        public:
+            SupersededObserver(const GameContext& pGameContext, uint32_t nLoadGeneration) noexcept
+                : m_pGameContext(pGameContext), m_nLoadGeneration(nLoadGeneration)
+            {
+            }
+
+            bool bCalled = false;
+            bool bWasCurrent = false;
+
+        protected:
+            void OnBeginGameLoad() noexcept override
+            {
+                bCalled = true;
+                bWasCurrent = m_pGameContext.IsLoadCurrent(m_nLoadGeneration);
+            }
+
+        private:
+            const GameContext& m_pGameContext;
+            uint32_t m_nLoadGeneration;
+        } observer(game, game.GetLoadGeneration());
+        game.AddNotifyTarget(observer);
+
+        game.MockLoadGameAPIs(2U, "fedcba9876543210123456789abcdef");
+        game.LoadGame(2U, "fedcba9876543210123456789abcdef");
+
+        Assert::IsTrue(observer.bCalled);
+        Assert::IsFalse(observer.bWasCurrent);
+    }
+
     TEST_METHOD(TestLoadGameUserUnlocks)
     {
         GameContextHarness game;

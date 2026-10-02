@@ -265,6 +265,11 @@ public:
 
     static void logout()
     {
+        // rc_client_logout unloads the game
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        auto pLock = pGameContext.LockLoad();
+        pGameContext.InvalidatePendingLoads();
+
         auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
         return rc_client_logout(pClient);
     }
@@ -343,10 +348,14 @@ public:
 
     static void load_unknown_game(const char* hash)
     {
+        // rc_client_load_unknown_game unloads the current game
+        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
+        auto pLock = pGameContext.LockLoad();
+        pGameContext.InvalidatePendingLoads();
+
         auto* pClient = ra::services::ServiceLocator::Get<ra::context::IRcClient>().GetClient();
         rc_client_load_unknown_game(pClient, hash);
 
-        auto& pGameContext = ra::services::ServiceLocator::GetMutable<ra::data::context::GameContext>();
         pGameContext.SetGameHash(hash);
 
         const auto& pConsoleContext = ra::services::ServiceLocator::Get<ra::context::IConsoleContext>();
