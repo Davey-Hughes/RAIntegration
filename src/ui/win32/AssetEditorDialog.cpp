@@ -526,19 +526,43 @@ void AssetEditorDialog::BadgeNameBinding::UpdateTextFromSource(const std::wstrin
         const int nResult = rc_api_init_fetch_badge_range_request_hosted(&api_request, &api_params, pRcClient.GetHost());
         if (nResult == RC_OK)
         {
-            pRcClient.DispatchRequest(api_request, [this](const rc_api_server_response_t& server_response, void*)
+            pRcClient.DispatchRequest(api_request, [this, pAsyncHandle = CreateAsyncHandle()](const rc_api_server_response_t& server_response, void*)
             {
-                rc_api_fetch_badge_range_response_t api_response;
-                const auto nResult = rc_api_process_fetch_badge_range_server_response(&api_response, &server_response);
-                if (nResult == RC_OK)
-                {
-                    SetRange(ra::to_signed(api_response.first_badge_id),
-                        ra::to_signed(api_response.next_badge_id) - 1);
+                bool bSuccess = false;
+                HWND hWndSpinner = nullptr;
 
-                    InvokeOnUIThread([hWnd = m_hWndSpinner]() noexcept { ::EnableWindow(hWnd, true); });
+                {
+                    ra::data::AsyncKeepAlive pKeepAlive(*pAsyncHandle);
+                    if (pAsyncHandle->IsDestroyed())
+                        return;
+
+                    rc_api_fetch_badge_range_response_t api_response;
+                    const auto nResult = rc_api_process_fetch_badge_range_server_response(&api_response, &server_response);
+                    if (nResult == RC_OK)
+                    {
+                        SetRange(ra::to_signed(api_response.first_badge_id),
+                            ra::to_signed(api_response.next_badge_id) - 1);
+
+                        bSuccess = true;
+                        hWndSpinner = m_hWndSpinner;
+                    }
+
+                    rc_api_destroy_fetch_badge_range_response(&api_response);
                 }
 
-                rc_api_destroy_fetch_badge_range_response(&api_response);
+                // enabling the spinner can wait on the UI thread. if that thread is destroying the
+                // binding, it is waiting for the keep alive, so the spinner cannot be enabled while
+                // holding the keep alive.
+                if (bSuccess)
+                {
+                    ra::ui::win32::bindings::WindowBinding::InvokeOnUIThread([hWndSpinner, pAsyncHandle]() noexcept
+                    {
+                        // no keep alive: when queued, this runs on the UI thread, which is the thread
+                        // that destroys the binding.
+                        if (!pAsyncHandle->IsDestroyed())
+                            ::EnableWindow(hWndSpinner, true);
+                    });
+                }
             }, nullptr);
 
             rc_api_destroy_request(&api_request);

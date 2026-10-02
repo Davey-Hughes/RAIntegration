@@ -53,6 +53,15 @@ private:
     public:
         BadgeNameBinding(ViewModelBase& vmViewModel) noexcept
             : ra::ui::win32::bindings::NumericUpDownBinding(vmViewModel) {}
+        ~BadgeNameBinding()
+        {
+            // wait for a badge range response that is using the binding before any of it is destroyed
+            BeginDestruction();
+        }
+        BadgeNameBinding(const BadgeNameBinding&) noexcept = delete;
+        BadgeNameBinding& operator=(const BadgeNameBinding&) noexcept = delete;
+        BadgeNameBinding(BadgeNameBinding&&) noexcept = delete;
+        BadgeNameBinding& operator=(BadgeNameBinding&&) noexcept = delete;
 
     protected:
         void UpdateSourceFromText(const std::wstring& sText) override;
